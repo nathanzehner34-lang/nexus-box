@@ -23,6 +23,16 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Add AI key
+        env:
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+        run: |
+          if [ -n "$GEMINI_KEY" ]; then
+            printf 'window.NEXUS_DEFAULT_KEY = %s;\n' "$(printf '%s' "$GEMINI_KEY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" > app/src/main/assets/key.js
+          else
+            echo '' > app/src/main/assets/key.js
+          fi
+
       - name: Build APK
         run: gradle assembleDebug --no-daemon --stacktrace
 

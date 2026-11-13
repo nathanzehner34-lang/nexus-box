@@ -218,7 +218,7 @@
     'Address Nathan by name only occasionally. If asked to do something you cannot do from the truck, say so briefly. Never encourage unsafe driving.';
   var MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
 
-  function aiKey() { return (pref('gemini_key') || '').trim(); }
+  function aiKey() { return (pref('gemini_key') || window.NEXUS_DEFAULT_KEY || '').trim(); }
 
   function askAI(contents, system, opts) {
     opts = opts || {};
