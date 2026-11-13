@@ -1,4 +1,4 @@
-/* NEXUS experiences: Wake Up, Hologram, Sky & Aurora, Song Aura.
+/* NEXUS experiences: Wake Up, Hologram, Synthwave, Cosmic Zoom, Song Aura.
    Loaded only the first time one is opened. Each one only draws while it is on screen. */
 (function () {
   'use strict';
@@ -32,8 +32,8 @@
       XP.active = true;
       running = name;
       text('xpTop'); text('xpMid'); text('xpBottom');
-      $('xpMid').style.color = '#fff';
-      ({ wake: wake, holo: holo, sky: sky, aura: aura })[name]();
+      $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
+      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -200,138 +200,168 @@
   }
 
   // ------------------------------------------------------------------
-  // 3. SKY & AURORA — the real sky over the truck + NOAA aurora forecast
+  // SYNTHWAVE — 80s neon sunset + racing grid, pulses with the music
   // ------------------------------------------------------------------
-  // name, RA (hours), Dec (degrees), magnitude
-  var STARS = [
-    ['Sirius', 6.752, -16.72, -1.46], ['Canopus', 6.399, -52.70, -.74], ['Arcturus', 14.261, 19.18, -.05], ['Vega', 18.616, 38.78, .03],
-    ['Capella', 5.278, 46.00, .08], ['Rigel', 5.242, -8.20, .13], ['Procyon', 7.655, 5.22, .34], ['Betelgeuse', 5.919, 7.41, .5],
-    ['Altair', 19.846, 8.87, .76], ['Aldebaran', 4.599, 16.51, .86], ['Antares', 16.490, -26.43, .96], ['Spica', 13.420, -11.16, .97],
-    ['Pollux', 7.755, 28.03, 1.14], ['Fomalhaut', 22.961, -29.62, 1.16], ['Deneb', 20.690, 45.28, 1.25], ['Regulus', 10.140, 11.97, 1.35],
-    ['Castor', 7.577, 31.89, 1.58], ['Bellatrix', 5.419, 6.35, 1.64], ['Elnath', 5.438, 28.61, 1.65], ['Alnilam', 5.604, -1.20, 1.69],
-    ['Alnitak', 5.679, -1.94, 1.77], ['Alioth', 12.900, 55.96, 1.77], ['Dubhe', 11.062, 61.75, 1.79], ['Mirfak', 3.405, 49.86, 1.79],
-    ['Alkaid', 13.792, 49.31, 1.86], ['Menkalinan', 5.992, 44.95, 1.9], ['Alhena', 6.629, 16.40, 1.92], ['Polaris', 2.530, 89.26, 1.98],
-    ['Alpheratz', 0.140, 29.09, 2.06], ['Hamal', 2.120, 23.46, 2.0], ['Mizar', 13.399, 54.93, 2.04], ['Saiph', 5.796, -9.67, 2.06],
-    ['Kochab', 14.845, 74.16, 2.08], ['Rasalhague', 17.582, 12.56, 2.08], ['Algol', 3.136, 40.96, 2.1], ['Denebola', 11.818, 14.57, 2.13],
-    ['Schedar', 0.675, 56.54, 2.24], ['Eltanin', 17.943, 51.49, 2.24], ['Sadr', 20.370, 40.26, 2.23], ['Mintaka', 5.533, -.30, 2.25],
-    ['Caph', 0.153, 59.15, 2.28], ['Merak', 11.031, 56.38, 2.37], ['Markab', 23.079, 15.21, 2.48], ['Scheat', 23.063, 28.08, 2.42],
-    ['Phecda', 11.897, 53.69, 2.44], ['Gamma Cas', 0.945, 60.72, 2.47], ['Ruchbah', 1.430, 60.24, 2.68], ['Algenib', 0.220, 15.18, 2.83],
-    ['Albireo', 19.512, 27.96, 3.08], ['Megrez', 12.257, 57.03, 3.31], ['Segin', 1.906, 63.67, 3.37], ['Alcyone', 3.791, 24.11, 2.87],
-    ['Alphecca', 15.578, 26.71, 2.22]
-  ];
-  var LINES = [
-    ['Big Dipper', ['Dubhe', 'Merak', 'Phecda', 'Megrez', 'Alioth', 'Mizar', 'Alkaid'], ['Megrez', 'Dubhe']],
-    ['Orion', ['Betelgeuse', 'Bellatrix', 'Mintaka', 'Alnilam', 'Alnitak', 'Saiph', 'Rigel', 'Mintaka'], ['Betelgeuse', 'Alnitak']],
-    ['Cassiopeia', ['Caph', 'Schedar', 'Gamma Cas', 'Ruchbah', 'Segin']],
-    ['Summer Triangle', ['Vega', 'Deneb', 'Altair', 'Vega']],
-    ['Cygnus', ['Deneb', 'Sadr', 'Albireo']],
-    ['Pegasus', ['Markab', 'Scheat', 'Alpheratz', 'Algenib', 'Markab']]
-  ];
-  var RAD = Math.PI / 180;
-  function altAz(raH, decD, lat, lon, date) {
-    var d = (date.getTime() / 86400000) + 2440587.5 - 2451545.0;
-    var gmst = (18.697374558 + 24.06570982441908 * d) % 24;
-    var lst = (gmst + lon / 15 + 48) % 24;
-    var H = (lst - raH) * 15 * RAD, dec = decD * RAD, la = lat * RAD;
-    var alt = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(H));
-    var az = Math.atan2(-Math.sin(H) * Math.cos(dec), Math.cos(la) * Math.sin(dec) - Math.sin(la) * Math.cos(dec) * Math.cos(H));
-    return { alt: alt / RAD, az: (az / RAD + 360) % 360 };
-  }
-  function sunRaDec(date) {
-    var n = (date.getTime() / 86400000) + 2440587.5 - 2451545.0;
-    var L = (280.46 + .9856474 * n) % 360, g = ((357.528 + .9856003 * n) % 360) * RAD;
-    var lam = (L + 1.915 * Math.sin(g) + .02 * Math.sin(2 * g)) * RAD, eps = (23.439 - .0000004 * n) * RAD;
-    var ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam)) / RAD;
-    return { ra: ((ra + 360) % 360) / 15, dec: Math.asin(Math.sin(eps) * Math.sin(lam)) / RAD };
-  }
-  function compass(az) { return ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(az / 45) % 8]; }
-
-  function sky() {
-    text('xpTop', 'LOCATING YOUR POSITION…');
-    var state = { lat: null, lon: null, kp: null, aurora: 0, day: false };
-    N.getCoords().then(function (g) {
-      if (!g) { text('xpMid', 'NO LOCATION'); text('xpBottom', 'Turn on location, or set a backup city in Settings.'); N.say('I need your location to map the sky. Set a backup city in Settings.'); return; }
-      state.lat = +g.lat; state.lon = +g.lon;
-      text('xpTop', 'SKY ABOVE ' + N.esc((g.name || '').toUpperCase()) + ' · ' + state.lat.toFixed(2) + '°, ' + state.lon.toFixed(2) + '°');
-      var now = new Date(), sun = sunRaDec(now), sp = altAz(sun.ra, sun.dec, state.lat, state.lon, now);
-      state.day = sp.alt > -6;
-      // brightest visible stars for the voice
-      var vis = STARS.map(function (s) { var p = altAz(s[1], s[2], state.lat, state.lon, now); return { n: s[0], m: s[3], alt: p.alt, az: p.az }; })
-        .filter(function (s) { return s.alt > 10; }).sort(function (a, b) { return a.m - b.m; });
-      return N.http('GET', 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json').then(function (r) {
-        var kp = null;
-        try {
-          var rows = JSON.parse(r.text), nowT = Date.now(), best = 0;
-          rows.forEach(function (row) {
-            var t = Date.parse((row.time_tag || row[0] || '').replace(' ', 'T') + 'Z'), v = parseFloat(row.kp !== undefined ? row.kp : row[1]);
-            if (!isNaN(t) && !isNaN(v) && t > nowT - 3 * 3600000 && t < nowT + 24 * 3600000) best = Math.max(best, v);
-          });
-          kp = best || null;
-        } catch (e) {}
-        state.kp = kp;
-        var alat = Math.abs(state.lat), need = alat >= 65 ? 1 : alat >= 60 ? 2 : alat >= 55 ? 4 : alat >= 50 ? 5 : 7;
-        var chance = kp === null ? 'unknown' : kp >= need + 2 ? 'HIGH' : kp >= need ? 'GOOD' : kp >= need - 1 ? 'LOW' : 'VERY LOW';
-        state.aurora = chance === 'HIGH' ? 1 : chance === 'GOOD' ? .7 : chance === 'LOW' ? .3 : 0;
-        var w = N.weather(), cloudy = w && /overcast|rain|snow|fog|drizzle|showers|thunder/i.test(w.desc);
-        text('xpBottom', 'AURORA CHANCE (NEXT 24H): <b style="color:#3dff9a">' + chance + '</b>' + (kp !== null ? ' · KP ' + kp.toFixed(1) : '') +
-          (cloudy ? ' · CLOUDS MAY BLOCK THE VIEW' : '') + (state.day ? ' · DAYTIME: STARS SHOWN ARE HIDDEN BY SUNLIGHT' : ''));
-        var lines = ['Here is the sky above you right now.'];
-        if (vis[0]) lines.push('The brightest star up there is ' + vis[0].n + ', in the ' + compass(vis[0].az) + '.');
-        if (vis[1]) lines.push('You can also find ' + vis[1].n + ' to the ' + compass(vis[1].az) + '.');
-        lines.push(chance === 'unknown' ? 'I couldn\'t reach the aurora forecast.' :
-          'Aurora chance tonight is ' + chance.toLowerCase() + '.' + (chance === 'HIGH' || chance === 'GOOD' ? (state.day ? ' Watch the sky after dark.' : ' Look up.') : ''));
-        if (cloudy) lines.push('Clouds may get in the way though.');
-        N.say(lines.join(' '));
-      });
-    });
-
-    var tw = STARS.map(function () { return Math.random() * 6; });
+  function synth() {
+    var pulse = 0, stars = [];
+    for (var i = 0; i < 70; i++) stars.push([Math.random(), Math.random() * .5, Math.random() * 1.5 + .3, Math.random() * 6]);
+    XP.onMeter = function (rms) { pulse = Math.max(pulse, Math.min(1, rms * 6)); };
+    try { if (A) A.meter(true); } catch (e) {}
+    text('xpTop', 'NEXUS · NIGHT DRIVE FM');
+    text('xpBottom', '');
+    $('xpMid').style.color = '#ff6ad5';
+    text('xpMid', '');
+    var hz = .55;
     loop(function (now) {
-      cx.fillStyle = state.day ? '#06142c' : '#01020a'; cx.fillRect(0, 0, W, H);
-      if (state.lat === null) return;
-      var cxp = W / 2, cyp = H / 2, R = Math.min(W, H) * .47, date = new Date();
-      // aurora curtains toward the pole
-      if (state.aurora > 0) {
-        for (var b = 0; b < 3; b++) {
-          cx.beginPath();
-          for (var k = 0; k <= 40; k++) {
-            var u = k / 40, ang = (-60 + u * 120) * RAD, rr = R * (.55 + .12 * Math.sin(u * 7 + now * .0007 + b));
-            var x = cxp + Math.sin(ang) * rr, y = cyp - Math.cos(ang) * rr * (state.lat >= 0 ? 1 : -1);
-            if (k) cx.lineTo(x, y); else cx.moveTo(x, y);
-          }
-          cx.strokeStyle = 'rgba(' + (b === 2 ? '170,80,255' : '60,255,160') + ',' + (state.aurora * (.18 + .1 * Math.sin(now * .001 + b))) + ')';
-          cx.lineWidth = R * (.08 + b * .03); cx.stroke();
+      pulse *= .9;
+      var H0 = H * hz;
+      // sky
+      var g = cx.createLinearGradient(0, 0, 0, H0);
+      g.addColorStop(0, '#0b0221'); g.addColorStop(.6, '#2b0b4f'); g.addColorStop(1, '#ff2a6d');
+      cx.fillStyle = g; cx.fillRect(0, 0, W, H0);
+      for (var i = 0; i < stars.length; i++) {
+        var st = stars[i];
+        cx.fillStyle = 'rgba(255,255,255,' + (.3 + .5 * Math.abs(Math.sin(now * .002 + st[3]))) + ')';
+        cx.fillRect(st[0] * W, st[1] * H0, st[2] * S * 2, st[2] * S * 2);
+      }
+      // sun with stripes
+      var sr = H * (.24 + pulse * .02), sx = W / 2, sy = H0 - H * .02;
+      var sg = cx.createLinearGradient(0, sy - sr, 0, sy + sr * .2);
+      sg.addColorStop(0, '#ffe66d'); sg.addColorStop(.5, '#ff9f43'); sg.addColorStop(1, '#ff2a6d');
+      cx.save(); cx.beginPath(); cx.arc(sx, sy, sr, Math.PI, 0); cx.closePath(); cx.clip();
+      cx.fillStyle = sg; cx.fillRect(sx - sr, sy - sr, sr * 2, sr);
+      cx.fillStyle = '#2b0b4f';
+      for (var k = 0; k < 6; k++) { var yy = sy - sr * .45 + k * sr * .1, hh = 1 + k * sr * .018; cx.fillRect(sx - sr, yy, sr * 2, hh); }
+      cx.restore();
+      // mountains
+      cx.fillStyle = '#12002b';
+      cx.beginPath(); cx.moveTo(0, H0);
+      for (var m = 0; m <= 12; m++) { var mx = m / 12 * W, my = H0 - (Math.abs(Math.sin(m * 1.7)) * .12 + .03) * H * (m % 2 ? 1 : .6); cx.lineTo(mx, my); }
+      cx.lineTo(W, H0); cx.closePath(); cx.fill();
+      // ground
+      cx.fillStyle = '#05000f'; cx.fillRect(0, H0, W, H - H0);
+      // grid
+      var glow = .55 + pulse * .45;
+      cx.strokeStyle = 'rgba(255,42,212,' + glow + ')'; cx.lineWidth = Math.max(1, 1.5 * S * 2);
+      var speed = .0006 + pulse * .0012, off = (now * speed) % 1;
+      for (var r = 0; r < 14; r++) {
+        var z = (r + 1 - off) / 14, y = H0 + (H - H0) * Math.pow(z, 2.2);
+        cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke();
+      }
+      for (var c = -12; c <= 12; c++) {
+        cx.beginPath(); cx.moveTo(W / 2 + c * W * .015, H0); cx.lineTo(W / 2 + c * W * .16, H); cx.stroke();
+      }
+      // horizon glow line
+      cx.fillStyle = 'rgba(255,106,213,' + (.6 + pulse * .4) + ')'; cx.fillRect(0, H0 - 1, W, 2);
+      $('xpMid').style.transform = 'scale(' + (1 + pulse * .08) + ')';
+    }, 30);
+    N.say('Night drive mode. Turn up the music.');
+  }
+
+  // ------------------------------------------------------------------
+  // COSMIC ZOOM — from deep space down to the truck's GPS position
+  // ------------------------------------------------------------------
+  function zoom() {
+    var t0 = performance.now(), loc = null, stage = 0, stars = [];
+    for (var i = 0; i < 260; i++) stars.push([Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random()]);
+    N.getCoords().then(function (g) { loc = g; });
+    var LINES = [
+      [0, 'DEEP SPACE · 13.8 BILLION YEARS OF HISTORY', 'Initiating cosmic zoom.'],
+      [5000, 'THE MILKY WAY · 100 BILLION STARS', 'The Milky Way. One hundred billion stars.'],
+      [10500, 'THE SOLAR SYSTEM', 'Entering the solar system.'],
+      [15500, 'PLANET EARTH', 'Earth.'],
+      [20000, 'LOCKING ON…', null],
+      [23500, 'TARGET ACQUIRED', null]
+    ];
+    LINES.forEach(function (l) {
+      later(function () {
+        stage = LINES.indexOf(l);
+        text('xpTop', l[1]);
+        if (l[2]) N.say(l[2]);
+        if (stage === 5) {
+          var nm = loc && loc.name ? loc.name : 'your location';
+          text('xpMid', 'YOU ARE HERE');
+          text('xpBottom', N.esc(nm.toUpperCase()) + (loc ? ' · ' + (+loc.lat).toFixed(3) + '°, ' + (+loc.lon).toFixed(3) + '°' : ''));
+          N.say('Target acquired. You are here' + (loc && loc.name ? ', in ' + loc.name : '') + '.');
+          later(function () { if (running === 'zoom') XP.close(true); }, 7000);
+        }
+      }, l[0]);
+    });
+    $('xpMid').style.color = '#3dff9a'; $('xpMid').style.top = '8%';
+    loop(function (now) {
+      var t = now - t0;
+      cx.fillStyle = '#000'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H / 2, R = Math.min(W, H);
+      // warp stars, faster over time
+      var warp = t < 15000 ? .0004 + t / 15000 * .002 : .0003;
+      for (var i = 0; i < stars.length; i++) {
+        var s2 = stars[i]; s2[2] -= warp * 16; if (s2[2] <= .02) { s2[0] = Math.random() * 2 - 1; s2[1] = Math.random() * 2 - 1; s2[2] = 1; }
+        var k = 1 / s2[2], x = cxp + s2[0] * k * R * .25, y = cyp + s2[1] * k * R * .25;
+        if (x < 0 || x > W || y < 0 || y > H) continue;
+        var len = Math.min(25, warp * 4000 * k);
+        cx.strokeStyle = 'rgba(200,220,255,' + Math.min(1, (1 - s2[2]) * 1.2) + ')';
+        cx.lineWidth = Math.max(1, k * .4 * S * 2);
+        cx.beginPath(); cx.moveTo(x, y); cx.lineTo(x + s2[0] * len, y + s2[1] * len); cx.stroke();
+      }
+      // galaxy
+      if (t > 4000 && t < 11500) {
+        var gp = (t - 4000) / 7500, gs = R * (.2 + gp * 1.6), ga = Math.min(1, gp * 3) * (gp > .8 ? (1 - gp) * 5 : 1);
+        cx.save(); cx.translate(cxp, cyp); cx.rotate(t * .0002); cx.globalAlpha = ga;
+        for (var arm = 0; arm < 2; arm++) for (var j = 0; j < 140; j++) {
+          var f = j / 140, ang = arm * Math.PI + f * 9, rr = f * gs * .5;
+          cx.fillStyle = 'hsla(' + (220 + f * 80) + ',80%,' + (80 - f * 30) + '%,.8)';
+          cx.fillRect(Math.cos(ang) * rr, Math.sin(ang) * rr * .55, 2 * S * 2, 2 * S * 2);
+        }
+        var core = cx.createRadialGradient(0, 0, 0, 0, 0, gs * .12); core.addColorStop(0, 'rgba(255,240,200,1)'); core.addColorStop(1, 'rgba(255,200,120,0)');
+        cx.fillStyle = core; cx.fillRect(-gs * .12, -gs * .12, gs * .24, gs * .24);
+        cx.restore(); cx.globalAlpha = 1;
+      }
+      // solar system
+      if (t > 10500 && t < 16500) {
+        var sp = (t - 10500) / 6000, sa = Math.min(1, sp * 3) * (sp > .85 ? (1 - sp) * 6.6 : 1);
+        cx.globalAlpha = sa;
+        var sun = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * .08); sun.addColorStop(0, '#fff6c0'); sun.addColorStop(1, 'rgba(255,170,0,0)');
+        cx.fillStyle = sun; cx.fillRect(cxp - R * .08, cyp - R * .08, R * .16, R * .16);
+        var orbits = [.08, .12, .17, .23, .33, .41], cols = ['#b0b0b0', '#e8c27a', '#4fa3ff', '#d9643a', '#d8b48a', '#e6d39b'];
+        for (var o = 0; o < orbits.length; o++) {
+          var orr = orbits[o] * R * (1 + sp * 1.2);
+          cx.strokeStyle = 'rgba(120,150,255,.25)'; cx.beginPath(); cx.ellipse(cxp, cyp, orr, orr * .45, 0, 0, 6.283); cx.stroke();
+          var pa = t * .0004 / (o + 1) + o;
+          cx.fillStyle = cols[o]; cx.beginPath(); cx.arc(cxp + Math.cos(pa) * orr, cyp + Math.sin(pa) * orr * .45, Math.max(1.5, R * (o === 2 ? .012 : .009)), 0, 6.283); cx.fill();
+        }
+        cx.globalAlpha = 1;
+      }
+      // earth
+      if (t > 15500) {
+        var ep = Math.min(1, (t - 15500) / 6000), er = R * (.05 + ep * .42);
+        var eg = cx.createRadialGradient(cxp - er * .3, cyp - er * .3, er * .1, cxp, cyp, er);
+        eg.addColorStop(0, '#6fb8ff'); eg.addColorStop(.7, '#1a4f9c'); eg.addColorStop(1, '#06204a');
+        cx.fillStyle = eg; cx.beginPath(); cx.arc(cxp, cyp, er, 0, 6.283); cx.fill();
+        // continents-ish blobs + grid
+        cx.save(); cx.beginPath(); cx.arc(cxp, cyp, er, 0, 6.283); cx.clip();
+        cx.fillStyle = 'rgba(70,160,90,.75)';
+        for (var b = 0; b < 7; b++) { var bx = cxp + Math.cos(b * 2.1 + t * .0001) * er * .55, by = cyp + Math.sin(b * 1.7) * er * .5; cx.beginPath(); cx.ellipse(bx, by, er * (.18 + (b % 3) * .06), er * (.12 + (b % 2) * .08), b, 0, 6.283); cx.fill(); }
+        cx.strokeStyle = 'rgba(160,220,255,.25)'; cx.lineWidth = 1;
+        for (var la = -60; la <= 60; la += 30) { var yy = cyp + Math.sin(la * Math.PI / 180) * er; cx.beginPath(); cx.moveTo(cxp - er, yy); cx.lineTo(cxp + er, yy); cx.stroke(); }
+        for (var lo = -2; lo <= 2; lo++) { cx.beginPath(); cx.ellipse(cxp, cyp, Math.abs(lo) * er * .35 + 1, er, 0, 0, 6.283); cx.stroke(); }
+        cx.restore();
+        var atm = cx.createRadialGradient(cxp, cyp, er * .95, cxp, cyp, er * 1.15); atm.addColorStop(0, 'rgba(120,190,255,.5)'); atm.addColorStop(1, 'rgba(120,190,255,0)');
+        cx.fillStyle = atm; cx.beginPath(); cx.arc(cxp, cyp, er * 1.15, 0, 6.283); cx.fill();
+      }
+      // targeting reticle
+      if (t > 20000) {
+        var rp = Math.min(1, (t - 20000) / 3500), rs = R * (.45 - rp * .33), spin = t * .003;
+        cx.strokeStyle = 'rgba(61,255,154,.9)'; cx.lineWidth = Math.max(1, 2 * S * 2);
+        cx.beginPath(); cx.arc(cxp, cyp, rs, spin, spin + 1.2); cx.stroke();
+        cx.beginPath(); cx.arc(cxp, cyp, rs, spin + 3.14, spin + 4.34); cx.stroke();
+        cx.beginPath(); cx.moveTo(cxp - rs * 1.3, cyp); cx.lineTo(cxp - rs * .6, cyp); cx.moveTo(cxp + rs * .6, cyp); cx.lineTo(cxp + rs * 1.3, cyp);
+        cx.moveTo(cxp, cyp - rs * 1.3); cx.lineTo(cxp, cyp - rs * .6); cx.moveTo(cxp, cyp + rs * .6); cx.lineTo(cxp, cyp + rs * 1.3); cx.stroke();
+        if (t > 23500) {
+          var p2 = .5 + .5 * Math.sin(t * .01);
+          cx.fillStyle = 'rgba(61,255,154,' + p2 + ')'; cx.beginPath(); cx.arc(cxp, cyp, R * .012 + p2 * R * .006, 0, 6.283); cx.fill();
         }
       }
-      // horizon ring and compass
-      cx.strokeStyle = 'rgba(120,170,255,.35)'; cx.lineWidth = 1;
-      cx.beginPath(); cx.arc(cxp, cyp, R, 0, 6.283); cx.stroke();
-      cx.beginPath(); cx.arc(cxp, cyp, R * 2 / 3, 0, 6.283); cx.stroke();
-      cx.fillStyle = 'rgba(160,200,255,.8)'; cx.font = Math.max(8, R * .07) + 'px sans-serif'; cx.textAlign = 'center';
-      cx.fillText('N', cxp, cyp - R - 3); cx.fillText('S', cxp, cyp + R + R * .08); cx.fillText('E', cxp - R - R * .06, cyp + 3); cx.fillText('W', cxp + R + R * .06, cyp + 3);
-      function proj(alt, az) { var r = (90 - alt) / 90 * R; return [cxp - r * Math.sin(az * RAD), cyp - r * Math.cos(az * RAD)]; }
-      var pos = {};
-      STARS.forEach(function (s, i) {
-        var p = altAz(s[1], s[2], state.lat, state.lon, date);
-        if (p.alt < 0) return;
-        var xy = proj(p.alt, p.az); pos[s[0]] = xy;
-        var size = Math.max(1, (3.2 - s[3]) * R * .012), a = .6 + .4 * Math.sin(now * .003 + tw[i]);
-        cx.fillStyle = 'rgba(255,255,255,' + a + ')';
-        cx.beginPath(); cx.arc(xy[0], xy[1], size, 0, 6.283); cx.fill();
-        if (s[3] < 1.3) { cx.fillStyle = 'rgba(160,210,255,.75)'; cx.font = Math.max(7, R * .05) + 'px sans-serif'; cx.fillText(s[0], xy[0], xy[1] - size - 3); }
-      });
-      cx.strokeStyle = 'rgba(61,255,154,.35)'; cx.lineWidth = 1;
-      LINES.forEach(function (c) {
-        c.slice(1).forEach(function (chain) {
-          cx.beginPath(); var started = false;
-          chain.forEach(function (nm) { var p = pos[nm]; if (!p) { started = false; return; } if (started) cx.lineTo(p[0], p[1]); else { cx.moveTo(p[0], p[1]); started = true; } });
-          cx.stroke();
-        });
-      });
-      // sun
-      var sun = sunRaDec(date), sp = altAz(sun.ra, sun.dec, state.lat, state.lon, date);
-      if (sp.alt > 0) { var s2 = proj(sp.alt, sp.az); cx.fillStyle = '#ffd34d'; cx.beginPath(); cx.arc(s2[0], s2[1], R * .05, 0, 6.283); cx.fill(); }
-    }, 15);
+    }, 30);
   }
 
   // ------------------------------------------------------------------

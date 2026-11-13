@@ -14,16 +14,47 @@
   function pref(k) { try { return A ? A.getPref(k) : (localStorage.getItem('p_' + k) || ''); } catch (e) { return ''; } }
   function setPref(k, v) { try { if (A) A.setPref(k, v); else localStorage.setItem('p_' + k, v); } catch (e) {} }
 
+  // ---- Music pauses while Nexus talks or listens, and comes back after ----
+  var holds = 0, pausedByUs = false, resumeTimer = null;
+  function musicPlaying() {
+    if (!A) return false;
+    try {
+      var np = JSON.parse(A.nowPlaying() || '{}');
+      if (np.access) return !!np.playing;
+    } catch (e) {}
+    try { return !Nexus.speaking && A.isMusicActive(); } catch (e) { return false; }
+  }
+  function holdMusic() {
+    holds++;
+    clearTimeout(resumeTimer);
+    if (!pausedByUs && musicPlaying()) { try { A.media('pause'); pausedByUs = true; return true; } catch (e) {} }
+    return false;
+  }
+  function releaseMusic() {
+    holds = Math.max(0, holds - 1);
+    if (holds === 0 && pausedByUs) {
+      clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(function () {
+        if (holds === 0 && pausedByUs) { pausedByUs = false; try { A.media('play'); } catch (e) {} }
+      }, 700);
+    }
+  }
+
   function say(text, opts) {
     opts = opts || {};
     return new Promise(function (resolve) {
       var id = 's' + (++seq);
+      var justPaused = holdMusic();
       var fallback = setTimeout(function () { done(); }, 2500 + text.length * 90);
-      function done() { clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; resolve(); }
+      var finished = false;
+      function done() { if (finished) return; finished = true; clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; releaseMusic(); resolve(); }
       speakWaiters[id] = done;
       setOrb('speaking', true);
       Nexus.speaking = true;
-      if (A) { if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id); }
+      if (A) {
+        var go = function () { if (finished) return; if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id); };
+        if (justPaused) setTimeout(go, 350); else go();
+      }
       else if (window.speechSynthesis) {
         var u = new SpeechSynthesisUtterance(text); u.rate = opts.rate || .95; u.pitch = opts.pitch || .9;
         u.onend = done; u.onerror = done; speechSynthesis.speak(u);
@@ -373,15 +404,8 @@
     if (heardResolve) { var r = heardResolve; heardResolve = null; r({ error: code }); }
   };
 
-  var pausedForTalk = false;
-  function pauseForTalk() {
-    try { if (A && A.isMusicActive()) { A.media('pause'); pausedForTalk = true; } } catch (e) {}
-  }
-  function resumeAfterTalk() {
-    if (!pausedForTalk) return;
-    pausedForTalk = false;
-    setTimeout(function () { try { if (A) A.media('play'); } catch (e) {} }, 400);
-  }
+  function pauseForTalk() { holdMusic(); }
+  function resumeAfterTalk() { releaseMusic(); }
   function listen() {
     pauseForTalk();
     return new Promise(function (resolve) {
@@ -461,7 +485,7 @@
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
     if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
-      if (MUSIC_CMDS[mi][0].test(t)) { if (MUSIC_CMDS[mi][1] === 'pause') pausedForTalk = false; else if (MUSIC_CMDS[mi][1] === 'next' || MUSIC_CMDS[mi][1] === 'prev') pausedForTalk = false; music(MUSIC_CMDS[mi][1]); caption(MUSIC_CMDS[mi][2].toUpperCase()); return say(MUSIC_CMDS[mi][2]); }
+      if (MUSIC_CMDS[mi][0].test(t)) { if (MUSIC_CMDS[mi][1] === 'pause') pausedByUs = false; else if (MUSIC_CMDS[mi][1] === 'play') pausedByUs = true; music(MUSIC_CMDS[mi][1]); caption(MUSIC_CMDS[mi][2].toUpperCase()); return say(MUSIC_CMDS[mi][2]); }
     }
     if (/what('s| is) (this|the) song|what song/.test(t) && A) {
       var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
@@ -522,7 +546,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
-      case 'wake': case 'sky': case 'holo': case 'aura': openExperience(name); break;
+      case 'wake': case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
       case 'story': openStory(); break;
