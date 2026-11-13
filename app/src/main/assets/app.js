@@ -163,9 +163,17 @@
     $('bootWelcome').classList.remove('on');
     var hr = new Date().getHours();
     var greet = hr >= 4 && hr < 12 ? 'Good morning' : hr >= 12 && hr < 17 ? 'Good afternoon' : 'Good evening';
+    var gkey = hr >= 4 && hr < 12 ? 'morning' : hr >= 12 && hr < 17 ? 'afternoon' : 'evening';
+    var gtext = greet + ', Nathan. I am Nexus, your personal assistant. How may I assist you?';
     $('bootHello').textContent = greet + ', Nathan';
-    return wait(500)
-      .then(function () { $('bootWelcome').classList.add('on'); return say(greet + ', Nathan. I am Nexus, your personal assistant. How may I assist you?'); })
+    $('bootWelcome').classList.add('on');
+    var spoken = A && A.greet ? new Promise(function (resolve) {
+      var id = 'g' + (++seq);
+      var fb = setTimeout(function () { delete speakWaiters[id]; resolve(); }, 15000);
+      speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
+      A.greet(gkey, gtext, id);
+    }) : say(gtext);
+    return spoken
       .then(function () { return wait(700); })
       .then(function () { boot.style.opacity = 0; return wait(800); })
       .then(function () { boot.classList.add('hidden'); showHome(); booting = false; });

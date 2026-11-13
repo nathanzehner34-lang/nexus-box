@@ -20,6 +20,8 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaMetadata;
+import android.media.MediaPlayer;
+import java.io.File;
 import android.media.audiofx.Visualizer;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
@@ -132,6 +134,7 @@ public class MainActivity extends Activity {
                     @Override public void onError(String id) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
                 });
                 ttsReady = true;
+                ui.postDelayed(MainActivity.this::cacheGreetings, 4000);
                 synchronized (pendingSpeech) {
                     for (String[] p : pendingSpeech) doSpeak(p[0], p[1]);
                     pendingSpeech.clear();
@@ -141,6 +144,54 @@ public class MainActivity extends Activity {
         boolean hasGoogle = false;
         try { getPackageManager().getPackageInfo("com.google.android.tts", 0); hasGoogle = true; } catch (Exception ignored) {}
         tts = hasGoogle ? new TextToSpeech(this, listener, "com.google.android.tts") : new TextToSpeech(this, listener);
+    }
+
+    // ---------- Instant greeting: record it once, then play the recording at startup ----------
+
+    private static final String[][] GREETINGS = {
+        {"morning", "Good morning, Nathan. I am Nexus, your personal assistant. How may I assist you?"},
+        {"afternoon", "Good afternoon, Nathan. I am Nexus, your personal assistant. How may I assist you?"},
+        {"evening", "Good evening, Nathan. I am Nexus, your personal assistant. How may I assist you?"}
+    };
+
+    private File greetFile(String key) { return new File(getFilesDir(), "greet_" + key + ".wav"); }
+
+    private void cacheGreetings() {
+        if (!ttsReady) return;
+        for (String[] g : GREETINGS) {
+            File f = greetFile(g[0]);
+            if (f.exists() && f.length() > 1000) continue;
+            try {
+                Bundle b = new Bundle();
+                tts.synthesizeToFile(g[1], b, f, "cache_" + g[0]);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void clearGreetings() {
+        for (String[] g : GREETINGS) { try { greetFile(g[0]).delete(); } catch (Exception ignored) {} }
+        ui.postDelayed(this::cacheGreetings, 1500);
+    }
+
+    private MediaPlayer greetPlayer;
+
+    private void playGreeting(String key, String text, String id) {
+        File f = greetFile(key);
+        if (f.exists() && f.length() > 1000) {
+            try {
+                if (greetPlayer != null) greetPlayer.release();
+                greetPlayer = new MediaPlayer();
+                greetPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+                greetPlayer.setDataSource(f.getAbsolutePath());
+                greetPlayer.setOnCompletionListener(mp -> { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); mp.release(); greetPlayer = null; });
+                greetPlayer.setOnErrorListener((mp, w, e) -> { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); return true; });
+                greetPlayer.prepare();
+                greetPlayer.start();
+                return;
+            } catch (Exception ignored) {}
+        }
+        if (!ttsReady) { synchronized (pendingSpeech) { pendingSpeech.add(new String[]{text, id}); } }
+        else doSpeak(text, id);
     }
 
     private void hideSystemUi() {
@@ -533,6 +584,9 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void greet(String key, String text, String id) { ui.post(() -> playGreeting(key, text, id)); }
+
+        @JavascriptInterface
         public void speakWith(String text, String id, float rate, float pitch) {
             if (tts == null) return;
             if (!ttsReady) { speak(text, id); return; }
@@ -575,12 +629,14 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void setVoice(String name) {
+            if (!name.equals(prefs.getString("voice", ""))) clearGreetings();
             prefs.edit().putString("voice", name).apply();
             ui.post(MainActivity.this::applyVoice);
         }
 
         @JavascriptInterface
         public void setVoiceTuning(float rate, float pitch) {
+            if (rate != prefs.getFloat("rate", 0.95f) || pitch != prefs.getFloat("pitch", 0.9f)) clearGreetings();
             prefs.edit().putFloat("rate", rate).putFloat("pitch", pitch).apply();
             ui.post(MainActivity.this::applyVoice);
         }
