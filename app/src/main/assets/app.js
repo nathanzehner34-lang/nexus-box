@@ -1158,7 +1158,7 @@
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
-    ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['city', '🌃', 'NEON CITY'], ['bluefire', '🔥', 'BLUE FIRE'], ['cycles', '⚡', 'LIGHT CYCLES'],
+    ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'], ['aurora', '🌌', 'NORTHERN LIGHTS'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
   ];

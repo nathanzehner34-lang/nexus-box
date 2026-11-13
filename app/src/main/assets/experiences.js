@@ -33,7 +33,7 @@
       running = name;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, city: city, bluefire: bluefire, cycles: cycles, vapor: vapor, kaleido: kaleido, ring: ring, aurora: aurora })[name]();
+      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, aurora: aurora })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -464,58 +464,6 @@
       flash('hsl(' + ((320 + hueShift) % 360) + ',100%,60%)', b.k * .18);
     }, 30);
   }
-
-  // 2. NEON CITY
-  function city() {
-    var b = beatTracker(), layers = [], rain = [], cars = [];
-    [.35, .55, .8].forEach(function (depth, li) {
-      var bl = [], x = 0;
-      while (x < 3) { var w2 = rnd(.04, .1), h2 = rnd(.25, .7) * (0.6 + li * .25); bl.push({ x: x, w: w2, h: h2, seed: Math.random() * 1000, sign: Math.random() < .25 }); x += w2 + rnd(0, .01); }
-      layers.push({ d: depth, b: bl });
-    });
-    for (var i = 0; i < 90; i++) rain.push([Math.random(), Math.random(), rnd(.6, 1.2)]);
-    for (var c = 0; c < 6; c++) cars.push({ x: Math.random(), y: rnd(.12, .4), v: rnd(.0002, .0005) * (c % 2 ? 1 : -1), col: c % 2 ? '#ff2fd6' : '#00e5ff' });
-    var COLS = ['#ff2fd6', '#00e5ff', '#b26bff', '#ffe066'];
-    text('xpTop', 'NEON CITY');
-    var bolt = 0, beatCount = 0, signHue = 0;
-    loop(function (now) {
-      var p = b.tick(now);
-      if (b.hit) { beatCount++; signHue = (signHue + 60) % 360; if (beatCount % 8 === 0) bolt = 1; }
-      var g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#05010f'); g.addColorStop(1, 'hsl(' + (270 + b.k * 40) + ',70%,' + (12 + b.k * 10) + '%)'); cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-      if (bolt > .05) {
-        cx.strokeStyle = 'rgba(200,220,255,' + bolt + ')'; cx.lineWidth = Math.max(1, 3 * S * 2);
-        var bx = W * (.2 + (beatCount % 5) * .15), by = 0; cx.beginPath(); cx.moveTo(bx, by);
-        while (by < H * .6) { bx += rnd(-W * .03, W * .03); by += H * .06; cx.lineTo(bx, by); } cx.stroke();
-        flash('#cfd8ff', bolt * .35); bolt *= .7;
-      }
-      cars.forEach(function (cr) { cr.x += cr.v * 16; if (cr.x > 1.1) cr.x = -.1; if (cr.x < -.1) cr.x = 1.1; cx.fillStyle = cr.col; cx.fillRect(cr.x * W, cr.y * H, W * .012, Math.max(1, H * .006)); });
-      layers.forEach(function (L, li) {
-        var shift = (now * .00002 * (li + 1)) % 2;
-        L.b.forEach(function (bd) {
-          var x = (bd.x - shift) * W * 1.0; if (x < -W * .2) x += W * 2; if (x > W) return;
-          var w2 = bd.w * W, h2 = bd.h * H, y = H - h2;
-          cx.fillStyle = 'rgb(' + (8 + li * 6) + ',' + (4 + li * 4) + ',' + (20 + li * 10) + ')'; cx.fillRect(x, y, w2, h2);
-          var cols = Math.max(2, Math.floor(w2 / (6 * S * 2))), rows = Math.floor(h2 / (8 * S * 2));
-          for (var r = 1; r < rows; r += 2) for (var q = 0; q < cols; q += 2) {
-            var on = Math.sin(bd.seed + r * 7.1 + q * 3.3 + (li === 2 ? beatCount * 1.7 : 0)) > (.3 - b.e * .4);
-            if (on) { cx.fillStyle = li === 2 ? 'rgba(255,220,150,.7)' : 'rgba(180,200,255,.35)'; cx.fillRect(x + q * w2 / cols + 1, y + r * 8 * S * 2, Math.max(1, w2 / cols - 2), Math.max(1, 3 * S * 2)); }
-          }
-          if (bd.sign && li === 2) {
-            var col = 'hsl(' + ((Math.floor(bd.seed) * 47 + signHue) % 360) + ',100%,60%)';
-            cx.fillStyle = col; cx.globalAlpha = .4 + b.k * .6;
-            cx.fillRect(x + w2 * .15, y + h2 * .12, w2 * .7, Math.max(2, H * .02));
-            cx.globalAlpha = 1;
-          }
-        });
-      });
-      cx.font = 'bold ' + Math.floor(H * .09) + 'px sans-serif'; cx.textAlign = 'center';
-      cx.save(); cx.translate(W * .5, H * .3); cx.scale(1 + b.k * .15, 1 + b.k * .15);
-      cx.fillStyle = 'hsla(' + ((310 + signHue) % 360) + ',100%,60%,' + (.5 + b.k * .5) + ')'; cx.fillText('NEXUS', 0, 0); cx.restore();
-      cx.strokeStyle = 'rgba(170,200,255,.35)'; cx.lineWidth = 1;
-      rain.forEach(function (r2) { r2[1] += .02 * r2[2]; if (r2[1] > 1) { r2[1] = 0; r2[0] = Math.random(); } cx.beginPath(); cx.moveTo(r2[0] * W, r2[1] * H); cx.lineTo(r2[0] * W - 2, r2[1] * H + H * .03); cx.stroke(); });
-    }, 30);
-  }
-
   // 4. BLUE FIRE
   function bluefire() {
     var b = beatTracker(), parts = [];
@@ -538,34 +486,6 @@
     }, 30);
   }
 
-  // 5. LIGHT CYCLES
-  function cycles() {
-    var b = beatTracker(), G = 24, bikes = [];
-    var COL = ['#00e5ff', '#ff9100', '#ff2fd6', '#76ff03'];
-    function reset(bk, i) { bk.x = rnd(.2, .8); bk.y = rnd(.2, .8); bk.dir = Math.floor(Math.random() * 4); bk.trail = [[bk.x, bk.y]]; bk.col = COL[i % 4]; }
-    for (var i = 0; i < 4; i++) { var bk = {}; reset(bk, i); bikes.push(bk); }
-    var lastBeat = 0;
-    text('xpTop', 'LIGHT CYCLES');
-    loop(function (now) {
-      var p = b.tick(now);
-      cx.fillStyle = '#01030a'; cx.fillRect(0, 0, W, H);
-      cx.strokeStyle = 'rgba(0,229,255,' + (.1 + b.k * .5) + ')'; cx.lineWidth = 1;
-      for (var gx = 0; gx <= G * 2; gx++) { cx.beginPath(); cx.moveTo(gx / (G * 2) * W, 0); cx.lineTo(gx / (G * 2) * W, H); cx.stroke(); }
-      for (var gy = 0; gy <= G; gy++) { cx.beginPath(); cx.moveTo(0, gy / G * H); cx.lineTo(W, gy / G * H); cx.stroke(); }
-      var turn = b.hit; if (turn) lastBeat = now;
-      bikes.forEach(function (bk, i) {
-        var sp = .003 + b.e * .005 + b.k * .006;
-        if (turn || Math.random() < .015) { bk.dir = (bk.dir + (Math.random() < .5 ? 1 : 3)) % 4; bk.trail.push([bk.x, bk.y]); }
-        bk.x += [sp, 0, -sp, 0][bk.dir] * (H / W); bk.y += [0, sp, 0, -sp][bk.dir];
-        if (bk.x < 0 || bk.x > 1 || bk.y < 0 || bk.y > 1 || bk.trail.length > 30) { reset(bk, i); return; }
-        cx.strokeStyle = bk.col; cx.lineWidth = Math.max(1, (3 + b.k * 4) * S * 2); cx.globalAlpha = .9;
-        cx.beginPath(); cx.moveTo(bk.trail[0][0] * W, bk.trail[0][1] * H);
-        for (var t = 1; t < bk.trail.length; t++) cx.lineTo(bk.trail[t][0] * W, bk.trail[t][1] * H);
-        cx.lineTo(bk.x * W, bk.y * H); cx.stroke();
-        cx.globalAlpha = 1; cx.fillStyle = '#fff'; cx.fillRect(bk.x * W - 3, bk.y * H - 3, 6, 6);
-      });
-    }, 30);
-  }
 
   // 6. VAPORWAVE
   function vapor() {
