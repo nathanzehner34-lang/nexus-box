@@ -107,6 +107,20 @@
   function ribY(r, u, t) {
     return H * r.y + Math.sin(u * Math.PI * r.f + t * r.s * 6) * H * r.amp + Math.sin(u * Math.PI * r.f * 2.1 - t * r.s * 4) * H * r.amp * .4;
   }
+  // ---- Fast, forgiving taps: buttons fire the instant your finger lifts, even if it slid a bit
+  //      (a bumpy truck makes fingers slide, which used to cancel the tap). ----
+  (function () {
+    var sx = 0, sy = 0, st = 0;
+    document.addEventListener('touchstart', function (e) { var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); }, { passive: true });
+    document.addEventListener('touchend', function (e) {
+      var t = e.changedTouches[0], el = e.target;
+      if (!t || Math.abs(t.clientX - sx) > 30 || Math.abs(t.clientY - sy) > 30 || Date.now() - st > 900) return;
+      if (el.closest && el.closest('input,textarea,select,a,label')) return;
+      e.preventDefault();
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY }));
+    }, { passive: false });
+  })();
+
   // ---- Photo backgrounds (a still picture costs the box nothing to show) ----
   var BGS = {
     moon: { file: 'bg_moon.jpg', pos: 'center 18%', label: 'MOONLIGHT' },

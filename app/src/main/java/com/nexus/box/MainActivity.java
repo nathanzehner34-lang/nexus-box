@@ -123,6 +123,17 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("nexus", MODE_PRIVATE);
 
+        // Start the recorded greeting FIRST, before the screen (WebView) is even built,
+        // so the voice comes out the moment Nexus starts.
+        if (savedInstanceState == null) {
+            String key = greetKey();
+            if (greetFile(key).exists() && greetFile(key).length() > 1000) {
+                nativeGreeting = true;
+                nativeGreetUsed = true;
+                playGreeting(key, "", "nativegreet");
+            }
+        }
+
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         w.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
@@ -166,15 +177,6 @@ public class MainActivity extends Activity {
             if (!need.isEmpty()) requestPermissions(need.toArray(new String[0]), 7);
         }
 
-        // Start the recorded greeting right away, before the screen has even finished loading.
-        if (savedInstanceState == null) {
-            String key = greetKey();
-            if (greetFile(key).exists() && greetFile(key).length() > 1000) {
-                nativeGreeting = true;
-                nativeGreetUsed = true;
-                playGreeting(key, "", "nativegreet");
-            }
-        }
 
         String page = "file:///android_asset/index.html";
         web.loadUrl(savedInstanceState == null ? page + "#boot" : page);
