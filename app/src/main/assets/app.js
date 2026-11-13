@@ -564,7 +564,12 @@
     'Party mode engaged! This truck just became a club!', 'Attention passengers, party mode is now in effect! Let\'s go!'];
   var PARTY_OUT = ['Party\'s over. Back to business.', 'Party mode off. That was a good one.', 'Shutting down the party. Good times.'];
   var talkBusy = false;
-  function partyTalk(line) { if (talkBusy) return; talkBusy = true; say(line).then(function () { talkBusy = false; }); }
+  P.voice = pref('partyVoice') === 'on';
+  function partyTalk(line, force) {
+    if (!force && !P.voice) return;
+    if (talkBusy) return; talkBusy = true; say(line).then(function () { talkBusy = false; });
+  }
+  function beep(freq, at, dur) { tone('square', freq, at, dur, 0.05); }
 
   function buildBars() {
     ['pTop', 'pBottom'].forEach(function (id) {
@@ -658,7 +663,8 @@
     clearInterval(P.auto);
     P.auto = setInterval(function () { if (Date.now() - P.lastMeter > 1500 && Date.now() - P.lastBeat > 480) beat(.5); }, 120);
     P.lastShout = Date.now();
-    partyTalk(pick(PARTY_IN));
+    partyTalk(pick(PARTY_IN), true);
+    var vb = document.querySelector('.pbtn[data-fx=voice] span'); if (vb) vb.textContent = P.voice ? 'VOICE ON' : 'VOICE OFF';
     clearInterval(P.talk);
     P.talk = setInterval(function () { if (P.on) partyTalk(pick(HYPE)); }, 45000 + Math.floor(Math.random() * 20000));
   }
@@ -696,21 +702,22 @@
     horn: function () {
       [0, 0.32, 0.64].forEach(function (st, k) {
         var d = k === 2 ? 0.9 : 0.24;
-        [466, 587, 698].forEach(function (f) { tone('sawtooth', f, st, d, 0.09); });
+        [466, 587, 698].forEach(function (f) { tone('sawtooth', f, st, d, 0.06); });
       });
       for (var i = 0; i < 6; i++) setTimeout(function () { beat(1); }, i * 160);
     },
     drop: function () {
-      tone('sine', 180, 0, 1.6, 0.55, 32); tone('square', 90, 0, 1.6, 0.08, 20); noise(1.5, 0.6, 0.35, 200);
+      tone('sine', 180, 0, 1.6, 0.35, 32); tone('square', 90, 0, 1.6, 0.05, 20); noise(1.5, 0.6, 0.22, 200);
       setTimeout(function () { for (var i = 0; i < 8; i++) setTimeout(function () { beat(1); }, i * 90); }, 1500);
     },
     roll: function () {
       var t = 0, gap = 0.12;
-      while (t < 1.8) { noise(t, 0.05, 0.3, 1500); t += gap; gap = Math.max(0.035, gap * 0.9); }
-      noise(1.85, 1.2, 0.45, 3000);
+      while (t < 1.8) { noise(t, 0.05, 0.2, 1500); t += gap; gap = Math.max(0.035, gap * 0.9); }
+      noise(1.85, 1.2, 0.3, 3000);
       setTimeout(function () { beat(1); }, 1850);
     },
-    hype: function () { partyTalk(pick(HYPE)); beat(1); },
+    hype: function () { partyTalk(pick(HYPE), true); beat(1); },
+    voice: function (btn) { P.voice = !P.voice; setPref('partyVoice', P.voice ? 'on' : 'off'); btn.querySelector('span').textContent = P.voice ? 'VOICE ON' : 'VOICE OFF'; btn.classList.toggle('on', P.voice); },
     strobe: function (btn) {
       if (P.strobe) { clearInterval(P.strobe); P.strobe = null; btn.classList.remove('on'); return; }
       btn.classList.add('on');
@@ -724,8 +731,7 @@
     prev: function () { music('prev'); }, next: function () { music('next'); }, toggle: function () { music('toggle'); },
     volup: function () { music('up'); }, voldown: function () { music('down'); },
     talk: function () { partyListen(); },
-    theme: function () { P.theme = (P.theme + 1) % THEMES.length; $('pThemeName').textContent = THEMES[P.theme]; beat(1);
-      partyTalk(pick({ RAINBOW: ['Rainbow mode.'], POLICE: ['Pull over! Just kidding. Police lights on.'], FIRE: ['Fire mode. Things are heating up!'], ICE: ['Ice mode. Stay frosty.'] }[THEMES[P.theme]])); },
+    theme: function () { P.theme = (P.theme + 1) % THEMES.length; $('pThemeName').textContent = THEMES[P.theme]; beat(1); },
     countdown: function () {
       if (P.counting) return; P.counting = true;
       var el = document.createElement('div'); el.id = 'pCount'; $('party').appendChild(el);
@@ -733,12 +739,12 @@
       var chain = Promise.resolve();
       steps.forEach(function (n, k) {
         chain = chain.then(function () {
-          el.textContent = n; beat(.4 + k * .3);
-          return Promise.all([say(words[k]), wait(900)]);
+          el.textContent = n; beat(.4 + k * .3); beep(660 + k * 110, 0, .18);
+          return wait(900);
         });
       });
       chain.then(function () {
-        el.textContent = 'DROP!'; FX.drop(); say('Drop it!');
+        el.textContent = 'DROP!'; beep(1320, 0, .3); FX.drop();
         return wait(1900);
       }).then(function () { el.parentNode.removeChild(el); P.counting = false; });
     }
