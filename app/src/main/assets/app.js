@@ -440,14 +440,17 @@
   var APPS = {
     youtube: { names: 'SmartTube,Smart Tube,smarttube,YouTube', label: 'SmartTube' },
     stremio: { names: 'Stremio', label: 'Stremio' },
-    maps: { names: 'Maps,Waze,Navigation,Navi,Sygic', label: 'Maps' },
+    maps: { names: 'Organic Maps,OsmAnd,Maps.me,Maps,Waze,Navigation,Navi,Sygic', label: 'Maps',
+      missing: 'No maps app is installed yet. Get Organic Maps from the Play Store. It\'s free and works offline.' },
     messages: { names: 'Messages,Messaging,SMS,Mms', label: 'Messages' }
   };
 
   function launchNamed(key) {
     var a = APPS[key];
     var ok = A ? A.launchApp(a.names) : false;
-    if (!ok) { caption(a.label.toUpperCase() + ' IS NOT INSTALLED'); say(a.label + ' isn\'t installed on this box.'); }
+    if (!ok) { caption(a.label.toUpperCase() + ' IS NOT INSTALLED'); say(a.missing || (a.label + ' isn\'t installed on this box.')); return; }
+    caption('OPENING ' + a.label.toUpperCase());
+    say(pick(['Opening ' + a.label + '.', a.label + ', coming up.', 'Launching ' + a.label + '.']));
   }
 
   function act(name) {
@@ -486,12 +489,20 @@
     try { if (A) A.setBrightness(mode.night ? 0.12 : -1); } catch (e) {}
     badges();
     redraw();
-    say(mode.night ? 'Night drive engaged.' : 'Night drive disengaged.');
+    say(mode.night ? pick(['Night drive engaged. Dimming everything down. Easy on the eyes.', 'Night drive on. Smooth and quiet from here.']) : pick(['Night drive off. Lights back up.', 'Back to full brightness.']));
   }
 
   // ---- Party mode (lights follow the music in the cab via the mic) ----
   var P = { on: false, avg: 0.01, lastBeat: 0, lastMeter: 0, hue: 300, auto: null, decay: null, strobe: null, ctx: null };
-  var HYPE = ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'Passengers, this one\'s for you.', 'Nexus in the building!', 'Volume to the max. Let\'s ride.', 'Hands up in the truck!'];
+  var HYPE = ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'Passengers, this one\'s for you.', 'Nexus in the building!', 'Volume to the max. Let\'s ride.', 'Hands up in the truck!',
+    'This truck is officially a club!', 'Somebody turn this song up!', 'I can feel the bass in my circuits!', 'Party mode! No sleeping in this truck!',
+    'Who picked this song? Great choice!', 'Everybody in the truck, make some noise!', 'Louder! I can\'t hear you!', 'This is the best party on the road!'];
+  var SHOUTS = ['Ohhh!', 'Let\'s go!', 'Drop it!', 'Yeah!', 'Party mode!', 'Turn it up!'];
+  var PARTY_IN = ['Party mode activated! Let\'s get this party started!', 'Party mode! Turn it up and let\'s go!', 'It\'s party time! Hands up in the truck!',
+    'Party mode engaged! This truck just became a club!', 'Attention passengers, party mode is now in effect! Let\'s go!'];
+  var PARTY_OUT = ['Party\'s over. Back to business.', 'Party mode off. That was a good one.', 'Shutting down the party. Good times.'];
+  var talkBusy = false;
+  function partyTalk(line) { if (talkBusy) return; talkBusy = true; say(line).then(function () { talkBusy = false; }); }
 
   function buildBars() {
     ['pTop', 'pBottom'].forEach(function (id) {
@@ -527,6 +538,7 @@
     var spike = rms > P.avg * 1.45 && rms > 0.012 && Date.now() - P.lastBeat > 170;
     P.avg = P.avg * 0.92 + rms * 0.08;
     if (spike) beat(Math.min(1, rms * 8));
+    if (rms > P.avg * 2.6 && rms > 0.05 && Date.now() - (P.lastShout || 0) > 25000) { P.lastShout = Date.now(); partyTalk(pick(SHOUTS)); }
   };
   Nexus._meterError = function () { $('pHint').textContent = 'MIC UNAVAILABLE · LIGHTS RUNNING ON AUTO BEAT'; };
 
@@ -539,7 +551,10 @@
     try { if (A) A.meter(true); } catch (e) {}
     clearInterval(P.auto);
     P.auto = setInterval(function () { if (Date.now() - P.lastMeter > 1500 && Date.now() - P.lastBeat > 480) beat(.5); }, 120);
-    say(pick(['Party mode engaged. Passengers, the vibe is yours.', 'Party mode engaged. Let\'s light it up.', 'Party mode online. Turn it up.']));
+    P.lastShout = Date.now();
+    partyTalk(pick(PARTY_IN));
+    clearInterval(P.talk);
+    P.talk = setInterval(function () { if (P.on) partyTalk(pick(HYPE)); }, 45000 + Math.floor(Math.random() * 20000));
   }
   function exitParty(silent) {
     P.on = mode.party = false;
@@ -548,7 +563,8 @@
     $('party').classList.add('hidden');
     Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) { b.classList.remove('on'); });
     badges();
-    if (!silent) say('Party mode disengaged.');
+    clearInterval(P.talk);
+    if (!silent) say(pick(PARTY_OUT));
   }
   function toggleParty() { if (P.on) exitParty(); else enterParty(); }
 
@@ -588,7 +604,7 @@
       noise(1.85, 1.2, 0.45, 3000);
       setTimeout(function () { beat(1); }, 1850);
     },
-    hype: function () { say(pick(HYPE)); beat(1); },
+    hype: function () { partyTalk(pick(HYPE)); beat(1); },
     strobe: function (btn) {
       if (P.strobe) { clearInterval(P.strobe); P.strobe = null; btn.classList.remove('on'); return; }
       btn.classList.add('on');
@@ -900,8 +916,13 @@
   // ------------------------------------------------------------------
   Nexus.back = function () { if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { closePanel(); };
-  Nexus.paused = function () { try { if (A && P.on) A.meter(false); } catch (e) {} };
-  Nexus.resumed = function () { try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+  var awaySince = 0;
+  Nexus.paused = function () { awaySince = Date.now(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.resumed = function () {
+    if (awaySince && Date.now() - awaySince > 20 * 60 * 1000 && !booting) {
+      setTimeout(function () { say(pick(['Welcome back, Nathan. Nexus is standing by.', 'Good to see you again, Nathan. How can I help?', 'Welcome back. All systems are ready.'])); }, 600);
+    }
+    awaySince = 0; try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
 
   // ------------------------------------------------------------------
   // Start
