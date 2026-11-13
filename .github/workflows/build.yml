@@ -21,11 +21,27 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Keep the same signing key between builds
-        uses: actions/cache@v4
+      - name: Restore the Nexus signing key
+        id: keycache
+        uses: actions/cache/restore@v4
         with:
-          path: ~/.android/debug.keystore
-          key: nexus-debug-keystore-v1
+          path: ~/nexus-signing/nexus.keystore
+          key: nexus-signing-key-v2
+
+      - name: Create the signing key (first build only)
+        if: steps.keycache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/nexus-signing
+          keytool -genkeypair -keystore ~/nexus-signing/nexus.keystore -alias androiddebugkey \
+            -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 20000 \
+            -dname "CN=Nexus Box, O=Nexus, C=CA"
+
+      - name: Save the signing key for future builds
+        if: steps.keycache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/nexus-signing/nexus.keystore
+          key: nexus-signing-key-v2
 
       - name: Add AI key
         env:
@@ -38,7 +54,11 @@ jobs:
           fi
 
       - name: Build APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          export NEXUS_KEYSTORE="$HOME/nexus-signing/nexus.keystore"
+          ls -l "$NEXUS_KEYSTORE"
+          keytool -list -v -keystore "$NEXUS_KEYSTORE" -storepass android | grep -m1 SHA256
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Prepare download
         run: cp app/build/outputs/apk/debug/app-debug.apk nexus.apk

@@ -1,0 +1,17 @@
+name: Keep signing key alive
+
+# GitHub forgets saved files that aren't used for 7 days. This touches the
+# signing key once a week so Nexus updates always install over the top.
+on:
+  schedule:
+    - cron: '17 6 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  touch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/nexus-signing/nexus.keystore
+          key: nexus-signing-key-v2
