@@ -393,6 +393,21 @@
     return null;
   }
 
+  function music(action) {
+    if (!A) return;
+    if (action === 'up') { A.volume(2); return; }
+    if (action === 'down') { A.volume(-2); return; }
+    A.media(action);
+    if (action === 'next' || action === 'prev') { P.song = P.song || 'x'; setTimeout(pollSong, 1500); }
+  }
+  var MUSIC_CMDS = [
+    [/\b(next|skip)( song| track| this)?\b/, 'next', 'Skipping.'],
+    [/\b(previous|last|go back)( song| track)?\b/, 'prev', 'Going back.'],
+    [/\b(pause|stop) (the )?(music|song)\b|^pause$/, 'pause', 'Paused.'],
+    [/\b(play|resume) (the )?(music|song)\b|^(play|resume)$/, 'play', 'Playing.'],
+    [/\b(turn it up|louder|volume up|crank it)\b/, 'up', 'Turning it up!'],
+    [/\b(turn it down|quieter|volume down|too loud)\b/, 'down', 'Bringing it down.']
+  ];
   var lastAiError = '';
   function quickAnswer(t) {
     var d = new Date();
@@ -406,6 +421,15 @@
     var t = raw.toLowerCase().replace(/^(hey |ok |okay )?nexus[, ]*/, '').trim();
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
     if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
+    for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
+      if (MUSIC_CMDS[mi][0].test(t)) { music(MUSIC_CMDS[mi][1]); caption(MUSIC_CMDS[mi][2].toUpperCase()); return say(MUSIC_CMDS[mi][2]); }
+    }
+    if (/what('s| is) (this|the) song|what song/.test(t) && A) {
+      var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
+      var line = np.title && np.title !== 'null' ? 'This is ' + np.title + (np.artist && np.artist !== 'null' ? ' by ' + np.artist : '') + '.' :
+        (np.access === false ? 'Allow song announcements in my Settings and I\'ll be able to tell you.' : 'Nothing is playing right now.');
+      caption(line); return say(line);
+    }
     var cmd = matchCommand(t);
     if (cmd) { act(cmd); return Promise.resolve(); }
     var quick = quickAnswer(t);
@@ -513,10 +537,19 @@
   }
   function audio() { try { P.ctx = P.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (P.ctx.state === 'suspended') P.ctx.resume(); } catch (e) {} return P.ctx; }
 
+  var THEMES = ['RAINBOW', 'POLICE', 'FIRE', 'ICE'];
+  P.theme = 0; P.flip = 0;
+  function themeColor(i) {
+    var t = THEMES[P.theme];
+    if (t === 'POLICE') return ((i + P.flip) % 2) ? 'hsl(0,100%,52%)' : 'hsl(220,100%,55%)';
+    if (t === 'FIRE') return 'hsl(' + Math.round((P.hue + i * 9) % 50) + ',100%,' + (50 + (i % 3) * 6) + '%)';
+    if (t === 'ICE') return 'hsl(' + Math.round(185 + (P.hue + i * 7) % 40) + ',100%,' + (60 + (i % 3) * 10) + '%)';
+    return 'hsl(' + Math.round((P.hue + i * 12) % 360) + ',100%,55%)';
+  }
   function beat(power) {
-    var now = Date.now(); P.lastBeat = now;
+    var now = Date.now(); P.lastBeat = now; P.flip++;
     P.hue = (P.hue + 37 + Math.random() * 60) % 360;
-    var col = 'hsl(' + Math.round(P.hue) + ',100%,55%)';
+    var col = themeColor(Math.floor(Math.random() * 24));
     var w = $('pWash'); w.style.backgroundColor = col; w.style.opacity = Math.min(.55, .2 + power * .4);
     var t = $('pTitle'); t.style.transform = 'scale(' + (1.04 + power * .1) + ')'; t.style.color = col;
     var lit = Math.max(4, Math.round(24 * Math.min(1, .3 + power)));
@@ -524,8 +557,7 @@
       var segs = $(id).children;
       for (var i = 0; i < segs.length; i++) {
         var on = k ? (i >= (24 - lit) / 2 && i < (24 + lit) / 2) : (Math.random() < lit / 24);
-        var hh = (P.hue + i * 12) % 360;
-        segs[i].style.backgroundColor = on ? 'hsl(' + hh + ',100%,55%)' : '#151515';
+        segs[i].style.backgroundColor = on ? themeColor(THEMES[P.theme] === 'POLICE' ? (i < 12 ? 0 : 1) : i) : '#151515';
       }
     });
     clearTimeout(P.decay);
@@ -543,7 +575,37 @@
   };
   Nexus._meterError = function () { $('pHint').textContent = 'MIC UNAVAILABLE · LIGHTS RUNNING ON AUTO BEAT'; };
 
+  function pollSong() {
+    if (!P.on || !A) return;
+    var np = {};
+    try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
+    if (np.access === false) { $('pSong').textContent = '🎵 Allow song announcements in Nexus Settings'; return; }
+    if (!np.title || np.title === 'null') { $('pSong').textContent = ''; return; }
+    var artist = np.artist && np.artist !== 'null' ? np.artist : '';
+    $('pSong').textContent = '🎵 ' + np.title + (artist ? ' · ' + artist : '');
+    var key = np.title + '|' + artist;
+    if (np.playing && key !== P.song) {
+      var first = !P.song; P.song = key;
+      var by = artist ? ' by ' + artist : '';
+      partyTalk(pick(first ? ['Now playing, ' + np.title + by + '! Let\'s go!'] :
+        ['Up next, ' + np.title + by + '! Turn it up!', 'Here comes ' + np.title + by + '!', 'Next track, ' + np.title + by + '! Let\'s go!', 'Oh, ' + np.title + '! Good one!']));
+      beat(1);
+    }
+  }
+  function partyListen() {
+    try { if (A) A.meter(false); } catch (e) {}
+    $('pHint').textContent = 'LISTENING… SAY "NEXT SONG", "TURN IT UP", OR ASK ANYTHING';
+    listen().then(function (res) {
+      $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
+      try { if (A && P.on) A.meter(true); } catch (e) {}
+      if (typeof res === 'string' && res.trim()) return handleSpeech(res);
+    });
+  }
+
   function enterParty() {
+    P.song = '';
+    clearInterval(P.songTimer);
+    P.songTimer = setInterval(pollSong, 4000); setTimeout(pollSong, 600);
     P.on = mode.party = true;
     if (mode.night) { mode.night = false; try { if (A) A.setBrightness(-1); } catch (e) {} }
     buildBars(); badges();
@@ -564,7 +626,7 @@
     $('party').classList.add('hidden');
     Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) { b.classList.remove('on'); });
     badges();
-    clearInterval(P.talk);
+    clearInterval(P.talk); clearInterval(P.songTimer);
     if (!silent) say(pick(PARTY_OUT));
   }
   function toggleParty() { if (P.on) exitParty(); else enterParty(); }
@@ -615,7 +677,28 @@
         if (n > 70) { clearInterval(P.strobe); P.strobe = null; btn.classList.remove('on'); w.style.opacity = .12; }
       }, 70);
     },
-    exit: function () { exitParty(); }
+    exit: function () { exitParty(); },
+    prev: function () { music('prev'); }, next: function () { music('next'); }, toggle: function () { music('toggle'); },
+    volup: function () { music('up'); }, voldown: function () { music('down'); },
+    talk: function () { partyListen(); },
+    theme: function () { P.theme = (P.theme + 1) % THEMES.length; $('pThemeName').textContent = THEMES[P.theme]; beat(1);
+      partyTalk(pick({ RAINBOW: ['Rainbow mode.'], POLICE: ['Pull over! Just kidding. Police lights on.'], FIRE: ['Fire mode. Things are heating up!'], ICE: ['Ice mode. Stay frosty.'] }[THEMES[P.theme]])); },
+    countdown: function () {
+      if (P.counting) return; P.counting = true;
+      var el = document.createElement('div'); el.id = 'pCount'; $('party').appendChild(el);
+      var steps = ['3', '2', '1'], words = ['Three!', 'Two!', 'One!'];
+      var chain = Promise.resolve();
+      steps.forEach(function (n, k) {
+        chain = chain.then(function () {
+          el.textContent = n; beat(.4 + k * .3);
+          return Promise.all([say(words[k]), wait(900)]);
+        });
+      });
+      chain.then(function () {
+        el.textContent = 'DROP!'; FX.drop(); say('Drop it!');
+        return wait(1900);
+      }).then(function () { el.parentNode.removeChild(el); P.counting = false; });
+    }
   };
   Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) {
     b.addEventListener('click', function () { var f = FX[b.getAttribute('data-fx')]; if (f) f(b); });
@@ -901,6 +984,9 @@
       homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
       '<div class="hint">Use the "Open …" buttons to get back to the box\'s original home screen any time.</div></div>' +
 
+      '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
+      '<span class="btn go" id="sNotif">ALLOW NEXUS TO SEE WHAT\'S PLAYING</span>' +
+      '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. This lets Nexus announce songs and skip tracks in Spotify.</div></div>' +
       '<div class="field"><label>GRAPHICS</label>' +
       '<span class="btn' + (LITE ? ' go' : '') + '" id="sLite">SMOOTH (RECOMMENDED)</span><span class="btn' + (LITE ? '' : ' go') + '" id="sHigh">HIGH DETAIL</span>' +
       '<div class="hint">Smooth mode runs better on this box. Changes apply after Replay Startup.</div></div>' +
@@ -935,6 +1021,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
     });
+    $('sNotif').addEventListener('click', function () { if (A) A.openNotificationAccess(); });
     $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); redraw(); openSettings(); });
     $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); redraw(); openSettings(); });
     $('sReplay').addEventListener('click', function () { closePanel(); runBoot(); });

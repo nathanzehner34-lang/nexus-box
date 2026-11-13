@@ -19,6 +19,11 @@ import android.location.LocationManager;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
+import android.view.KeyEvent;
 import android.media.MediaRecorder;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -402,6 +407,41 @@ public class MainActivity extends Activity {
 
     private void stopMeter() { meterOn = false; }
 
+    // ---------- Music control (Spotify etc.) ----------
+
+    private MediaController activeController() {
+        try {
+            MediaSessionManager msm = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
+            List<MediaController> list = msm.getActiveSessions(new ComponentName(this, NexusListener.class));
+            if (list == null || list.isEmpty()) return null;
+            for (MediaController c : list) {
+                PlaybackState st = c.getPlaybackState();
+                if (st != null && st.getState() == PlaybackState.STATE_PLAYING) return c;
+            }
+            return list.get(0);
+        } catch (SecurityException e) {
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean hasMediaAccess() {
+        try {
+            MediaSessionManager msm = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
+            msm.getActiveSessions(new ComponentName(this, NexusListener.class));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void sendMediaKey(int code) {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, code));
+        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, code));
+    }
+
     // ---------- Location ----------
 
     private Location bestLocation() {
@@ -634,6 +674,75 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void toast(String msg) {
             ui.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+        }
+
+        @JavascriptInterface
+        public String nowPlaying() {
+            if (!hasMediaAccess()) return "{\"access\":false}";
+            try {
+                JSONObject o = new JSONObject();
+                o.put("access", true);
+                MediaController c = activeController();
+                if (c == null) return o.toString();
+                MediaMetadata md = c.getMetadata();
+                PlaybackState st = c.getPlaybackState();
+                o.put("playing", st != null && st.getState() == PlaybackState.STATE_PLAYING);
+                if (md != null) {
+                    o.put("title", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_TITLE)));
+                    o.put("artist", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_ARTIST)));
+                }
+                o.put("app", c.getPackageName());
+                return o.toString();
+            } catch (Exception e) {
+                return "{\"access\":true}";
+            }
+        }
+
+        @JavascriptInterface
+        public void media(String action) {
+            ui.post(() -> {
+                MediaController c = activeController();
+                try {
+                    if (c != null) {
+                        MediaController.TransportControls t = c.getTransportControls();
+                        switch (action) {
+                            case "next": t.skipToNext(); return;
+                            case "prev": t.skipToPrevious(); return;
+                            case "pause": t.pause(); return;
+                            case "play": t.play(); return;
+                            case "toggle": {
+                                PlaybackState st = c.getPlaybackState();
+                                if (st != null && st.getState() == PlaybackState.STATE_PLAYING) t.pause(); else t.play();
+                                return;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+                switch (action) {
+                    case "next": sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT); break;
+                    case "prev": sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS); break;
+                    case "pause": sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE); break;
+                    case "play": sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY); break;
+                    default: sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); break;
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void volume(int steps) {
+            ui.post(() -> {
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                int dir = steps > 0 ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER;
+                for (int i = 0; i < Math.abs(steps); i++) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, i == Math.abs(steps) - 1 ? AudioManager.FLAG_SHOW_UI : 0);
+            });
+        }
+
+        @JavascriptInterface
+        public void openNotificationAccess() {
+            ui.post(() -> {
+                try { startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+                catch (Exception e) { Toast.makeText(MainActivity.this, "Open Settings > Apps > Special access > Notification access", Toast.LENGTH_LONG).show(); }
+            });
         }
 
         @JavascriptInterface
