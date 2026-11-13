@@ -256,7 +256,8 @@
     'with a dry, relaxed sense of humour; easy-going banter, never cheesy or over the top. You are talking out loud through the truck speakers, ' +
     'so reply in plain spoken sentences: usually one to three short sentences, no lists, no markdown, no emojis, no stage directions. ' +
     'Address Nathan by name only occasionally. If asked to do something you cannot do from the truck, say so briefly. Never encourage unsafe driving.';
-  var MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  var MODELS = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  var SMART_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
   function aiKey() { return (pref('gemini_key') || window.NEXUS_DEFAULT_KEY || '').trim(); }
 
@@ -265,8 +266,12 @@
     var key = aiKey();
     if (!key) return Promise.reject(new Error('nokey'));
     if (!online()) return Promise.reject(new Error('offline'));
+    var base = opts.smart ? SMART_MODELS : MODELS;
+    var memKey = opts.smart ? 'model_smart_ok' : 'model_fast_ok';
+    var known = (pref(memKey) || '').trim();
     var custom = (pref('model') || '').trim();
-    var models = custom ? [custom].concat(MODELS) : MODELS.slice();
+    var models = (custom ? [custom] : []).concat(known ? [known] : []).concat(base)
+      .filter(function (m, i, a) { return a.indexOf(m) === i; });
     var body = { system_instruction: { parts: [{ text: system }] }, contents: contents,
       generationConfig: { temperature: opts.temperature || 0.9, maxOutputTokens: opts.maxTokens || 1024 } };
     if (opts.json) body.generationConfig.responseMimeType = 'application/json';
@@ -288,6 +293,7 @@
         var parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
         var text = parts.filter(function (p) { return p.text && !p.thought; }).map(function (p) { return p.text; }).join('').trim();
         if (!text) throw new Error('empty');
+        if (models[i] !== known) setPref(memKey, models[i]);
         return text;
       });
     }
@@ -335,7 +341,16 @@
   function setOrb(state, on) { var w = $('orbWrap'); if (w) w.classList.toggle(state, !!on); }
   function caption(t) { $('caption').textContent = t; }
 
-  Nexus._listening = function (on) { setOrb('listening', on); if (on) caption('LISTENING…'); };
+  function chime(up) {
+    try {
+      var c = window.__ac = window.__ac || new (window.AudioContext || window.webkitAudioContext)();
+      var o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
+      o.type = 'sine'; o.frequency.setValueAtTime(up ? 880 : 660, t); o.frequency.exponentialRampToValueAtTime(up ? 1320 : 440, t + .12);
+      g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.0001, t + .18);
+      o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .2);
+    } catch (e) {}
+  }
+  Nexus._listening = function (on) { setOrb('listening', on); if (on) { caption('LISTENING…'); chime(true); } else chime(false); };
   Nexus._level = function (db) { var s = 1 + Math.max(0, Math.min(10, db)) * .03; $('orb').style.transform = 'scale(' + s + ')'; };
   Nexus._partial = function (t) { caption('“' + t + '”'); };
   var heardResolve = null;
@@ -442,7 +457,7 @@
     var now = new Date();
     var ctx = PERSONA + ' Current local time: ' + now.toLocaleString() + '.' +
       (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '');
-    return askAI(chatHistory, ctx, { maxTokens: 1024 }).then(function (reply) {
+    return askAI(chatHistory, ctx, { maxTokens: 400 }).then(function (reply) {
       reply = reply.replace(/[*#_`]/g, '');
       chatHistory.push({ role: 'model', parts: [{ text: reply }] });
       return reply;
@@ -921,7 +936,7 @@
       var sys = PERSONA + ' You are reading a radio-style news briefing. Use ONLY the headlines provided; do not add facts that are not in them. ' +
         'Write it in your own words, neutral and factual, no opinions. About 250 words. Cover the most important world stories first, then Canada, then one business item. ' +
         'Use short spoken sentences and smooth transitions like "In Canada," and "In business news,". Finish with one interesting "on this day in history" fact for ' + dateLine + '. No markdown, no lists.';
-      var aiPart = news.length ? askAI([{ role: 'user', parts: [{ text: 'Headlines:\n' + list }] }], sys, { maxTokens: 2048, temperature: 0.4 })
+      var aiPart = news.length ? askAI([{ role: 'user', parts: [{ text: 'Headlines:\n' + list }] }], sys, { maxTokens: 2048, temperature: 0.4, smart: true })
         .catch(function () { return null; }) : Promise.resolve(null);
       return aiPart.then(function (txt) {
         var spoken = txt ? txt.replace(/[*#_`]/g, '') :
@@ -1036,8 +1051,8 @@
   var awaySince = 0;
   Nexus.paused = function () { awaySince = Date.now(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
-    if (awaySince && Date.now() - awaySince > 20 * 60 * 1000 && !booting) {
-      setTimeout(function () { say(pick(['Welcome back, Nathan. Nexus is standing by.', 'Good to see you again, Nathan. How can I help?', 'Welcome back. All systems are ready.'])); }, 600);
+    if (awaySince && Date.now() - awaySince > 10 * 60 * 1000 && !booting) {
+      setTimeout(function () { closePanel(); runBoot(); }, 300);
     }
     awaySince = 0; try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
 
