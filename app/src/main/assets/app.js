@@ -114,11 +114,36 @@
   function ribY(r, u, t) {
     return H * r.y + Math.sin(u * Math.PI * r.f + t * r.s * 6) * H * r.amp + Math.sin(u * Math.PI * r.f * 2.1 - t * r.s * 4) * H * r.amp * .4;
   }
+  // ---- Photo backgrounds (a still picture costs the box nothing to show) ----
+  var BGS = {
+    moon: { file: 'bg_moon.jpg', pos: 'center 18%', label: 'MOONLIGHT' },
+    lake: { file: 'bg_lake.jpg', pos: 'center 32%', label: 'MOUNTAIN LAKE' },
+    skull: { file: 'bg_skull.jpg', pos: 'center 30%', label: 'BLUE SKULL' },
+    hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' },
+    truck: { file: 'bg_truck.jpg', pos: 'center 72%', label: 'TRUCK' },
+    ribbons: { file: null, label: 'NEON RIBBONS' }
+  };
+  var bgName = pref('background') || 'moon';
+  function applyBackground() {
+    var b = BGS[bgName] || BGS.moon;
+    var ph = $('photo');
+    document.body.classList.toggle('photo', !!b.file);
+    if (b.file) {
+      ph.style.backgroundImage = 'url(' + b.file + ')';
+      ph.style.backgroundPosition = b.pos;
+      ph.style.display = 'block';
+      cv.style.display = 'none';
+    } else {
+      ph.style.display = 'none';
+      cv.style.display = 'block';
+      redraw();
+    }
+  }
   var running = false, wantStill = false;
   function motionAlways() { return pref('motion') === 'always'; }
   function startAnim() { redraw(); }
   function stopAnim() { }
-  function redraw() { if (!running) { wantStill = true; running = true; requestAnimationFrame(frame); } }
+  function redraw() { if (BGS[bgName] && BGS[bgName].file) return; if (!running) { wantStill = true; running = true; requestAnimationFrame(frame); } }
   window.addEventListener('resize', redraw);
   function frame(now) {
     if (!running) return;
@@ -171,6 +196,7 @@
     }
     cx.globalCompositeOperation = 'source-over';
   }
+  applyBackground();
   startAnim();
 
   // ------------------------------------------------------------------
@@ -1063,6 +1089,9 @@
       '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
       '<span class="btn go" id="sNotif">ALLOW NEXUS TO SEE WHAT\'S PLAYING</span>' +
       '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. This lets Nexus announce songs and skip tracks in Spotify.</div></div>' +
+      '<div class="field"><label>BACKGROUND</label>' +
+      Object.keys(BGS).map(function (k) { return '<span class="btn' + (k === bgName ? ' go' : '') + '" data-bg="' + k + '">' + BGS[k].label + '</span>'; }).join('') +
+      '</div>' +
       '<div class="field"><label>GRAPHICS</label>' +
       '<span class="btn' + (LITE ? ' go' : '') + '" id="sLite">SMOOTH (RECOMMENDED)</span><span class="btn' + (LITE ? '' : ' go') + '" id="sHigh">HIGH DETAIL</span>' +
       '<div class="hint">Smooth mode runs better on this box. Changes apply after Replay Startup.</div></div>' +
@@ -1096,6 +1125,9 @@
     $('sHomeChoose').addEventListener('click', function () { if (A) A.openHomeChooser(); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-bg]'), function (el) {
+      el.addEventListener('click', function () { bgName = el.getAttribute('data-bg'); setPref('background', bgName); applyBackground(); openSettings(); });
     });
     $('sNotif').addEventListener('click', function () { if (A) A.openNotificationAccess(); });
     $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); redraw(); openSettings(); });

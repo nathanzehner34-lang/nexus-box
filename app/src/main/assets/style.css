@@ -1,6 +1,8 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #01030f; color: #e8f0ff;
   font-family: "Roboto", "Segoe UI", sans-serif; }
+#photo { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #01030f center / cover no-repeat; display: none; }
+body.night #photo { filter: brightness(.45) saturate(.8); }
 #vig { position: fixed; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,.55) 100%); }
 body.night #vig { background: radial-gradient(ellipse at center, rgba(0,0,0,.2) 30%, rgba(0,0,0,.8) 100%); }
 #bg { image-rendering: auto; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; display: block; }
@@ -159,3 +161,7 @@ body.party .tile { border-color: rgba(255,255,255,.35); }
 #xpMid { position: absolute; left: 0; right: 0; top: 40%; text-align: center; font-size: 6vmin; letter-spacing: 1vmin; color: #fff; font-weight: 700; }
 #xpBottom { position: absolute; left: 3vw; right: 3vw; bottom: 4vh; text-align: center; font-size: 2.8vmin; letter-spacing: .3vmin; color: #cfe3ff; }
 #xpClose { position: absolute; right: 2vw; top: 2vh; font-size: 6vmin; color: rgba(255,255,255,.7); padding: 1vmin 2vmin; z-index: 5; }
+
+body.photo .tile { background: rgba(4,8,24,.62); border-color: rgba(170,200,255,.22); }
+body.photo .tile .lb, body.photo .tile .ic { text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+body.photo #clock, body.photo #statusBox, body.photo #caption { text-shadow: 0 1px 4px rgba(0,0,0,.9); }
