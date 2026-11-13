@@ -255,7 +255,6 @@
       cx.fillStyle = 'rgba(255,106,213,' + (.6 + pulse * .4) + ')'; cx.fillRect(0, H0 - 1, W, 2);
       $('xpMid').style.transform = 'scale(' + (1 + pulse * .08) + ')';
     }, 30);
-    N.say('Night drive mode. Turn up the music.');
   }
 
   // ------------------------------------------------------------------
@@ -277,12 +276,11 @@
       later(function () {
         stage = LINES.indexOf(l);
         text('xpTop', l[1]);
-        if (l[2]) N.say(l[2]);
+        // no talking here, so the music keeps playing
         if (stage === 5) {
           var nm = loc && loc.name ? loc.name : 'your location';
           text('xpMid', 'YOU ARE HERE');
           text('xpBottom', N.esc(nm.toUpperCase()) + (loc ? ' · ' + (+loc.lat).toFixed(3) + '°, ' + (+loc.lon).toFixed(3) + '°' : ''));
-          N.say('Target acquired. You are here' + (loc && loc.name ? ', in ' + loc.name : '') + '.');
           later(function () { if (running === 'zoom') XP.close(true); }, 7000);
         }
       }, l[0]);
