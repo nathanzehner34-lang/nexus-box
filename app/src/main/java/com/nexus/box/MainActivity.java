@@ -92,11 +92,15 @@ public class MainActivity extends Activity {
     private boolean hasFocus = false;
     private AudioFocusRequest focusRequest = null;
     private final Runnable releaseFocusRunnable = this::releaseFocusNow;
+    private final Runnable focusSafety = () -> { audioHolds = 0; releaseFocusNow(); };
     private volatile List<String[]> labelCache = null;
     // Spotify's "Device broadcast status" feed (works even when notification access is blocked on the box)
     private volatile String spTitle = null, spArtist = null;
     private volatile boolean spPlaying = false;
     private volatile long spTime = 0;
+    private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { labelCache = null; appsCache = null; }
+    };
     private final BroadcastReceiver spotifyReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             String a = i.getAction();
@@ -139,6 +143,14 @@ public class MainActivity extends Activity {
 
         startTts();
         pool.execute(this::labels);
+        try {
+            IntentFilter pf = new IntentFilter();
+            pf.addAction(Intent.ACTION_PACKAGE_ADDED);
+            pf.addAction(Intent.ACTION_PACKAGE_REMOVED);
+            pf.addAction(Intent.ACTION_PACKAGE_CHANGED);
+            pf.addDataScheme("package");
+            registerReceiver(packageReceiver, pf);
+        } catch (Exception ignored) {}
         try {
             IntentFilter f = new IntentFilter();
             f.addAction("com.spotify.music.metadatachanged");
@@ -187,7 +199,7 @@ public class MainActivity extends Activity {
                     @Override public void onError(String id) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
                 });
                 ttsReady = true;
-                ui.postDelayed(MainActivity.this::cacheGreetings, 4000);
+                ui.postDelayed(MainActivity.this::cacheGreetings, 20000);
                 synchronized (pendingSpeech) {
                     for (String[] p : pendingSpeech) doSpeak(p[0], p[1]);
                     pendingSpeech.clear();
@@ -281,8 +293,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         // Stop all drawing and timers while another app (SmartTube, Stremio...) is on screen.
-        if (web != null) { web.onPause(); web.pauseTimers(); }
         js("Nexus.paused && Nexus.paused()");
+        stopMeter();
+        audioHolds = 0;
+        ui.removeCallbacks(releaseFocusRunnable);
+        if (!(tts != null && tts.isSpeaking())) releaseFocusNow();
+        if (web != null) { web.onPause(); web.pauseTimers(); }
         super.onPause();
     }
 
@@ -296,6 +312,7 @@ public class MainActivity extends Activity {
         if (tts != null) tts.shutdown();
         stopMeter();
         try { unregisterReceiver(spotifyReceiver); } catch (Exception ignored) {}
+        try { unregisterReceiver(packageReceiver); } catch (Exception ignored) {}
         if (recognizer != null) recognizer.destroy();
         pool.shutdownNow();
         super.onDestroy();
@@ -520,7 +537,10 @@ public class MainActivity extends Activity {
 
     private void hold(boolean on) {
         ui.post(() -> {
-            if (on) { audioHolds++; grabFocus(); }
+            if (on) {
+                audioHolds++; grabFocus();
+                ui.removeCallbacks(focusSafety); ui.postDelayed(focusSafety, 45000);
+            }
             else {
                 audioHolds = Math.max(0, audioHolds - 1);
                 if (audioHolds == 0) { ui.removeCallbacks(releaseFocusRunnable); ui.postDelayed(releaseFocusRunnable, 450); }
@@ -536,14 +556,14 @@ public class MainActivity extends Activity {
             Visualizer v = new Visualizer(0);
             v.setEnabled(false);
             int[] range = Visualizer.getCaptureSizeRange();
-            v.setCaptureSize(Math.min(1024, range[1]));
+            v.setCaptureSize(Math.max(range[0], Math.min(512, range[1])));
             v.setScalingMode(Visualizer.SCALING_MODE_NORMALIZED);
             v.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
                 long lastSend = 0;
                 @Override public void onWaveFormDataCapture(Visualizer vis, byte[] wave, int rate) {}
                 @Override public void onFftDataCapture(Visualizer vis, byte[] fft, int rate) {
                     long now = System.currentTimeMillis();
-                    if (now - lastSend < 50) return;
+                    if (now - lastSend < 80) return;
                     lastSend = now;
                     int n = fft.length / 2;
                     double bass = 0, all = 0;
@@ -556,7 +576,7 @@ public class MainActivity extends Activity {
                     bass /= 6.0; all /= 64.0;
                     js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", all) + "," + String.format(Locale.US, "%.4f", bass) + ")");
                 }
-            }, Math.min(Visualizer.getMaxCaptureRate(), 20000), false, true);
+            }, Math.min(Visualizer.getMaxCaptureRate(), 12000), false, true);
             v.setEnabled(true);
             visualizer = v;
             return true;
@@ -788,7 +808,7 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void refreshApps() { appsCache = null; labelCache = null; pool.execute(MainActivity.this::labels); }
+        public void refreshApps() { /* apps are re-scanned automatically when something is installed or removed */ }
 
         @JavascriptInterface
         public boolean launchApp(String namesCsv) {
