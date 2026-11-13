@@ -360,7 +360,17 @@
     if (heardResolve) { var r = heardResolve; heardResolve = null; r({ error: code }); }
   };
 
+  var pausedForTalk = false;
+  function pauseForTalk() {
+    try { if (A && A.isMusicActive()) { A.media('pause'); pausedForTalk = true; } } catch (e) {}
+  }
+  function resumeAfterTalk() {
+    if (!pausedForTalk) return;
+    pausedForTalk = false;
+    setTimeout(function () { try { if (A) A.media('play'); } catch (e) {} }, 400);
+  }
   function listen() {
+    pauseForTalk();
     return new Promise(function (resolve) {
       heardResolve = resolve;
       if (A) { A.listen(); return; }
@@ -383,6 +393,7 @@
     listen().then(function (res) {
       if (typeof res !== 'string' || !res.trim()) {
         orbBusy = false;
+        resumeAfterTalk();
         var code = res && res.error;
         if (code === 'unavailable') { caption('VOICE INPUT NOT AVAILABLE ON THIS BOX'); return say('Voice recognition isn\'t available on this box yet.'); }
         if (code === '9') { caption('MICROPHONE PERMISSION NEEDED'); return say('I need microphone permission. Allow it in the Android settings for Nexus.'); }
@@ -390,7 +401,7 @@
         return;
       }
       caption('“' + res + '”');
-      return handleSpeech(res).then(function () { orbBusy = false; });
+      return handleSpeech(res).then(function () { orbBusy = false; resumeAfterTalk(); }, function () { orbBusy = false; resumeAfterTalk(); });
     });
   }
   $('orbWrap').addEventListener('click', orbTap);
@@ -437,7 +448,7 @@
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
     if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
-      if (MUSIC_CMDS[mi][0].test(t)) { music(MUSIC_CMDS[mi][1]); caption(MUSIC_CMDS[mi][2].toUpperCase()); return say(MUSIC_CMDS[mi][2]); }
+      if (MUSIC_CMDS[mi][0].test(t)) { if (MUSIC_CMDS[mi][1] === 'pause') pausedForTalk = false; else if (MUSIC_CMDS[mi][1] === 'next' || MUSIC_CMDS[mi][1] === 'prev') pausedForTalk = false; music(MUSIC_CMDS[mi][1]); caption(MUSIC_CMDS[mi][2].toUpperCase()); return say(MUSIC_CMDS[mi][2]); }
     }
     if (/what('s| is) (this|the) song|what song/.test(t) && A) {
       var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
@@ -581,12 +592,15 @@
 
   Nexus._meter = function (rms) {
     if (!P.on) return;
-    P.lastMeter = Date.now();
+    if (rms > 0.006) P.lastMeter = Date.now();
     $('pMeterFill').style.width = Math.min(100, rms * 900) + '%';
     var spike = rms > P.avg * 1.45 && rms > 0.012 && Date.now() - P.lastBeat > 170;
     P.avg = P.avg * 0.92 + rms * 0.08;
     if (spike) beat(Math.min(1, rms * 8));
     if (rms > P.avg * 2.6 && rms > 0.05 && Date.now() - (P.lastShout || 0) > 25000) { P.lastShout = Date.now(); partyTalk(pick(SHOUTS)); }
+  };
+  Nexus._meterSource = function (src) {
+    $('pHint').textContent = src === 'music' ? 'LIGHTS ARE SYNCED TO THE MUSIC' : 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
   };
   Nexus._meterError = function () { $('pHint').textContent = 'MIC UNAVAILABLE · LIGHTS RUNNING ON AUTO BEAT'; };
 
@@ -613,7 +627,9 @@
     listen().then(function (res) {
       $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
       try { if (A && P.on) A.meter(true); } catch (e) {}
-      if (typeof res === 'string' && res.trim()) return handleSpeech(res);
+      var done = function () { resumeAfterTalk(); };
+      if (typeof res === 'string' && res.trim()) return handleSpeech(res).then(done, done);
+      done();
     });
   }
 

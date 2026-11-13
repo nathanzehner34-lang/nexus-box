@@ -20,6 +20,7 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaMetadata;
+import android.media.audiofx.Visualizer;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
@@ -81,6 +82,7 @@ public class MainActivity extends Activity {
     private volatile boolean meterOn = false;
     private volatile List<String[]> labelCache = null;
     private Thread meterThread = null;
+    private Visualizer visualizer = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -371,6 +373,36 @@ public class MainActivity extends Activity {
 
     // ---------- Party meter (listens to the music in the cab) ----------
 
+    private boolean startVisualizer() {
+        // Listens to the music the box itself is playing (no microphone, so the music isn't turned down).
+        try {
+            Visualizer v = new Visualizer(0);
+            v.setEnabled(false);
+            int[] range = Visualizer.getCaptureSizeRange();
+            v.setCaptureSize(Math.min(1024, range[1]));
+            v.setScalingMode(Visualizer.SCALING_MODE_NORMALIZED);
+            v.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
+                long lastSend = 0;
+                @Override public void onWaveFormDataCapture(Visualizer vis, byte[] wave, int rate) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastSend < 70) return;
+                    lastSend = now;
+                    double sum = 0;
+                    for (byte b : wave) { double x = ((b & 0xFF) - 128) / 128.0; sum += x * x; }
+                    double rms = Math.sqrt(sum / Math.max(1, wave.length)) * 0.35;
+                    js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", rms) + ")");
+                }
+                @Override public void onFftDataCapture(Visualizer vis, byte[] fft, int rate) {}
+            }, Math.min(Visualizer.getMaxCaptureRate(), 20000), true, false);
+            v.setEnabled(true);
+            visualizer = v;
+            return true;
+        } catch (Throwable t) {
+            visualizer = null;
+            return false;
+        }
+    }
+
     private void startMeter() {
         if (meterOn) return;
         if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -378,6 +410,8 @@ public class MainActivity extends Activity {
             return;
         }
         meterOn = true;
+        if (startVisualizer()) { js("Nexus._meterSource && Nexus._meterSource('music')"); return; }
+        js("Nexus._meterSource && Nexus._meterSource('mic')");
         meterThread = new Thread(() -> {
             int rate = 22050;
             int min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -408,7 +442,13 @@ public class MainActivity extends Activity {
         meterThread.start();
     }
 
-    private void stopMeter() { meterOn = false; }
+    private void stopMeter() {
+        meterOn = false;
+        if (visualizer != null) {
+            try { visualizer.setEnabled(false); visualizer.release(); } catch (Throwable ignored) {}
+            visualizer = null;
+        }
+    }
 
     // ---------- Music control (Spotify etc.) ----------
 
@@ -738,6 +778,11 @@ public class MainActivity extends Activity {
                 int dir = steps > 0 ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER;
                 for (int i = 0; i < Math.abs(steps); i++) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, i == Math.abs(steps) - 1 ? AudioManager.FLAG_SHOW_UI : 0);
             });
+        }
+
+        @JavascriptInterface
+        public boolean isMusicActive() {
+            try { return ((AudioManager) getSystemService(Context.AUDIO_SERVICE)).isMusicActive(); } catch (Exception e) { return false; }
         }
 
         @JavascriptInterface
