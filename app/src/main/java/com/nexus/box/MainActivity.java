@@ -126,6 +126,7 @@ public class MainActivity extends Activity {
             String key = hr >= 4 && hr < 12 ? "morning" : hr >= 12 && hr < 17 ? "afternoon" : "evening";
             if (greetFile(key).exists() && greetFile(key).length() > 1000) {
                 nativeGreeting = true;
+                nativeGreetUsed = true;
                 playGreeting(key, "", "nativegreet");
             }
         }
@@ -185,6 +186,7 @@ public class MainActivity extends Activity {
 
     private MediaPlayer greetPlayer;
     private volatile boolean nativeGreeting = false;
+    private volatile boolean nativeGreetUsed = false;
 
     private void playGreeting(String key, String text, String id) {
         File f = greetFile(key);
@@ -596,6 +598,9 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean nativeGreeting() { return nativeGreeting; }
+
+        @JavascriptInterface
+        public boolean takeNativeGreetUsed() { boolean u = nativeGreetUsed; nativeGreetUsed = false; return u; }
 
         @JavascriptInterface
         public void greet(String key, String text, String id) { ui.post(() -> playGreeting(key, text, id)); }

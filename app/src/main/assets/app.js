@@ -168,7 +168,9 @@
     $('bootHello').textContent = greet + ', Nathan';
     $('bootWelcome').classList.add('on');
     var spoken = A && A.greet ? new Promise(function (resolve) {
-      var already = false; try { already = A.nativeGreeting && A.nativeGreeting(); } catch (e) {}
+      var used = false, already = false;
+      try { used = A.takeNativeGreetUsed && A.takeNativeGreetUsed(); already = used && A.nativeGreeting(); } catch (e) {}
+      if (used && !already) { resolve(); return; }
       var id = already ? 'nativegreet' : 'g' + (++seq);
       var fb = setTimeout(function () { delete speakWaiters[id]; resolve(); }, 15000);
       speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
