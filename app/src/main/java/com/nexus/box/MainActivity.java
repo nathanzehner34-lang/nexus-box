@@ -120,6 +120,16 @@ public class MainActivity extends Activity {
             if (!need.isEmpty()) requestPermissions(need.toArray(new String[0]), 7);
         }
 
+        // Start the recorded greeting right away, before the screen has even finished loading.
+        if (savedInstanceState == null) {
+            int hr = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            String key = hr >= 4 && hr < 12 ? "morning" : hr >= 12 && hr < 17 ? "afternoon" : "evening";
+            if (greetFile(key).exists() && greetFile(key).length() > 1000) {
+                nativeGreeting = true;
+                playGreeting(key, "", "nativegreet");
+            }
+        }
+
         String page = "file:///android_asset/index.html";
         web.loadUrl(savedInstanceState == null ? page + "#boot" : page);
     }
@@ -174,6 +184,7 @@ public class MainActivity extends Activity {
     }
 
     private MediaPlayer greetPlayer;
+    private volatile boolean nativeGreeting = false;
 
     private void playGreeting(String key, String text, String id) {
         File f = greetFile(key);
@@ -183,8 +194,8 @@ public class MainActivity extends Activity {
                 greetPlayer = new MediaPlayer();
                 greetPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
                 greetPlayer.setDataSource(f.getAbsolutePath());
-                greetPlayer.setOnCompletionListener(mp -> { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); mp.release(); greetPlayer = null; });
-                greetPlayer.setOnErrorListener((mp, w, e) -> { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); return true; });
+                greetPlayer.setOnCompletionListener(mp -> { nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); mp.release(); greetPlayer = null; });
+                greetPlayer.setOnErrorListener((mp, w, e) -> { nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); return true; });
                 greetPlayer.prepare();
                 greetPlayer.start();
                 return;
@@ -582,6 +593,9 @@ public class MainActivity extends Activity {
             if (!ttsReady) { synchronized (pendingSpeech) { pendingSpeech.add(new String[]{text, id}); } return; }
             doSpeak(text, id);
         }
+
+        @JavascriptInterface
+        public boolean nativeGreeting() { return nativeGreeting; }
 
         @JavascriptInterface
         public void greet(String key, String text, String id) { ui.post(() -> playGreeting(key, text, id)); }

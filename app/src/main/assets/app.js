@@ -168,10 +168,11 @@
     $('bootHello').textContent = greet + ', Nathan';
     $('bootWelcome').classList.add('on');
     var spoken = A && A.greet ? new Promise(function (resolve) {
-      var id = 'g' + (++seq);
+      var already = false; try { already = A.nativeGreeting && A.nativeGreeting(); } catch (e) {}
+      var id = already ? 'nativegreet' : 'g' + (++seq);
       var fb = setTimeout(function () { delete speakWaiters[id]; resolve(); }, 15000);
       speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
-      A.greet(gkey, gtext, id);
+      if (!already) A.greet(gkey, gtext, id);
     }) : say(gtext);
     return spoken
       .then(function () { return wait(700); })
