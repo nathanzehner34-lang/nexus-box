@@ -18,6 +18,8 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
@@ -84,6 +86,12 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private String appsCache = null;
     private volatile boolean meterOn = false;
+    // ---- Audio focus: while Nexus talks or listens it holds "transient" focus, which makes Spotify & co
+    //      pause cleanly and resume by themselves when Nexus lets go (no volume jumps, no fake button presses).
+    private int audioHolds = 0;
+    private boolean hasFocus = false;
+    private AudioFocusRequest focusRequest = null;
+    private final Runnable releaseFocusRunnable = this::releaseFocusNow;
     private volatile List<String[]> labelCache = null;
     // Spotify's "Device broadcast status" feed (works even when notification access is blocked on the box)
     private volatile String spTitle = null, spArtist = null;
@@ -171,6 +179,7 @@ public class MainActivity extends Activity {
     private void startTts() {
         TextToSpeech.OnInitListener listener = status -> {
             if (status == TextToSpeech.SUCCESS) {
+                try { tts.setAudioAttributes(speechAttrs()); } catch (Exception ignored) {}
                 applyVoice();
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String id) { js("Nexus._speakStart(" + JSONObject.quote(id) + ")"); }
@@ -227,10 +236,11 @@ public class MainActivity extends Activity {
             try {
                 if (greetPlayer != null) greetPlayer.release();
                 greetPlayer = new MediaPlayer();
-                greetPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+                greetPlayer.setAudioAttributes(speechAttrs());
+                hold(true);
                 greetPlayer.setDataSource(f.getAbsolutePath());
-                greetPlayer.setOnCompletionListener(mp -> { nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); mp.release(); greetPlayer = null; });
-                greetPlayer.setOnErrorListener((mp, w, e) -> { nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); return true; });
+                greetPlayer.setOnCompletionListener(mp -> { hold(false); nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); mp.release(); greetPlayer = null; });
+                greetPlayer.setOnErrorListener((mp, w, e) -> { hold(false); nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); return true; });
                 greetPlayer.prepare();
                 greetPlayer.start();
                 return;
@@ -320,7 +330,6 @@ public class MainActivity extends Activity {
 
     private void doSpeak(String text, String id) {
         Bundle b = new Bundle();
-        b.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC);
         tts.speak(text, TextToSpeech.QUEUE_ADD, b, id);
     }
 
@@ -466,6 +475,56 @@ public class MainActivity extends Activity {
                 if (c != null) c.disconnect();
             }
             js("Nexus._http(" + JSONObject.quote(id) + "," + code + "," + JSONObject.quote(text) + ")");
+        });
+    }
+
+    // ---------- Audio focus ----------
+
+    private AudioAttributes speechAttrs() {
+        return new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build();
+    }
+
+    private void grabFocus() {
+        ui.removeCallbacks(releaseFocusRunnable);
+        if (hasFocus) return;
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            int res;
+            if (Build.VERSION.SDK_INT >= 26) {
+                if (focusRequest == null) {
+                    focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                            .setAudioAttributes(speechAttrs())
+                            .setOnAudioFocusChangeListener(change -> {})
+                            .build();
+                }
+                res = am.requestAudioFocus(focusRequest);
+            } else {
+                res = am.requestAudioFocus(change -> {}, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+            }
+            hasFocus = res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseFocusNow() {
+        if (audioHolds > 0 || !hasFocus) return;
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) am.abandonAudioFocusRequest(focusRequest);
+            else am.abandonAudioFocus(null);
+        } catch (Exception ignored) {}
+        hasFocus = false;
+    }
+
+    private void hold(boolean on) {
+        ui.post(() -> {
+            if (on) { audioHolds++; grabFocus(); }
+            else {
+                audioHolds = Math.max(0, audioHolds - 1);
+                if (audioHolds == 0) { ui.removeCallbacks(releaseFocusRunnable); ui.postDelayed(releaseFocusRunnable, 450); }
+            }
         });
     }
 
@@ -920,6 +979,9 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < Math.abs(steps); i++) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, i == Math.abs(steps) - 1 ? AudioManager.FLAG_SHOW_UI : 0);
             });
         }
+
+        @JavascriptInterface
+        public void audioHold(boolean on) { hold(on); }
 
         @JavascriptInterface
         public boolean isMusicActive() {
