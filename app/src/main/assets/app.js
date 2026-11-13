@@ -382,7 +382,7 @@
   $('caption').addEventListener('click', orbTap);
 
   var COMMANDS = [
-    [/\b(youtube|smart ?tube)\b/, 'youtube'], [/\bstremio|stream ?io\b/, 'stremio'], [/\b(maps?|navigation|navigate)\b/, 'maps'],
+    [/\b(youtube|smart ?tube)\b/, 'youtube'], [/\b(spotify|music)\b/, 'music'], [/\bstremio|stream ?io\b/, 'stremio'], [/\b(maps?|navigation|navigate)\b/, 'maps'],
     [/\b(messages?|texts?)\b/, 'messages'], [/\bparty\b/, 'party'], [/\btrivia\b/, 'trivia'],
     [/\b(brief|briefing)\b/, 'briefing'], [/\bnight (drive|mode)\b/, 'night'],
     [/\b(all apps|app drawer)\b/, 'apps'], [/\bsettings\b/, 'settings']
@@ -440,6 +440,7 @@
   var APPS = {
     youtube: { names: 'SmartTube,Smart Tube,smarttube,YouTube', label: 'SmartTube' },
     stremio: { names: 'Stremio', label: 'Stremio' },
+    music: { names: 'Spotify,YouTube Music,Music', label: 'Spotify', missing: 'Spotify isn\'t installed yet. Grab it from the Play Store. It\'s free.' },
     maps: { names: 'Organic Maps,OsmAnd,Maps.me,Maps,Waze,Navigation,Navi,Sygic', label: 'Maps',
       missing: 'No maps app is installed yet. Get Organic Maps from the Play Store. It\'s free and works offline.' },
     messages: { names: 'Messages,Messaging,SMS,Mms', label: 'Messages' }
@@ -456,7 +457,7 @@
   function act(name) {
     if (booting) return;
     switch (name) {
-      case 'youtube': case 'stremio': case 'maps': case 'messages': launchNamed(name); break;
+      case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
