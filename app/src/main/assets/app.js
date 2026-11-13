@@ -806,24 +806,53 @@
     });
   }
 
-  // ---- Daily briefing
+  // ---- Daily briefing (weather + world and Canadian news + on this day) ----
+  var FEEDS = [
+    { name: 'World', src: 'BBC', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', take: 6 },
+    { name: 'Canada', src: 'CBC', url: 'https://www.cbc.ca/webfeed/rss/rss-canada', take: 4 },
+    { name: 'Business', src: 'BBC', url: 'https://feeds.bbci.co.uk/news/business/rss.xml', take: 3 }
+  ];
+  function loadFeed(f) {
+    return http('GET', f.url, null, { 'User-Agent': 'NexusTruckBox/1.0' }).then(function (r) {
+      if (r.status !== 200) return [];
+      var doc = new DOMParser().parseFromString(r.text, 'text/xml');
+      return Array.prototype.slice.call(doc.getElementsByTagName('item'), 0, f.take).map(function (it) {
+        var t = it.getElementsByTagName('title')[0], d = it.getElementsByTagName('description')[0];
+        return { section: f.name, src: f.src, title: t ? t.textContent.trim() : '',
+          desc: d ? d.textContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220) : '' };
+      }).filter(function (x) { return x.title; });
+    }).catch(function () { return []; });
+  }
+
   function openBriefing() {
-    openPanel('DAILY BRIEFING', '<div class="muted">Compiling your briefing…</div>');
+    openPanel('DAILY BRIEFING', '<div class="muted">Compiling your briefing: weather, world news, Canada…</div>');
+    say('Compiling your briefing. One moment.');
     var d = new Date();
     var dateLine = d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-    loadWeather().then(function (w) {
-      var lines = ['Good to see you, Nathan. Here is your briefing.', 'Today is ' + dateLine + '.'];
-      if (w) lines.push('In ' + w.city + ' it\'s ' + w.temp + ' degrees and ' + w.desc.toLowerCase() + ', feeling like ' + w.feels +
-        '. Today\'s high is ' + w.hi + ' and the low is ' + w.lo + ', with wind around ' + w.wind + ' kilometres an hour.');
-      else lines.push('Weather is unavailable. Set your city in Settings and I\'ll include it.');
-      var extra = askAI([{ role: 'user', parts: [{ text: 'Today is ' + dateLine + '. Give me one interesting "on this day in history" fact and one short motivational line for the day ahead. Two or three sentences total, spoken style.' }] }],
-        PERSONA, { maxTokens: 512 }).catch(function () { return ''; });
-      return extra.then(function (x) {
-        if (x) lines.push(x.replace(/[*#_`]/g, ''));
-        lines.push('All systems are online. Drive safe.');
-        $('panelBody').innerHTML = lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') + '<span class="btn" id="brStop">STOP</span>';
+    Promise.all([loadWeather()].concat(FEEDS.map(loadFeed))).then(function (res) {
+      var w = res[0], news = [].concat.apply([], res.slice(1));
+      var intro = 'Good ' + (d.getHours() < 12 ? 'morning' : d.getHours() < 17 ? 'afternoon' : 'evening') + ', Nathan. Here is your briefing for ' + dateLine + '.';
+      var wx = w ? ('Weather in ' + w.city + ': ' + w.temp + ' degrees and ' + w.desc.toLowerCase() + ', feeling like ' + w.feels +
+        '. High of ' + w.hi + ', low of ' + w.lo + ', wind around ' + w.wind + ' kilometres an hour.') : 'Weather is unavailable right now.';
+      var list = news.map(function (n, i) { return (i + 1) + '. [' + n.section + '] ' + n.title + (n.desc ? ' — ' + n.desc : ''); }).join('\n');
+      var sys = PERSONA + ' You are reading a radio-style news briefing. Use ONLY the headlines provided; do not add facts that are not in them. ' +
+        'Write it in your own words, neutral and factual, no opinions. About 250 words. Cover the most important world stories first, then Canada, then one business item. ' +
+        'Use short spoken sentences and smooth transitions like "In Canada," and "In business news,". Finish with one interesting "on this day in history" fact for ' + dateLine + '. No markdown, no lists.';
+      var aiPart = news.length ? askAI([{ role: 'user', parts: [{ text: 'Headlines:\n' + list }] }], sys, { maxTokens: 2048, temperature: 0.4 })
+        .catch(function () { return null; }) : Promise.resolve(null);
+      return aiPart.then(function (txt) {
+        var spoken = txt ? txt.replace(/[*#_`]/g, '') :
+          (news.length ? 'Here are the top headlines. ' + news.slice(0, 8).map(function (n) { return n.section + ': ' + n.title + '.'; }).join(' ') : 'I couldn\'t reach the news right now.');
+        var outro = 'That\'s your briefing. All systems are online. Drive safe.';
+        var html = '<p class="green">' + esc(dateLine.toUpperCase()) + '</p><p>' + esc(wx) + '</p>' +
+          spoken.split(/\n+/).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('') +
+          (news.length ? '<p class="muted" style="margin-top:3vmin">HEADLINES</p>' + news.map(function (n) {
+            return '<p class="muted" style="margin:.6vmin 0">' + esc(n.section.toUpperCase()) + ' · ' + esc(n.title) + ' <span style="opacity:.6">(' + n.src + ')</span></p>';
+          }).join('') : '') +
+          '<span class="btn" id="brStop">STOP READING</span>';
+        $('panelBody').innerHTML = html;
         $('brStop').addEventListener('click', stopTalking);
-        return say(lines.join(' '));
+        return say(intro + ' ' + wx + ' ' + spoken + ' ' + outro);
       });
     });
   }
