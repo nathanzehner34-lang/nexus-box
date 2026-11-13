@@ -393,7 +393,7 @@
           if (key !== songKey) return;
           mood = { name: j.mood || 'vibes', colors: (j.colors && j.colors.length >= 3) ? j.colors.slice(0, 3) : mood.colors, energy: Math.max(0, Math.min(1, +j.energy || .5)) };
           text('xpMid', N.esc(String(mood.name).toUpperCase()));
-          if (j.line) N.say(j.line);
+          if (j.line) text('xpTop', 'SONG AURA · ' + N.esc(String(j.line).toUpperCase()));
         })
         .catch(function () { mood.name = 'vibes'; text('xpMid', 'VIBES'); });
     }
