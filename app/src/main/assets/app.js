@@ -114,6 +114,8 @@
     skull: { file: 'bg_skull.jpg', pos: 'center 30%', label: 'BLUE SKULL' },
     hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' },
     truck: { file: 'bg_truck.jpg', pos: 'center 72%', label: 'TRUCK' },
+    synth: { file: 'bg_synth.jpg', pos: 'center 45%', label: 'SYNTHWAVE' },
+    vapor: { file: 'bg_vapor.jpg', pos: 'center 45%', label: 'VAPORWAVE' },
     ribbons: { file: null, label: 'NEON RIBBONS' }
   };
   var bgName = pref('background') || 'moon';

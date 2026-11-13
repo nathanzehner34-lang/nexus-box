@@ -639,26 +639,33 @@
     }, 30);
   }
 
-  // 9. NORTHERN LIGHTS
+  // 9. NORTHERN LIGHTS — calm, slow curtains; the COLOURS change with the beat
   function aurora() {
     var b = beatTracker(), stars = [];
     for (var i = 0; i < 120; i++) stars.push([Math.random(), Math.random() * .8, Math.random() * 6, Math.random()]);
+    // three colour sets the curtains glide between on each beat
+    var PALETTES = [[135, 160, 285], [180, 200, 300], [100, 140, 320], [160, 290, 330], [120, 190, 260], [60, 140, 200]];
+    var pal = 0, cur = PALETTES[0].slice(), glow = 0;
     text('xpTop', 'NORTHERN LIGHTS');
-    var ahue = 0;
     loop(function (now) {
-      var p = b.tick(now);
-      if (b.hit) ahue = (ahue + 25) % 120;
-      var g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#000208'); g.addColorStop(1, 'hsl(' + (210 + b.k * 30) + ',80%,' + (8 + b.k * 8) + '%)'); cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+      b.tick(now);
+      if (b.hit) { pal = (pal + 1) % PALETTES.length; glow = 1; }
+      glow *= .92;
+      for (var c = 0; c < 3; c++) {                    // smooth glide toward the new colours
+        var target = PALETTES[pal][c], d = ((target - cur[c] + 540) % 360) - 180;
+        cur[c] = (cur[c] + d * .12 + 360) % 360;
+      }
+      var g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#000208'); g.addColorStop(1, '#03142a'); cx.fillStyle = g; cx.fillRect(0, 0, W, H);
       stars.forEach(function (s2) { cx.fillStyle = 'rgba(255,255,255,' + (.2 + .6 * Math.abs(Math.sin(now * .0015 + s2[2]))) * s2[3] + ')'; cx.fillRect(s2[0] * W, s2[1] * H, S * 2, S * 2); });
       cx.globalCompositeOperation = 'lighter';
       for (var band = 0; band < 3; band++) {
-        var baseY = H * (.25 + band * .1), hh = [135, 160, 285][band] + (band === 2 ? -ahue : ahue) * .4;
+        var baseY = H * (.25 + band * .1), hh = cur[band];
         for (var x = 0; x < W; x += Math.max(2, 3 * S * 2)) {
-          var u = x / W, y = baseY + Math.sin(u * 6 + now * (.0004 + b.e * .0008) + band) * H * (.07 + b.k * .04) + Math.sin(u * 15 - now * .0007) * H * .02;
-          var hgt = H * (.22 + .1 * Math.sin(u * 9 + now * .0005 + band)) * (1 + b.e * .6 + b.k * .5);
-          var al = (.1 + .06 * Math.sin(u * 20 + now * .003)) * (1 + b.e * 1.5 + b.k * 2.5);
+          var u = x / W, y = baseY + Math.sin(u * 6 + now * .0004 + band) * H * .07 + Math.sin(u * 15 - now * .0007) * H * .02;
+          var hgt = H * (.22 + .1 * Math.sin(u * 9 + now * .0005 + band));
+          var al = (.1 + .05 * Math.sin(u * 20 + now * .002)) * (1 + glow * .6);
           var gr = cx.createLinearGradient(0, y - hgt, 0, y);
-          gr.addColorStop(0, 'hsla(' + hh + ',100%,60%,0)'); gr.addColorStop(1, 'hsla(' + hh + ',100%,' + (55 + b.k * 20) + '%,' + Math.min(.85, al) + ')');
+          gr.addColorStop(0, 'hsla(' + hh + ',100%,60%,0)'); gr.addColorStop(1, 'hsla(' + hh + ',100%,' + (55 + glow * 10) + '%,' + Math.min(.7, al) + ')');
           cx.fillStyle = gr; cx.fillRect(x, y - hgt, Math.max(2, 3 * S * 2), hgt);
         }
       }
