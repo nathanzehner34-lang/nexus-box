@@ -804,86 +804,133 @@
     }, 30);
   }
 
-  // 13. HOLOGRAM FRIEND — glowing wireframe head that looks around, blinks and talks
+  // 13. HOLOGRAM FRIEND — human wireframe head. Changes colour with the music,
+  //     eyes look around, and it pulls random crazy moves. Tap it for a new trick.
   function friend() {
-    var b = beatTracker(), hue = beatHue(190, 50), LAT = 14, LON = 20, mesh = [];
-    function headPt(v, u) {             // v: -1 chin … 1 top,  u: angle around the head (0 = face)
-      var r = Math.sqrt(Math.max(0, 1 - v * v));
-      var wx = v < -.2 ? .78 + .22 * Math.max(0, 1 + (v + .2) * 1.25) : 1;   // narrower jaw
-      var x = Math.sin(u) * r * .82 * wx, z = Math.cos(u) * r * .95, y = -v * 1.18;
-      var face = Math.exp(-u * u * 8);
-      z += face * .14 * Math.exp(-Math.pow((v + .05) / .14, 2));             // nose
-      z -= face * .05 * Math.exp(-Math.pow((v - .22) / .08, 2)) * (1 - Math.exp(-u * u * 60)); // eye sockets
-      if (v < -.55) z *= .92;
-      return [x, y, z];
+    var b = beatTracker(), hue = beatHue(190, 55);
+    // head cross-sections from neck to crown: [height, half-width, half-depth, forward shift]
+    var T = [[-1.05, .36, .40, -.15], [-.70, .34, .38, -.12], [-.62, .28, .36, .06], [-.50, .40, .50, .04], [-.35, .56, .64, .02],
+             [-.15, .70, .78, 0], [.05, .74, .84, 0], [.25, .76, .88, -.02], [.50, .74, .88, -.05], [.75, .62, .75, -.07], [.92, .40, .48, -.08], [1, .05, .05, -.08]];
+    function sect(h) {
+      for (var i = 1; i < T.length; i++) if (h <= T[i][0]) { var A2 = T[i - 1], B2 = T[i], f = (h - A2[0]) / (B2[0] - A2[0]); return [A2[1] + (B2[1] - A2[1]) * f, A2[2] + (B2[2] - A2[2]) * f, A2[3] + (B2[3] - A2[3]) * f]; }
+      return [.05, .05, -.08];
     }
-    for (var a = 0; a <= LAT; a++) { var row = []; for (var o = 0; o <= LON; o++) row.push(headPt(-.98 + a / LAT * 1.96, o / LON * 6.2832 - Math.PI)); mesh.push(row); }
-    var eyeL = headPt(.22, -.42), eyeR = headPt(.22, .42), blink = 0, nextBlink = 0, listening = false, look = [0, 0], lookT = [0, 0], nextLook = 0;
-    function proj(pt, yaw, pitch, cxp, cyp, R) {
-      var x = pt[0] * Math.cos(yaw) + pt[2] * Math.sin(yaw), z = -pt[0] * Math.sin(yaw) + pt[2] * Math.cos(yaw), y = pt[1];
+    function G(v, c, w) { return Math.exp(-Math.pow((v - c) / w, 2)); }
+    function surf(h, u) {
+      var sc = sect(h), x = sc[0] * Math.sin(u), z = sc[2] + sc[1] * Math.cos(u), fr = Math.max(0, Math.cos(u)); fr *= fr;
+      if (h > -.64) {
+        var ax = Math.abs(x), nose = h > -.17 && h < .15 ? (.15 - h) / .32 : 0;
+        z += fr * (.3 * nose * G(x, 0, .075) + .08 * G(h, .24, .05) - .1 * G(h, .1, .07) * G(ax, .27, .12)
+              + .03 * G(h, -.05, .1) * G(ax, .45, .12) + .05 * G(h, -.32, .05) * G(x, 0, .22) + .05 * G(h, -.55, .05) * G(x, 0, .2));
+      }
+      if (Math.abs(Math.abs(u) - 1.571) < .35 && h > -.12 && h < .2) x += (x > 0 ? 1 : -1) * .07 * G(h, .04, .09); // ears
+      return [x, -h * 1.12, z];
+    }
+    var RINGS = 24, LONS = 26, mesh = [], jit = [];
+    for (var r = 0; r <= RINGS; r++) { var row = [], jr = []; var h = -1.05 + r / RINGS * 2.04;
+      for (var o = 0; o <= LONS; o++) { row.push(surf(h, o / LONS * 6.2832 - Math.PI)); jr.push([Math.random() - .5, Math.random() - .5, Math.random() - .5]); }
+      mesh.push(row); jit.push(jr); }
+    var eyes = [-1, 1].map(function (sd) { return { x: .27 * sd, h: .1 }; });
+    function eyePt(e, dx, dh) { var sc = sect(e.h + dh), xx = e.x + dx, u = Math.asin(Math.max(-1, Math.min(1, xx / sc[0]))); var p = surf(e.h + dh, u); p[2] += .02; return p; }
+
+    var gaze = [0, 0], gazeT = [0, 0], nextGaze = 0, blink = 0, nextBlink = 0;
+    var move = null, moveT = 0, nextMove = performance.now() + 2500, spin = 0, nod = 0, beats = 0;
+    var MOVES = ['spin', 'glitch', 'explode', 'laugh', 'stare', 'scan', 'rainbow', 'shake', 'tilt'];
+    function startMove(m, now) { move = m || MOVES[Math.random() * MOVES.length | 0]; moveT = now; }
+    function rot(p, yaw, pitch, roll) {
+      var x = p[0] * Math.cos(yaw) + p[2] * Math.sin(yaw), z = -p[0] * Math.sin(yaw) + p[2] * Math.cos(yaw), y = p[1];
       var y2 = y * Math.cos(pitch) - z * Math.sin(pitch), z2 = y * Math.sin(pitch) + z * Math.cos(pitch);
-      var f = 3.2 / (3.2 - z2);
-      return [cxp + x * R * f, cyp + y2 * R * f, z2];
+      var x3 = x * Math.cos(roll) - y2 * Math.sin(roll), y3 = x * Math.sin(roll) + y2 * Math.cos(roll);
+      return [x3, y3, z2];
     }
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      var talking = window.Nexus.speaking, talk = talking ? (.3 + .7 * Math.abs(Math.sin(now * .02) * Math.sin(now * .009 + 1))) : (listening ? .15 : 0);
-      if (now > nextLook) { lookT = [(Math.random() - .5) * .9, (Math.random() - .5) * .35]; if (talking || listening) lookT = [0, 0]; nextLook = now + 1500 + Math.random() * 3000; }
-      look[0] += (lookT[0] - look[0]) * .05; look[1] += (lookT[1] - look[1]) * .05;
-      if (now > nextBlink) { blink = 1; nextBlink = now + 2000 + Math.random() * 4000; }
-      blink = Math.max(0, blink - .2);
+      if (b.hit) { beats++; nod = 1; if (beats % 24 === 0) startMove('explode', now); }
+      nod *= .85;
+      if (!move && now > nextMove) { startMove(null, now); }
+      var mt = move ? (now - moveT) / 1000 : 0, DUR = { spin: 1.6, glitch: .8, explode: 1.6, laugh: 1.8, stare: 2.2, scan: 2, rainbow: 4, shake: 1.2, tilt: 2 };
+      if (move && mt > DUR[move]) { move = null; nextMove = now + 2500 + Math.random() * 3500; }
+      var ease = move ? Math.sin(Math.min(1, mt / DUR[move]) * Math.PI) : 0;
+
+      if (now > nextGaze) { gazeT = [(Math.random() - .5) * 2, (Math.random() - .5) * 1.4]; nextGaze = now + 600 + Math.random() * 2200; }
+      if (move === 'stare') gazeT = [0, 0];
+      gaze[0] += (gazeT[0] - gaze[0]) * .25; gaze[1] += (gazeT[1] - gaze[1]) * .25;
+      if (now > nextBlink) { blink = 1; nextBlink = now + 1800 + Math.random() * 4000; }
+      blink = Math.max(0, blink - .18);
+
+      var yaw = gaze[0] * .25 + Math.sin(now * .0004) * .1, pitch = -.06 + gaze[1] * .1 - nod * .05, roll = Math.sin(now * .0003) * .04;
+      if (move === 'spin') yaw += 6.2832 * (1 - Math.pow(1 - Math.min(1, mt / DUR.spin), 3));
+      if (move === 'shake') yaw += Math.sin(mt * 40) * .25 * ease;
+      if (move === 'tilt') { roll += .35 * ease; pitch += .12 * ease; }
+      var scale = 1 + b.k * .03 + (move === 'stare' ? .25 * ease : 0);
+      var ex = move === 'explode' ? Math.max(0, Math.sin(Math.min(1, mt / DUR.explode) * Math.PI)) : 0;
+      var gl = move === 'glitch' ? 1 : (Math.random() < .015 ? .5 : 0);
+
       cx.fillStyle = '#000308'; cx.fillRect(0, 0, W, H);
-      var cxp = W / 2, cyp = H * .47, R = Math.min(W, H) * .36 * (1 + b.k * .03);
-      var g = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * 1.8);
-      g.addColorStop(0, 'hsla(' + hh + ',100%,55%,' + (.16 + p * .12 + talk * .1) + ')'); g.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
+      var cxp = W / 2, cyp = H * .44, R = Math.min(W, H) * .34 * scale;
+      var g = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * 2);
+      g.addColorStop(0, 'hsla(' + hh + ',100%,55%,' + (.14 + p * .14) + ')'); g.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
       cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-      var yaw = look[0] + Math.sin(now * .0005) * .06, pitch = look[1] - .05;
-      var P = mesh.map(function (row) { return row.map(function (pt) { return proj(pt, yaw, pitch, cxp, cyp, R); }); });
-      cx.lineWidth = Math.max(1, S * 2.2);
-      function seg(a2, b2) {
-        var dep = (a2[2] + b2[2]) / 2, al = dep > 0 ? .25 + dep * .7 : .06;
-        cx.strokeStyle = 'hsla(' + hh + ',100%,' + (62 + talk * 15) + '%,' + al + ')';
-        cx.beginPath(); cx.moveTo(a2[0], a2[1]); cx.lineTo(b2[0], b2[1]); cx.stroke();
+
+      function P(pt, jj) {
+        var q = pt;
+        if (ex > 0 || gl > 0) q = [pt[0] * (1 + ex * 1.2) + jj[0] * (ex * 1.4 + gl * .06), pt[1] * (1 + ex * 1.2) + jj[1] * (ex * 1.4), pt[2] * (1 + ex * 1.2) + jj[2] * ex * 1.4];
+        var rq = rot(q, yaw, pitch, roll), f = 3.4 / (3.4 - rq[2]);
+        return [cxp + rq[0] * R * f, cyp + rq[1] * R * f, rq[2]];
       }
-      for (var a = 0; a <= LAT; a++) for (var o = 0; o < LON; o++) seg(P[a][o], P[a][o + 1]);
-      for (var o2 = 0; o2 < LON; o2++) for (var a3 = 0; a3 < LAT; a3++) seg(P[a3][o2], P[a3 + 1][o2]);
-      // eyes
-      [eyeL, eyeR].forEach(function (e) {
-        var q = proj([e[0], e[1], e[2] + .02], yaw, pitch, cxp, cyp, R), ew = R * .13, eh = R * .05 * (1 - blink) + 1;
-        cx.shadowColor = 'hsl(' + ((hh + 180) % 360) + ',100%,70%)'; cx.shadowBlur = R * .15;
-        cx.fillStyle = 'hsl(' + ((hh + 180) % 360) + ',100%,' + (75 + p * 15) + '%)';
-        cx.beginPath(); cx.ellipse(q[0], q[1], ew, eh, 0, 0, 6.283); cx.fill(); cx.shadowBlur = 0;
-      });
-      // mouth
-      var m0 = proj(headPt(-.42, -.32), yaw, pitch, cxp, cyp, R), m1 = proj(headPt(-.42, .32), yaw, pitch, cxp, cyp, R), open = R * (.015 + talk * .09);
-      cx.strokeStyle = 'hsl(' + ((hh + 180) % 360) + ',100%,75%)'; cx.lineWidth = Math.max(1, S * 3);
-      cx.beginPath(); cx.moveTo(m0[0], m0[1]);
-      cx.quadraticCurveTo((m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2 + open, m1[0], m1[1]);
-      cx.quadraticCurveTo((m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2 - open * .35, m0[0], m0[1]); cx.stroke();
-      // hologram base + scanlines + flicker
-      var by = cyp + R * 1.45;
-      var bg2 = cx.createRadialGradient(cxp, by, 0, cxp, by, R * .9);
+      var PP = mesh.map(function (row, ri) { return row.map(function (pt, oi) { return P(pt, jit[ri][oi]); }); });
+      var lw = Math.max(1, S * 2.2), rainbow = move === 'rainbow';
+      var scanY = move === 'scan' ? cyp - R * 1.2 + (mt / DUR.scan) * R * 2.6 : -1e9;
+      cx.lineWidth = lw;
+      function seg(a2, b2, ring) {
+        var dep = (a2[2] + b2[2]) / 2, al = dep > 0 ? .25 + dep * .75 : .07;
+        var near = Math.abs((a2[1] + b2[1]) / 2 - scanY) < R * .08;
+        var hu = rainbow ? (hh + ring * 15) % 360 : hh;
+        cx.strokeStyle = near ? 'rgba(255,255,255,.95)' : 'hsla(' + hu + ',100%,' + (60 + p * 15) + '%,' + al + ')';
+        var o2 = gl ? (Math.random() - .5) * R * .08 * gl : 0;
+        cx.beginPath(); cx.moveTo(a2[0] + o2, a2[1]); cx.lineTo(b2[0] + o2, b2[1]); cx.stroke();
+      }
+      for (var ri = 0; ri <= RINGS; ri++) for (var oi = 0; oi < LONS; oi++) seg(PP[ri][oi], PP[ri][oi + 1], ri);
+      for (var oj = 0; oj < LONS; oj++) for (var rj = 0; rj < RINGS; rj++) seg(PP[rj][oj], PP[rj + 1][oj], rj);
+      if (gl) { cx.globalCompositeOperation = 'lighter'; cx.drawImage(cv, R * .03 * gl, 0); cx.globalCompositeOperation = 'source-over'; }
+
+      if (ex < .3) {
+        var acc = 'hsl(' + ((hh + 180) % 360) + ',100%,' + (70 + p * 15) + '%)', wide = move === 'stare' ? 1.6 * ease + 1 : 1;
+        var Z = [0, 0, 0];
+        eyes.forEach(function (e) {
+          var open = (.035 * wide) * (1 - blink);
+          var L2 = P(eyePt(e, -.09, 0), Z), R2 = P(eyePt(e, .09, 0), Z), T2 = P(eyePt(e, 0, open + .004), Z), B2 = P(eyePt(e, 0, -open - .004), Z), C2 = P(eyePt(e, 0, 0), Z);
+          if (C2[2] < 0) return;
+          cx.strokeStyle = acc; cx.lineWidth = Math.max(1, S * 2.4);
+          cx.beginPath(); cx.moveTo(L2[0], L2[1]); cx.quadraticCurveTo(T2[0] * 2 - (L2[0] + R2[0]) / 2, T2[1] * 2 - (L2[1] + R2[1]) / 2, R2[0], R2[1]);
+          cx.quadraticCurveTo(B2[0] * 2 - (L2[0] + R2[0]) / 2, B2[1] * 2 - (L2[1] + R2[1]) / 2, L2[0], L2[1]); cx.stroke();
+          if (blink < .5) {
+            var I2 = P(eyePt(e, gaze[0] * .045, gaze[1] * .012), Z), ir = R * .034 * (move === 'stare' ? .7 : 1);
+            cx.shadowColor = acc; cx.shadowBlur = R * .12; cx.fillStyle = acc;
+            cx.beginPath(); cx.arc(I2[0], I2[1], ir, 0, 6.283); cx.fill(); cx.shadowBlur = 0;
+            cx.fillStyle = '#000'; cx.beginPath(); cx.arc(I2[0], I2[1], ir * .45, 0, 6.283); cx.fill();
+          }
+        });
+        // lips: move a little with the bass, wide open when laughing
+        var mo = (move === 'laugh' ? .05 + .04 * Math.abs(Math.sin(mt * 14)) : b.k * .025) + .004;
+        var ml = P(surf(-.33, -.3), Z), mr = P(surf(-.33, .3), Z), up = P(surf(-.33 + mo * .3, 0), Z), dn = P(surf(-.33 - mo, 0), Z);
+        if (up[2] > 0) {
+          cx.strokeStyle = acc; cx.lineWidth = Math.max(1, S * 2.6);
+          cx.beginPath(); cx.moveTo(ml[0], ml[1]); cx.quadraticCurveTo(up[0] * 2 - (ml[0] + mr[0]) / 2, up[1] * 2 - (ml[1] + mr[1]) / 2, mr[0], mr[1]);
+          cx.quadraticCurveTo(dn[0] * 2 - (ml[0] + mr[0]) / 2, dn[1] * 2 - (ml[1] + mr[1]) / 2, ml[0], ml[1]); cx.stroke();
+        }
+      }
+      // hologram base, scan beam, scanlines
+      var by = cyp + R * 1.25;
+      var bg2 = cx.createRadialGradient(cxp, by, 0, cxp, by, R);
       bg2.addColorStop(0, 'hsla(' + hh + ',100%,60%,' + (.35 + p * .3) + ')'); bg2.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
-      cx.fillStyle = bg2; cx.beginPath(); cx.ellipse(cxp, by, R * .9, R * .14, 0, 0, 6.283); cx.fill();
+      cx.fillStyle = bg2; cx.beginPath(); cx.ellipse(cxp, by, R, R * .14, 0, 0, 6.283); cx.fill();
+      if (move === 'scan') { cx.fillStyle = 'hsla(' + hh + ',100%,80%,.15)'; cx.fillRect(0, scanY - R * .03, W, R * .06); }
       cx.fillStyle = 'rgba(0,0,0,.2)';
       for (var s2 = (now / 40 | 0) % 4; s2 < H; s2 += 4) cx.fillRect(0, s2, W, 1);
-      if (Math.random() < .02) { cx.fillStyle = 'hsla(' + hh + ',100%,70%,.08)'; cx.fillRect(0, Math.random() * H, W, H * .05); }
     }, 30);
-    text('xpTop', 'NEXUS · HOLOGRAM FRIEND');
-    text('xpBottom', 'TAP ME TO TALK');
-    var busy = false;
-    layer.onclick = function () {
-      if (busy) return; busy = true;
-      N.stopTalking();
-      listening = true; text('xpBottom', 'LISTENING…');
-      N.listen().then(function (res) {
-        listening = false;
-        if (typeof res !== 'string' || !res.trim()) { busy = false; N.resumeAfterTalk(); text('xpBottom', 'DIDN\'T CATCH THAT · TAP TO TRY AGAIN'); return; }
-        text('xpBottom', '“' + N.esc(res) + '”');
-        return N.handleSpeech(res).then(function () { busy = false; N.resumeAfterTalk(); text('xpBottom', 'TAP ME TO TALK'); },
-          function () { busy = false; N.resumeAfterTalk(); });
-      });
-    };
+    text('xpTop', 'NEXUS · HOLOGRAM');
+    layer.onclick = function () { startMove(null, performance.now()); };
   }
 
   // ------------------------------------------------------------------
