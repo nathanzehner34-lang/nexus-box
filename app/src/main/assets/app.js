@@ -81,9 +81,17 @@
   function ribY(r, u, t) {
     return H * r.y + Math.sin(u * Math.PI * r.f + t * r.s * 6) * H * r.amp + Math.sin(u * Math.PI * r.f * 2.1 - t * r.s * 4) * H * r.amp * .4;
   }
+  var running = false, wantStill = false;
+  function motionAlways() { return pref('motion') === 'always'; }
+  function startAnim() { if (!running) { running = true; last = 0; requestAnimationFrame(frame); } }
+  function stopAnim() { if (motionAlways() || mode.party || mode.intruder || booting) return; wantStill = true; }
+  function redraw() { if (!running) { wantStill = true; running = true; requestAnimationFrame(frame); } }
+  window.addEventListener('resize', redraw);
   function frame(now) {
-    requestAnimationFrame(frame);
-    if (now - lastDraw < FRAME_MS) return;
+    if (!running) return;
+    if (wantStill) { wantStill = false; running = false; lastDraw = 0; }
+    else requestAnimationFrame(frame);
+    if (running && now - lastDraw < FRAME_MS) return;
     lastDraw = now;
     var dt = Math.min(80, now - (last || now)); last = now;
     var speed = mode.party ? 3.2 : mode.night ? .45 : 1;
@@ -130,7 +138,7 @@
     }
     cx.globalCompositeOperation = 'source-over';
   }
-  requestAnimationFrame(frame);
+  startAnim();
 
   // ------------------------------------------------------------------
   // Boot sequence
@@ -145,6 +153,7 @@
 
   function runBoot() {
     booting = true;
+    startAnim();
     $('home').classList.add('hidden');
     $('panel').classList.add('hidden');
     var boot = $('boot'); boot.classList.remove('hidden'); boot.style.opacity = 1;
@@ -164,7 +173,7 @@
       .then(function () { $('bootWelcome').classList.add('on'); return say('Hello, Nathan. Biometrics complete. How may I assist you?'); })
       .then(function () { return wait(900); })
       .then(function () { boot.style.opacity = 0; return wait(800); })
-      .then(function () { boot.classList.add('hidden'); showHome(); booting = false; });
+      .then(function () { boot.classList.add('hidden'); showHome(); booting = false; stopAnim(); });
   }
 
   function showHome() {
@@ -240,13 +249,16 @@
       if (i >= models.length) return Promise.reject(new Error('models'));
       return http('POST', 'https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', body,
         { 'Content-Type': 'application/json', 'x-goog-api-key': key }).then(function (r) {
+        var detail = '';
+        try { detail = (JSON.parse(r.text).error || {}).message || ''; } catch (x) { detail = String(r.text || '').slice(0, 120); }
         if (r.status === 404) return attempt(i + 1);
-        if (r.status === 400 || r.status === 401 || r.status === 403) {
-          if (/API key/i.test(r.text)) throw new Error('badkey');
-          return attempt(i + 1);
+        if (r.status === 401 || r.status === 403 || (r.status === 400 && /API key|credential|auth/i.test(r.text))) {
+          var be = new Error('badkey'); be.detail = detail; throw be;
         }
+        if (r.status === 400) return attempt(i + 1);
         if (r.status === 429) throw new Error('limit');
-        if (r.status !== 200) throw new Error('http' + r.status);
+        if (r.status === -1) { var ne = new Error('network'); ne.detail = detail; throw ne; }
+        if (r.status !== 200) { var he = new Error('http'); he.detail = 'Google error ' + r.status + ': ' + detail; throw he; }
         var j = JSON.parse(r.text);
         var parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
         var text = parts.filter(function (p) { return p.text && !p.thought; }).map(function (p) { return p.text; }).join('').trim();
@@ -260,10 +272,11 @@
   function aiErrorLine(e) {
     var m = e && e.message;
     if (m === 'nokey') return 'My AI link isn\'t set up yet. Add the free Google key in Settings and I\'ll be fully online.';
-    if (m === 'badkey') return 'The AI key in Settings isn\'t working. Double check it for me.';
+    if (m === 'badkey') return 'Google rejected the AI key. It should start with A I Z A. Check it in Settings.';
     if (m === 'offline') return 'I\'ve lost the network connection, so I\'m running on backup systems.';
     if (m === 'limit') return 'I\'ve hit today\'s free AI limit. I\'ll be back to full power tomorrow.';
-    return 'I couldn\'t reach my AI core just now. Try me again in a moment.';
+    if (m === 'network') return 'I can\'t reach Google right now. Check the internet connection.';
+    return 'I couldn\'t reach my AI core just now.';
   }
 
   // Offline backup brain
@@ -355,12 +368,22 @@
     return null;
   }
 
+  var lastAiError = '';
+  function quickAnswer(t) {
+    var d = new Date();
+    if (/\b(what time|the time|time is it)\b/.test(t)) return 'It\'s ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
+    if (/\b(what day|today's date|the date|what's the date)\b/.test(t)) return 'It\'s ' + d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }) + '.';
+    if (/\b(weather|temperature|how cold|how hot)\b/.test(t) && weatherNow) return 'It\'s ' + weatherNow.temp + ' degrees and ' + weatherNow.desc.toLowerCase() + ' in ' + weatherNow.city + '.';
+    return null;
+  }
   function handleSpeech(raw) {
     var t = raw.toLowerCase().replace(/^(hey |ok |okay )?nexus[, ]*/, '').trim();
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
     if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
     var cmd = matchCommand(t);
     if (cmd) { act(cmd); return Promise.resolve(); }
+    var quick = quickAnswer(t);
+    if (quick) { caption(quick); return say(quick); }
 
     chatHistory.push({ role: 'user', parts: [{ text: raw }] });
     if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
@@ -375,6 +398,7 @@
       return reply;
     }).catch(function (e) {
       chatHistory.pop();
+      lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
       var off = offlineReply(t);
       return (e.message === 'nokey' || e.message === 'offline') ? off : aiErrorLine(e);
     }).then(function (reply) {
@@ -436,6 +460,7 @@
     if (mode.night && mode.party) mode.party = false;
     try { if (A) A.setBrightness(mode.night ? 0.12 : -1); } catch (e) {}
     badges();
+    redraw();
     say(mode.night ? 'Night drive engaged.' : 'Night drive disengaged.');
   }
 
@@ -447,6 +472,7 @@
     badges();
     clearInterval(partyTimer);
     if (mode.party) {
+      startAnim();
       say(pick(['Party mode engaged. Passengers, the vibe is yours.', 'Party mode engaged. Let\'s light it up.', 'Party mode online. Turn it up.']));
       var f = $('flash'), n = 0;
       partyTimer = setInterval(function () {
@@ -457,6 +483,7 @@
       }, 500);
     } else {
       $('flash').style.opacity = 0;
+      stopAnim();
       say('Party mode disengaged.');
     }
   }
@@ -475,6 +502,7 @@
   function runIntruder() {
     if (mode.intruder) return;
     mode.intruder = true;
+    startAnim();
     var el = $('intruder'); el.classList.remove('hidden', 'safe');
     $('intruderText').textContent = 'UNAUTHORIZED PASSENGER DETECTED';
     $('intruderSub').textContent = '';
@@ -493,6 +521,7 @@
         $('intruderText').textContent = 'JUST KIDDING';
         $('intruderSub').textContent = 'WELCOME ABOARD';
         mode.intruder = false;
+        stopAnim(); redraw();
         return say('Just kidding. Welcome aboard.');
       })
       .then(function () { return wait(1200); })
@@ -692,7 +721,7 @@
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
       '<div class="hint">Get a free key at aistudio.google.com → Get API key. This powers chat, trivia, stories and briefings.</div>' +
-      '<span class="btn go" id="sKeySave">SAVE KEY</span><span class="btn" id="sKeyTest">TEST AI</span><div id="sKeyMsg" class="hint"></div></div>' +
+      '<span class="btn go" id="sKeySave">SAVE KEY</span><span class="btn" id="sKeyTest">TEST AI</span><div id="sKeyMsg" class="hint">' + (lastAiError ? 'Last AI problem: ' + esc(lastAiError) : (window.NEXUS_DEFAULT_KEY ? 'A built-in key is installed. A key saved here overrides it.' : '')) + '</div></div>' +
 
       '<div class="field"><label>YOUR CITY (FOR WEATHER)</label>' +
       '<input type="text" id="sCity" placeholder="e.g. Cambridge Bay" value="' + esc(pref('city')) + '">' +
@@ -710,6 +739,9 @@
       homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
       '<div class="hint">Use the "Open …" buttons to get back to the box\'s original home screen any time.</div></div>' +
 
+      '<div class="field"><label>BACKGROUND MOTION</label>' +
+      '<span class="btn' + (motionAlways() ? '' : ' go') + '" id="sMoStart">STARTUP ONLY (FASTEST)</span><span class="btn' + (motionAlways() ? ' go' : '') + '" id="sMoAlways">ALWAYS MOVING</span>' +
+      '<div class="hint">Startup only: the ribbons move during the startup and party mode, then freeze so everything else runs fast.</div></div>' +
       '<div class="field"><label>GRAPHICS</label>' +
       '<span class="btn' + (LITE ? ' go' : '') + '" id="sLite">SMOOTH (RECOMMENDED)</span><span class="btn' + (LITE ? '' : ' go') + '" id="sHigh">HIGH DETAIL</span>' +
       '<div class="hint">Smooth mode runs better on this box. Changes apply after Replay Startup.</div></div>' +
@@ -726,7 +758,7 @@
       $('sKeyMsg').textContent = 'Testing…';
       askAI([{ role: 'user', parts: [{ text: 'Confirm you are online in one short sentence.' }] }], PERSONA, { maxTokens: 256 })
         .then(function (r) { $('sKeyMsg').innerHTML = '<span class="green">AI ONLINE.</span> ' + esc(r); say(r); })
-        .catch(function (e) { $('sKeyMsg').innerHTML = '<span class="red">' + esc(aiErrorLine(e)) + '</span>'; });
+        .catch(function (e) { $('sKeyMsg').innerHTML = '<span class="red">' + esc(aiErrorLine(e)) + '</span>' + (e.detail ? '<br>' + esc(e.detail) : ''); });
     });
     $('sCitySave').addEventListener('click', function () {
       setPref('city', $('sCity').value.trim()); $('sCityMsg').textContent = 'Checking weather…';
@@ -744,8 +776,10 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
     });
-    $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); openSettings(); });
-    $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); openSettings(); });
+    $('sMoStart').addEventListener('click', function () { setPref('motion', 'startup'); stopAnim(); openSettings(); });
+    $('sMoAlways').addEventListener('click', function () { setPref('motion', 'always'); startAnim(); openSettings(); });
+    $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); redraw(); openSettings(); });
+    $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); redraw(); openSettings(); });
     $('sReplay').addEventListener('click', function () { closePanel(); runBoot(); });
     $('sAndroid').addEventListener('click', function () { if (A) A.openSystemSettings(); });
   }
@@ -755,11 +789,11 @@
   // ------------------------------------------------------------------
   Nexus.back = function () { if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { closePanel(); };
-  Nexus.resumed = function () { tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+  Nexus.resumed = function () { redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
 
   // ------------------------------------------------------------------
   // Start
   // ------------------------------------------------------------------
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
-  else { $('boot').classList.add('hidden'); showHome(); }
+  else { $('boot').classList.add('hidden'); showHome(); stopAnim(); }
 })();

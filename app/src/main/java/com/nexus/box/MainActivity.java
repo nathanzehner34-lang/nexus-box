@@ -145,7 +145,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
+    }
+
+    @Override
+    protected void onPause() {
+        // Stop all drawing and timers while another app (SmartTube, Stremio...) is on screen.
+        if (web != null) { web.onPause(); web.pauseTimers(); }
+        super.onPause();
     }
 
     @Override
