@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Nexus</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div id="flash"></div>
+
+<!-- BOOT SEQUENCE -->
+<div id="boot" class="layer">
+  <div id="bootList"></div>
+  <div id="bootWelcome">
+    <div class="hello">Hello, Nathan</div>
+    <div class="sub">BIOMETRICS COMPLETE · HOW MAY I ASSIST YOU?</div>
+  </div>
+</div>
+
+<!-- HOME SCREEN -->
+<div id="home" class="layer hidden">
+  <div id="topbar">
+    <div id="clockBox">
+      <div id="clock">--:--</div>
+      <div id="sysline">ALL SYSTEMS ONLINE</div>
+    </div>
+    <div id="modeBadges"></div>
+    <div id="statusBox">
+      <div id="net">● ONLINE</div>
+      <div id="weather">Weather: set your city in Settings</div>
+    </div>
+  </div>
+
+  <div id="tiles">
+    <div class="tile" data-act="youtube"><span class="ic">▶</span><span class="lb">YOUTUBE</span></div>
+    <div class="tile" data-act="stremio"><span class="ic">◉</span><span class="lb">STREMIO</span></div>
+    <div class="tile" data-act="maps"><span class="ic">⌖</span><span class="lb">MAPS</span></div>
+    <div class="tile" data-act="messages"><span class="ic">✉</span><span class="lb">MESSAGES</span></div>
+    <div class="tile" data-act="party" id="tParty"><span class="ic">✦</span><span class="lb">PARTY MODE</span></div>
+    <div class="tile" data-act="trivia"><span class="ic">?</span><span class="lb">TRIVIA NIGHT</span></div>
+    <div class="tile" data-act="story"><span class="ic">❖</span><span class="lb">STORY MODE</span></div>
+    <div class="tile" data-act="briefing"><span class="ic">☰</span><span class="lb">DAILY BRIEFING</span></div>
+    <div class="tile" data-act="intruder"><span class="ic">⚠</span><span class="lb">INTRUDER ALERT</span></div>
+    <div class="tile" data-act="night" id="tNight"><span class="ic">☾</span><span class="lb">NIGHT DRIVE</span></div>
+    <div class="tile" data-act="apps"><span class="ic">▦</span><span class="lb">ALL APPS</span></div>
+    <div class="tile" data-act="settings"><span class="ic">⚙</span><span class="lb">SETTINGS</span></div>
+  </div>
+
+  <div id="assistant">
+    <div id="orbWrap">
+      <div id="orbRing"></div>
+      <div id="orb"></div>
+    </div>
+    <div id="caption">TAP THE ORB TO TALK TO NEXUS</div>
+  </div>
+</div>
+
+<!-- PANEL (trivia, story, briefing, apps, settings, chat) -->
+<div id="panel" class="layer hidden">
+  <div id="panelBox">
+    <div id="panelHead">
+      <div id="panelTitle"></div>
+      <div id="panelClose">✕</div>
+    </div>
+    <div id="panelBody"></div>
+  </div>
+</div>
+
+<!-- INTRUDER ALERT -->
+<div id="intruder" class="layer hidden">
+  <div class="warn">⚠ WARNING ⚠</div>
+  <div id="intruderText">UNAUTHORIZED PASSENGER DETECTED</div>
+  <div id="intruderSub"></div>
+</div>
+
+<!-- PARTY OVERLAY -->
+<div id="partyText" class="hidden">PARTY MODE</div>
+
+<script src="app.js"></script>
+</body>
+</html>
