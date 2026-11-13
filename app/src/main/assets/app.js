@@ -11,6 +11,20 @@
   var Nexus = window.Nexus = {};
   var speakWaiters = {}, httpWaiters = {}, seq = 0;
 
+
+  // ---- Real local time. The box's own clock/timezone can be wrong, so once we know where we are,
+  //      we use the timezone offset from the weather service (based on GPS/city) instead. ----
+  var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function L() {
+    var off = parseInt(pref('utcoff'), 10);
+    if (isNaN(off)) { var d0 = new Date(); return { h: d0.getHours(), m: d0.getMinutes(), dow: d0.getDay(), day: d0.getDate(), mon: d0.getMonth(), y: d0.getFullYear() }; }
+    var d = new Date(Date.now() + off * 1000);
+    return { h: d.getUTCHours(), m: d.getUTCMinutes(), dow: d.getUTCDay(), day: d.getUTCDate(), mon: d.getUTCMonth(), y: d.getUTCFullYear() };
+  }
+  function timeStr() { var l = L(); return (l.h % 12 || 12) + ':' + (l.m < 10 ? '0' : '') + l.m + (l.h < 12 ? ' AM' : ' PM'); }
+  function dateStr() { var l = L(); return DAYS[l.dow] + ', ' + MONTHS[l.mon] + ' ' + l.day; }
+
   function pref(k) { try { return A ? A.getPref(k) : (localStorage.getItem('p_' + k) || ''); } catch (e) { return ''; } }
   function setPref(k, v) { try { if (A) A.setPref(k, v); else localStorage.setItem('p_' + k, v); } catch (e) {} }
 
@@ -218,7 +232,7 @@
     var boot = $('boot'); boot.classList.remove('hidden'); boot.style.opacity = 1;
     $('bootList').innerHTML = '';
     $('bootWelcome').classList.remove('on');
-    var hr = new Date().getHours();
+    var hr = L().h;
     var greet = hr >= 4 && hr < 12 ? 'Good morning' : hr >= 12 && hr < 17 ? 'Good afternoon' : 'Good evening';
     var gkey = hr >= 4 && hr < 12 ? 'morning' : hr >= 12 && hr < 17 ? 'afternoon' : 'evening';
     var gtext = greet + ', Nathan. I am Nexus, your personal assistant. How may I assist you?';
@@ -248,7 +262,7 @@
   // Clock, network, weather
   // ------------------------------------------------------------------
   function tickClock() {
-    var d = new Date(), hh = d.getHours(), mm = d.getMinutes();
+    var lt = L(), hh = lt.h, mm = lt.m;
     var h12 = hh % 12 || 12;
     $('clock').textContent = h12 + ':' + (mm < 10 ? '0' : '') + mm;
     var on = online();
@@ -309,6 +323,7 @@
         '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1')
         .then(function (r) {
           var j = JSON.parse(r.text), c = j.current;
+          if (typeof j.utc_offset_seconds === 'number') setPref('utcoff', String(j.utc_offset_seconds));
           weatherNow = { temp: Math.round(c.temperature_2m), feels: Math.round(c.apparent_temperature), desc: WCODES[c.weather_code] || 'Unknown',
             wind: Math.round(c.wind_speed_10m), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]), city: g.name };
           $('weather').textContent = weatherNow.temp + '° · ' + weatherNow.desc + ' · feels ' + weatherNow.feels + '°';
@@ -394,7 +409,7 @@
     for (var i = 0; i < OFFLINE.length; i++) {
       if (OFFLINE[i][0].test(text)) {
         var r = pick(OFFLINE[i][1]);
-        if (r === null) { var d = new Date(); return 'It\'s ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.'; }
+        if (r === null) { return 'It\'s ' + timeStr() + '.'; }
         return r;
       }
     }
@@ -499,9 +514,8 @@
   ];
   var lastAiError = '';
   function quickAnswer(t) {
-    var d = new Date();
-    if (/\b(what time|the time|time is it)\b/.test(t)) return 'It\'s ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
-    if (/\b(what day|today's date|the date|what's the date)\b/.test(t)) return 'It\'s ' + d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }) + '.';
+    if (/\b(what time|the time|time is it)\b/.test(t)) return 'It\'s ' + timeStr() + '.';
+    if (/\b(what day|today's date|the date|what's the date)\b/.test(t)) return 'It\'s ' + dateStr() + '.';
     if (/\b(where am i|my location|where are we)\b/.test(t)) return placeNow ? 'We\'re in ' + placeNow + '.' : 'I can\'t get a location fix right now.';
     if (/\b(weather|temperature|how cold|how hot)\b/.test(t) && weatherNow) return 'It\'s ' + weatherNow.temp + ' degrees and ' + weatherNow.desc.toLowerCase() + ' in ' + weatherNow.city + '.';
     return null;
@@ -528,8 +542,7 @@
     if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
     setOrb('thinking', true);
     caption('THINKING…');
-    var now = new Date();
-    var ctx = PERSONA + ' Current local time: ' + now.toLocaleString() + '.' +
+    var ctx = PERSONA + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
       (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '');
     return askAI(chatHistory, ctx, { maxTokens: 400 }).then(function (reply) {
       reply = reply.replace(/[*#_`]/g, '');
@@ -660,15 +673,33 @@
     P.decay = setTimeout(function () { w.style.opacity = .12; t.style.transform = 'scale(1)'; }, 140);
   }
 
-  Nexus._meter = function (rms) {
-    if (window.XP && XP.onMeter) XP.onMeter(rms);
+  // ---- Beat analyser: turns the music signal into "energy" (0-1) and "kicks" (bass hits) ----
+  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, last: 0, kicks: 0, live: 0 };
+  BEAT.tick = function () { BEAT.k *= .86; BEAT.e *= .97; return Math.max(BEAT.e, BEAT.k); };
+  function feedBeat(all, bass) {
+    if (bass === undefined) bass = all;
+    var now = Date.now();
+    BEAT.avg = BEAT.avg * .97 + all * .03;
+    BEAT.bavg = BEAT.bavg * .94 + bass * .06;
+    BEAT.peak = Math.max(BEAT.peak * .995, all);
+    if (all > .004) BEAT.live = now;
+    var lvl = Math.min(1, Math.max(0, all / (BEAT.peak * .9 + 1e-4)));
+    BEAT.e = Math.max(BEAT.e * .8, lvl);
+    if (bass > BEAT.bavg * 1.3 && bass > .008 && now - BEAT.last > 190) {
+      BEAT.last = now; BEAT.kicks++;
+      BEAT.k = Math.min(1, Math.max(.65, (bass / (BEAT.bavg + 1e-4) - 1) * 1.2));
+      return true;
+    }
+    return false;
+  }
+  Nexus._meter = function (all, bass) {
+    var kick = feedBeat(all, bass);
+    if (window.XP && XP.onMeter) XP.onMeter(all, bass, kick);
     if (!P.on) return;
-    if (rms > 0.006) P.lastMeter = Date.now();
-    $('pMeterFill').style.width = Math.min(100, rms * 900) + '%';
-    var spike = rms > P.avg * 1.45 && rms > 0.012 && Date.now() - P.lastBeat > 170;
-    P.avg = P.avg * 0.92 + rms * 0.08;
-    if (spike) beat(Math.min(1, rms * 8));
-    if (rms > P.avg * 2.6 && rms > 0.05 && Date.now() - (P.lastShout || 0) > 25000) { P.lastShout = Date.now(); partyTalk(pick(SHOUTS)); }
+    if (all > 0.004) P.lastMeter = Date.now();
+    $('pMeterFill').style.width = Math.round(BEAT.e * 100) + '%';
+    if (kick && Date.now() - P.lastBeat > 150) beat(BEAT.k);
+    if (kick && BEAT.k > .95 && Date.now() - (P.lastShout || 0) > 25000) { P.lastShout = Date.now(); partyTalk(pick(SHOUTS)); }
   };
   Nexus._meterSource = function (src) {
     $('pHint').textContent = src === 'music' ? 'LIGHTS ARE SYNCED TO THE MUSIC' : 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
@@ -1013,11 +1044,11 @@
   function openBriefing() {
     openPanel('DAILY BRIEFING', '<div class="muted">Compiling your briefing: weather, world news, Canada…</div>');
     say('Compiling your briefing. One moment.');
-    var d = new Date();
-    var dateLine = d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+    var lt = L();
+    var dateLine = dateStr();
     Promise.all([loadWeather()].concat(FEEDS.map(loadFeed))).then(function (res) {
       var w = res[0], news = [].concat.apply([], res.slice(1));
-      var intro = 'Good ' + (d.getHours() < 12 ? 'morning' : d.getHours() < 17 ? 'afternoon' : 'evening') + ', Nathan. Here is your briefing for ' + dateLine + '.';
+      var intro = 'Good ' + (lt.h < 12 ? 'morning' : lt.h < 17 ? 'afternoon' : 'evening') + ', Nathan. Here is your briefing for ' + dateLine + '.';
       var wx = w ? ('Weather in ' + w.city + ': ' + w.temp + ' degrees and ' + w.desc.toLowerCase() + ', feeling like ' + w.feels +
         '. High of ' + w.hi + ', low of ' + w.lo + ', wind around ' + w.wind + ' kilometres an hour.') : 'Weather is unavailable right now.';
       var list = news.map(function (n, i) { return (i + 1) + '. [' + n.section + '] ' + n.title + (n.desc ? ' — ' + n.desc : ''); }).join('\n');

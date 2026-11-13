@@ -149,6 +149,13 @@ public class MainActivity extends Activity {
         // Start the recorded greeting right away, before the screen has even finished loading.
         if (savedInstanceState == null) {
             int hr = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            try {
+                String off = prefs.getString("p_utcoff", "");
+                if (!off.isEmpty()) {
+                    long localMs = System.currentTimeMillis() + Long.parseLong(off) * 1000L;
+                    hr = (int) ((localMs / 3600000L) % 24);
+                }
+            } catch (Exception ignored) {}
             String key = hr >= 4 && hr < 12 ? "morning" : hr >= 12 && hr < 17 ? "afternoon" : "evening";
             if (greetFile(key).exists() && greetFile(key).length() > 1000) {
                 nativeGreeting = true;
@@ -474,17 +481,23 @@ public class MainActivity extends Activity {
             v.setScalingMode(Visualizer.SCALING_MODE_NORMALIZED);
             v.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
                 long lastSend = 0;
-                @Override public void onWaveFormDataCapture(Visualizer vis, byte[] wave, int rate) {
+                @Override public void onWaveFormDataCapture(Visualizer vis, byte[] wave, int rate) {}
+                @Override public void onFftDataCapture(Visualizer vis, byte[] fft, int rate) {
                     long now = System.currentTimeMillis();
-                    if (now - lastSend < 70) return;
+                    if (now - lastSend < 50) return;
                     lastSend = now;
-                    double sum = 0;
-                    for (byte b : wave) { double x = ((b & 0xFF) - 128) / 128.0; sum += x * x; }
-                    double rms = Math.sqrt(sum / Math.max(1, wave.length)) * 0.35;
-                    js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", rms) + ")");
+                    int n = fft.length / 2;
+                    double bass = 0, all = 0;
+                    for (int k = 1; k < n; k++) {
+                        double re = fft[2 * k], im = fft[2 * k + 1];
+                        double mag = Math.sqrt(re * re + im * im) / 128.0;
+                        if (k <= 6) bass += mag;
+                        if (k <= 64) all += mag;
+                    }
+                    bass /= 6.0; all /= 64.0;
+                    js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", all) + "," + String.format(Locale.US, "%.4f", bass) + ")");
                 }
-                @Override public void onFftDataCapture(Visualizer vis, byte[] fft, int rate) {}
-            }, Math.min(Visualizer.getMaxCaptureRate(), 20000), true, false);
+            }, Math.min(Visualizer.getMaxCaptureRate(), 20000), false, true);
             v.setEnabled(true);
             visualizer = v;
             return true;
