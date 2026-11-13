@@ -42,7 +42,6 @@
     <div class="tile" data-act="messages"><span class="ic">✉</span><span class="lb">MESSAGES</span></div>
     <div class="tile" data-act="party" id="tParty"><span class="ic">✦</span><span class="lb">PARTY MODE</span></div>
     <div class="tile" data-act="trivia"><span class="ic">?</span><span class="lb">TRIVIA NIGHT</span></div>
-    <div class="tile" data-act="story"><span class="ic">❖</span><span class="lb">STORY MODE</span></div>
     <div class="tile" data-act="briefing"><span class="ic">☰</span><span class="lb">DAILY BRIEFING</span></div>
     <div class="tile" data-act="night" id="tNight"><span class="ic">☾</span><span class="lb">NIGHT DRIVE</span></div>
     <div class="tile" data-act="apps"><span class="ic">▦</span><span class="lb">ALL APPS</span></div>
@@ -76,8 +75,25 @@
   <div id="intruderSub"></div>
 </div>
 
-<!-- PARTY OVERLAY -->
-<div id="partyText" class="hidden">PARTY MODE</div>
+<!-- PARTY MODE -->
+<div id="party" class="layer hidden">
+  <div id="pWash"></div>
+  <div class="pbar" id="pTop"></div>
+  <div class="pbar" id="pBottom"></div>
+  <div id="pCenter">
+    <div id="pTitle">PARTY MODE</div>
+    <div id="pMeter"><div id="pMeterFill"></div></div>
+    <div id="pHint">TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT</div>
+  </div>
+  <div id="pButtons">
+    <div class="pbtn" data-fx="horn">📯<span>AIR HORN</span></div>
+    <div class="pbtn" data-fx="drop">💥<span>BASS DROP</span></div>
+    <div class="pbtn" data-fx="roll">🥁<span>DRUM ROLL</span></div>
+    <div class="pbtn" data-fx="hype">🎤<span>HYPE</span></div>
+    <div class="pbtn" data-fx="strobe">⚡<span>STROBE</span></div>
+    <div class="pbtn exit" data-fx="exit">✕<span>EXIT</span></div>
+  </div>
+</div>
 
 <script src="key.js"></script>
 <script src="app.js"></script>

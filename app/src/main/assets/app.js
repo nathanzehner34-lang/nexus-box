@@ -383,8 +383,8 @@
 
   var COMMANDS = [
     [/\b(youtube|smart ?tube)\b/, 'youtube'], [/\bstremio|stream ?io\b/, 'stremio'], [/\b(maps?|navigation|navigate)\b/, 'maps'],
-    [/\b(messages?|texts?)\b/, 'messages'], [/\bparty\b/, 'party'], [/\btrivia\b/, 'trivia'], [/\bstory\b/, 'story'],
-    [/\b(brief|briefing)\b/, 'briefing'], [/\bintruder\b/, 'intruder'], [/\bnight (drive|mode)\b/, 'night'],
+    [/\b(messages?|texts?)\b/, 'messages'], [/\bparty\b/, 'party'], [/\btrivia\b/, 'trivia'],
+    [/\b(brief|briefing)\b/, 'briefing'], [/\bnight (drive|mode)\b/, 'night'],
     [/\b(all apps|app drawer)\b/, 'apps'], [/\bsettings\b/, 'settings']
   ];
   function matchCommand(t) {
@@ -477,42 +477,133 @@
     $('tNight').classList.toggle('active', mode.night);
     document.body.classList.toggle('night', mode.night);
     document.body.classList.toggle('party', mode.party);
-    $('partyText').classList.toggle('hidden', !mode.party);
   }
 
   // ---- Night drive
   function toggleNight() {
     mode.night = !mode.night;
-    if (mode.night && mode.party) mode.party = false;
+    if (mode.night && P.on) exitParty(true);
     try { if (A) A.setBrightness(mode.night ? 0.12 : -1); } catch (e) {}
     badges();
     redraw();
     say(mode.night ? 'Night drive engaged.' : 'Night drive disengaged.');
   }
 
-  // ---- Party mode
-  var partyTimer = null;
-  function toggleParty() {
-    mode.party = !mode.party;
-    if (mode.party && mode.night) { mode.night = false; try { if (A) A.setBrightness(-1); } catch (e) {} }
-    badges();
-    clearInterval(partyTimer);
-    if (mode.party) {
-      startAnim();
-      say(pick(['Party mode engaged. Passengers, the vibe is yours.', 'Party mode engaged. Let\'s light it up.', 'Party mode online. Turn it up.']));
-      var f = $('flash'), n = 0;
-      partyTimer = setInterval(function () {
-        n++;
-        f.style.background = 'hsla(' + ((n * 47) % 360) + ',100%,60%,1)';
-        f.style.opacity = .10;
-        setTimeout(function () { f.style.opacity = 0; }, 120);
-      }, 500);
-    } else {
-      $('flash').style.opacity = 0;
-      stopAnim();
-      say('Party mode disengaged.');
-    }
+  // ---- Party mode (lights follow the music in the cab via the mic) ----
+  var P = { on: false, avg: 0.01, lastBeat: 0, lastMeter: 0, hue: 300, auto: null, decay: null, strobe: null, ctx: null };
+  var HYPE = ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'Passengers, this one\'s for you.', 'Nexus in the building!', 'Volume to the max. Let\'s ride.', 'Hands up in the truck!'];
+
+  function buildBars() {
+    ['pTop', 'pBottom'].forEach(function (id) {
+      var el = $(id); if (el.children.length) return;
+      var h = ''; for (var i = 0; i < 24; i++) h += '<i></i>'; el.innerHTML = h;
+    });
   }
+  function audio() { try { P.ctx = P.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (P.ctx.state === 'suspended') P.ctx.resume(); } catch (e) {} return P.ctx; }
+
+  function beat(power) {
+    var now = Date.now(); P.lastBeat = now;
+    P.hue = (P.hue + 37 + Math.random() * 60) % 360;
+    var col = 'hsl(' + Math.round(P.hue) + ',100%,55%)';
+    var w = $('pWash'); w.style.backgroundColor = col; w.style.opacity = Math.min(.55, .2 + power * .4);
+    var t = $('pTitle'); t.style.transform = 'scale(' + (1.04 + power * .1) + ')'; t.style.color = col;
+    var lit = Math.max(4, Math.round(24 * Math.min(1, .3 + power)));
+    ['pTop', 'pBottom'].forEach(function (id, k) {
+      var segs = $(id).children;
+      for (var i = 0; i < segs.length; i++) {
+        var on = k ? (i >= (24 - lit) / 2 && i < (24 + lit) / 2) : (Math.random() < lit / 24);
+        var hh = (P.hue + i * 12) % 360;
+        segs[i].style.backgroundColor = on ? 'hsl(' + hh + ',100%,55%)' : '#151515';
+        segs[i].style.boxShadow = on ? '0 0 14px hsl(' + hh + ',100%,55%)' : 'none';
+      }
+    });
+    clearTimeout(P.decay);
+    P.decay = setTimeout(function () { w.style.opacity = .12; t.style.transform = 'scale(1)'; }, 140);
+  }
+
+  Nexus._meter = function (rms) {
+    if (!P.on) return;
+    P.lastMeter = Date.now();
+    $('pMeterFill').style.width = Math.min(100, rms * 900) + '%';
+    var spike = rms > P.avg * 1.45 && rms > 0.012 && Date.now() - P.lastBeat > 170;
+    P.avg = P.avg * 0.92 + rms * 0.08;
+    if (spike) beat(Math.min(1, rms * 8));
+  };
+  Nexus._meterError = function () { $('pHint').textContent = 'MIC UNAVAILABLE · LIGHTS RUNNING ON AUTO BEAT'; };
+
+  function enterParty() {
+    P.on = mode.party = true;
+    if (mode.night) { mode.night = false; try { if (A) A.setBrightness(-1); } catch (e) {} }
+    buildBars(); badges();
+    $('party').classList.remove('hidden');
+    $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
+    try { if (A) A.meter(true); } catch (e) {}
+    clearInterval(P.auto);
+    P.auto = setInterval(function () { if (Date.now() - P.lastMeter > 1500 && Date.now() - P.lastBeat > 480) beat(.5); }, 120);
+    say(pick(['Party mode engaged. Passengers, the vibe is yours.', 'Party mode engaged. Let\'s light it up.', 'Party mode online. Turn it up.']));
+  }
+  function exitParty(silent) {
+    P.on = mode.party = false;
+    clearInterval(P.auto); clearInterval(P.strobe); P.strobe = null;
+    try { if (A) A.meter(false); } catch (e) {}
+    $('party').classList.add('hidden');
+    Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) { b.classList.remove('on'); });
+    badges();
+    if (!silent) say('Party mode disengaged.');
+  }
+  function toggleParty() { if (P.on) exitParty(); else enterParty(); }
+
+  // sound effects, made on the fly (no files needed)
+  function tone(type, freq, start, dur, vol, endFreq) {
+    var c = audio(); if (!c) return;
+    var o = c.createOscillator(), g = c.createGain(), t0 = c.currentTime + start;
+    o.type = type; o.frequency.setValueAtTime(freq, t0);
+    if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+    g.gain.setValueAtTime(vol, t0 + dur * 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+  function noise(start, dur, vol, hp) {
+    var c = audio(); if (!c) return;
+    var len = Math.floor(c.sampleRate * dur), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    var src = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter(), t0 = c.currentTime + start;
+    f.type = 'highpass'; f.frequency.value = hp || 800;
+    g.gain.value = vol; src.buffer = buf; src.connect(f); f.connect(g); g.connect(c.destination); src.start(t0);
+  }
+  var FX = {
+    horn: function () {
+      [0, 0.32, 0.64].forEach(function (st, k) {
+        var d = k === 2 ? 0.9 : 0.24;
+        [466, 587, 698].forEach(function (f) { tone('sawtooth', f, st, d, 0.09); });
+      });
+      for (var i = 0; i < 6; i++) setTimeout(function () { beat(1); }, i * 160);
+    },
+    drop: function () {
+      tone('sine', 180, 0, 1.6, 0.55, 32); tone('square', 90, 0, 1.6, 0.08, 20); noise(1.5, 0.6, 0.35, 200);
+      setTimeout(function () { for (var i = 0; i < 8; i++) setTimeout(function () { beat(1); }, i * 90); }, 1500);
+    },
+    roll: function () {
+      var t = 0, gap = 0.12;
+      while (t < 1.8) { noise(t, 0.05, 0.3, 1500); t += gap; gap = Math.max(0.035, gap * 0.9); }
+      noise(1.85, 1.2, 0.45, 3000);
+      setTimeout(function () { beat(1); }, 1850);
+    },
+    hype: function () { say(pick(HYPE)); beat(1); },
+    strobe: function (btn) {
+      if (P.strobe) { clearInterval(P.strobe); P.strobe = null; btn.classList.remove('on'); return; }
+      btn.classList.add('on');
+      var w = $('pWash'), n = 0;
+      P.strobe = setInterval(function () {
+        n++; w.style.backgroundColor = '#fff'; w.style.opacity = n % 2 ? .85 : 0;
+        if (n > 70) { clearInterval(P.strobe); P.strobe = null; btn.classList.remove('on'); w.style.opacity = .12; }
+      }, 70);
+    },
+    exit: function () { exitParty(); }
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) {
+    b.addEventListener('click', function () { var f = FX[b.getAttribute('data-fx')]; if (f) f(b); });
+  });
 
   // ---- Intruder alert
   var audioCtx = null;
@@ -808,9 +899,10 @@
   // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
-  Nexus.back = function () { if (!closePanel()) { stopTalking(); } };
+  Nexus.back = function () { if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { closePanel(); };
-  Nexus.resumed = function () { redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+  Nexus.paused = function () { try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.resumed = function () { try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
 
   // ------------------------------------------------------------------
   // Start

@@ -16,7 +16,10 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.media.AudioFormat;
 import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Build;
@@ -70,6 +73,8 @@ public class MainActivity extends Activity {
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
     private SharedPreferences prefs;
     private String appsCache = null;
+    private volatile boolean meterOn = false;
+    private Thread meterThread = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -161,6 +166,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         // Stop all drawing and timers while another app (SmartTube, Stremio...) is on screen.
         if (web != null) { web.onPause(); web.pauseTimers(); }
+        js("Nexus.paused && Nexus.paused()");
         super.onPause();
     }
 
@@ -172,6 +178,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (tts != null) tts.shutdown();
+        stopMeter();
         if (recognizer != null) recognizer.destroy();
         pool.shutdownNow();
         super.onDestroy();
@@ -325,6 +332,47 @@ public class MainActivity extends Activity {
             js("Nexus._http(" + JSONObject.quote(id) + "," + code + "," + JSONObject.quote(text) + ")");
         });
     }
+
+    // ---------- Party meter (listens to the music in the cab) ----------
+
+    private void startMeter() {
+        if (meterOn) return;
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            js("Nexus._meterError && Nexus._meterError('permission')");
+            return;
+        }
+        meterOn = true;
+        meterThread = new Thread(() -> {
+            int rate = 22050;
+            int min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+            AudioRecord rec = null;
+            try {
+                rec = new AudioRecord(MediaRecorder.AudioSource.MIC, rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, 4096));
+                rec.startRecording();
+                short[] buf = new short[1024];
+                long lastSend = 0;
+                while (meterOn) {
+                    int n = rec.read(buf, 0, buf.length);
+                    if (n <= 0) continue;
+                    double sum = 0;
+                    for (int i = 0; i < n; i++) sum += (double) buf[i] * buf[i];
+                    double rms = Math.sqrt(sum / n) / 32768.0;
+                    long now = System.currentTimeMillis();
+                    if (now - lastSend > 60) {
+                        lastSend = now;
+                        js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", rms) + ")");
+                    }
+                }
+            } catch (Exception e) {
+                js("Nexus._meterError && Nexus._meterError('mic')");
+            } finally {
+                try { if (rec != null) { rec.stop(); rec.release(); } } catch (Exception ignored) {}
+            }
+        });
+        meterThread.start();
+    }
+
+    private void stopMeter() { meterOn = false; }
 
     // ---------- Location ----------
 
@@ -562,6 +610,9 @@ public class MainActivity extends Activity {
         public void toast(String msg) {
             ui.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
         }
+
+        @JavascriptInterface
+        public void meter(boolean on) { if (on) startMeter(); else stopMeter(); }
 
         @JavascriptInterface
         public String getLocation() {

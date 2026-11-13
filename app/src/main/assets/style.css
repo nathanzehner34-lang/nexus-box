@@ -122,12 +122,28 @@ body.night #vig { background: radial-gradient(ellipse at center, rgba(0,0,0,.2) 
 @keyframes blink { 50% { opacity: 0; } }
 
 /* ---------- Modes ---------- */
-#partyText { position: fixed; left: 0; right: 0; top: 46%; text-align: center; pointer-events: none;
-  font-size: 12vmin; letter-spacing: 1.2vmin; font-weight: 800; color: #fff; opacity: .16;
-  animation: beat .5s ease-in-out infinite; }
 @keyframes beat { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
 body.night .tile { background: rgba(255,255,255,.03); border-color: rgba(120,140,200,.12); }
 body.night .tile .lb, body.night #statusBox, body.night #caption { color: #8a95b8; }
 body.night .tile .ic { color: #6c7fb0; }
 body.night #clock { color: #b9c3e6; }
 body.party .tile { border-color: rgba(255,255,255,.35); }
+
+/* ---------- Party mode ---------- */
+#party { background: #000; overflow: hidden; }
+#pWash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: .15; transition: background-color .12s, opacity .12s; background: #ff00aa; }
+.pbar { position: absolute; left: 0; right: 0; height: 3.4vh; display: flex; gap: .6vw; padding: 0 .6vw; }
+#pTop { top: .8vh; } #pBottom { bottom: .8vh; }
+.pbar i { flex: 1; border-radius: 6px; background: #222; transition: background-color .08s, box-shadow .08s; }
+#pCenter { position: absolute; left: 0; right: 0; top: 16vh; text-align: center; }
+#pTitle { font-size: 13vmin; font-weight: 800; letter-spacing: 1.5vmin; color: #fff; transition: transform .08s, color .12s, text-shadow .12s; }
+#pMeter { width: 60vw; height: 1.2vh; margin: 2vh auto 0; background: rgba(255,255,255,.12); border-radius: 99px; overflow: hidden; }
+#pMeterFill { height: 100%; width: 0; background: #3dff9a; transition: width .06s; }
+#pHint { margin-top: 1.6vh; font-size: 2.2vmin; letter-spacing: .5vmin; color: rgba(255,255,255,.7); }
+#pButtons { position: absolute; left: 0; right: 0; bottom: 7vh; display: flex; justify-content: center; gap: 1.6vw; }
+.pbtn { width: 14vw; max-width: 170px; padding: 1.8vh 0; border-radius: 16px; text-align: center; font-size: 5vmin; line-height: 1;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.25); color: #fff; }
+.pbtn span { display: block; font-size: 1.9vmin; letter-spacing: .4vmin; margin-top: 1vh; }
+.pbtn:active { transform: scale(.94); background: rgba(255,255,255,.2); }
+.pbtn.on { border-color: #3dff9a; background: rgba(61,255,154,.2); }
+.pbtn.exit { border-color: rgba(255,120,120,.6); }
