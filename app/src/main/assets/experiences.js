@@ -378,7 +378,7 @@
     function checkSong() {
       if (!A) return;
       var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
-      if (np.access === false) { text('xpMid', 'ALLOW SONG ACCESS'); text('xpBottom', 'Nexus Settings → "Allow Nexus to see what\'s playing"'); return; }
+      if (np.access === false) { text('xpMid', 'PLAY A SONG IN SPOTIFY'); text('xpBottom', 'Spotify → Settings → turn ON "Device broadcast status", then play a song'); return; }
       if (!np.title || np.title === 'null') { text('xpMid', 'PLAY SOMETHING'); text('xpBottom', 'Start a song in Spotify and come back'); return; }
       var artist = np.artist && np.artist !== 'null' ? np.artist : '';
       var key = np.title + '|' + artist;

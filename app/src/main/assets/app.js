@@ -678,7 +678,7 @@
     if (!P.on || !A) return;
     var np = {};
     try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
-    if (np.access === false) { $('pSong').textContent = '🎵 Allow song announcements in Nexus Settings'; return; }
+    if (np.access === false) { $('pSong').textContent = '🎵 Spotify → Settings → turn ON "Device broadcast status"'; return; }
     if (!np.title || np.title === 'null') { $('pSong').textContent = ''; return; }
     var artist = np.artist && np.artist !== 'null' ? np.artist : '';
     $('pSong').textContent = '🎵 ' + np.title + (artist ? ' · ' + artist : '');
@@ -1088,7 +1088,7 @@
 
       '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
       '<span class="btn go" id="sNotif">ALLOW NEXUS TO SEE WHAT\'S PLAYING</span>' +
-      '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. This lets Nexus announce songs and skip tracks in Spotify.</div></div>' +
+      '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. If your box says it\'s unavailable, do this instead: open Spotify → Settings (gear) → scroll to "Device broadcast status" → turn it ON. Nexus will then see your songs.</div></div>' +
       '<div class="field"><label>BACKGROUND</label>' +
       Object.keys(BGS).map(function (k) { return '<span class="btn' + (k === bgName ? ' go' : '') + '" data-bg="' + k + '">' + BGS[k].label + '</span>'; }).join('') +
       '</div>' +

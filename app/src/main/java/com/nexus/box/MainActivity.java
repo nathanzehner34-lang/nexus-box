@@ -4,7 +4,9 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.BroadcastReceiver;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -83,6 +85,24 @@ public class MainActivity extends Activity {
     private String appsCache = null;
     private volatile boolean meterOn = false;
     private volatile List<String[]> labelCache = null;
+    // Spotify's "Device broadcast status" feed (works even when notification access is blocked on the box)
+    private volatile String spTitle = null, spArtist = null;
+    private volatile boolean spPlaying = false;
+    private volatile long spTime = 0;
+    private final BroadcastReceiver spotifyReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            String a = i.getAction();
+            if (a == null) return;
+            if (a.endsWith("metadatachanged")) {
+                spTitle = i.getStringExtra("track");
+                spArtist = i.getStringExtra("artist");
+                if (i.hasExtra("playing")) spPlaying = i.getBooleanExtra("playing", spPlaying);
+            } else if (a.endsWith("playbackstatechanged")) {
+                spPlaying = i.getBooleanExtra("playing", false);
+            }
+            spTime = System.currentTimeMillis();
+        }
+    };
     private Thread meterThread = null;
     private Visualizer visualizer = null;
 
@@ -111,6 +131,12 @@ public class MainActivity extends Activity {
 
         startTts();
         pool.execute(this::labels);
+        try {
+            IntentFilter f = new IntentFilter();
+            f.addAction("com.spotify.music.metadatachanged");
+            f.addAction("com.spotify.music.playbackstatechanged");
+            registerReceiver(spotifyReceiver, f);
+        } catch (Exception ignored) {}
 
         if (Build.VERSION.SDK_INT >= 23) {
             List<String> need = new ArrayList<>();
@@ -252,6 +278,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (tts != null) tts.shutdown();
         stopMeter();
+        try { unregisterReceiver(spotifyReceiver); } catch (Exception ignored) {}
         if (recognizer != null) recognizer.destroy();
         pool.shutdownNow();
         super.onDestroy();
@@ -807,7 +834,22 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String nowPlaying() {
-            if (!hasMediaAccess()) return "{\"access\":false}";
+            if (!hasMediaAccess()) {
+                try {
+                    JSONObject o = new JSONObject();
+                    if (spTime > 0) {
+                        o.put("access", true);
+                        o.put("source", "spotify");
+                        o.put("playing", spPlaying);
+                        if (spTitle != null) o.put("title", spTitle);
+                        if (spArtist != null) o.put("artist", spArtist);
+                        o.put("app", "com.spotify.music");
+                    } else {
+                        o.put("access", false);
+                    }
+                    return o.toString();
+                } catch (Exception e) { return "{\"access\":false}"; }
+            }
             try {
                 JSONObject o = new JSONObject();
                 o.put("access", true);
