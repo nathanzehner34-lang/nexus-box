@@ -4,8 +4,25 @@
   'use strict';
   var N = window.NX, A = N.A, $ = N.$;
   var layer = $('xp'), cv = $('xpc'), cx = cv.getContext('2d', { alpha: false });
-  var W = 0, H = 0, S = 0.5; // draw at half resolution for speed
+  // Quality: S = drawing resolution. Starts from what worked last time, then quietly
+  // steps up while the box keeps up, and steps back down the moment it struggles.
+  var QMIN = 0.4, QMAX = 0.8;
+  var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || 0.5));
+  var W = 0, H = 0;
   var running = null, raf = 0, timers = [], last = 0;
+  var perf = { n: 0, slow: 0, since: 0 };
+  function saveQ() { try { if (A) A.setPref('xpq', String(S)); else localStorage.setItem('p_xpq', String(S)); } catch (e) {} }
+  function tuneQuality(now, gap, took) {
+    if (!perf.since) perf.since = now;
+    perf.n++; if (took > gap * .7) perf.slow++;
+    if (now - perf.since < 3000) return;
+    var slowShare = perf.slow / perf.n;
+    var old = S;
+    if (slowShare > .3 && S > QMIN) S = Math.max(QMIN, Math.round((S - .1) * 10) / 10);
+    else if (slowShare < .05 && S < QMAX) S = Math.min(QMAX, Math.round((S + .1) * 10) / 10);
+    perf = { n: 0, slow: 0, since: now };
+    if (S !== old) { size(); saveQ(); }
+  }
 
   function size() { W = cv.width = Math.max(1, Math.floor(cv.clientWidth * S)); H = cv.height = Math.max(1, Math.floor(cv.clientHeight * S)); }
   function later(fn, ms) { var t = setTimeout(fn, ms); timers.push(t); return t; }
@@ -17,8 +34,10 @@
       if (!running) return;
       raf = requestAnimationFrame(f);
       if (now - last < gap) return;
-      last = now; draw(now);
+      last = now;
+      var t0 = performance.now(); draw(now); tuneQuality(now, gap, performance.now() - t0);
     }
+    perf = { n: 0, slow: 0, since: 0 };
     raf = requestAnimationFrame(f);
   }
 
@@ -33,7 +52,7 @@
       running = name;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, aurora: aurora })[name]();
+      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, aurora: aurora, shatter: shatter, hyper: hyper, water: water, friend: friend })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -594,6 +613,277 @@
       for (var m = 0; m <= 30; m++) { var tx = m / 30 * W, ty = H * (.86 - .06 * Math.abs(Math.sin(m * 1.3)) - (m % 3 === 0 ? .05 : 0)); cx.lineTo(tx, ty); }
       cx.lineTo(W, H); cx.closePath(); cx.fill();
     }, 24);
+  }
+
+
+  // ==================================================================
+  // NEW: colour that changes with the music. Every beat moves to a new
+  // colour and it glides there smoothly (no jumpy flashing).
+  // ==================================================================
+  function beatHue(start, step) {
+    var h = { cur: start || 200, target: start || 200, step: step || 70 };
+    h.tick = function (hit) {
+      if (hit) h.target = (h.target + h.step * (.7 + Math.random() * .6)) % 360;
+      var d = ((h.target - h.cur + 540) % 360) - 180;
+      h.cur = (h.cur + d * .1 + 360) % 360;
+      return h.cur;
+    };
+    return h;
+  }
+
+  // 10. SHATTER — glowing screen that cracks and smashes on big hits
+  function shatter() {
+    var b = beatTracker(), hue = beatHue(200, 80), shards = null, crackT = 0, lastSmash = 0, impact = null, cracks = [];
+    var snap = document.createElement('canvas'), sx = snap.getContext('2d');
+    var rays = [];
+    for (var i = 0; i < 40; i++) rays.push([Math.random(), Math.random() * .5 + .5, Math.random() * 6.28]);
+    text('xpTop', 'SHATTER');
+    function scene(now, hh, p) {
+      var g = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * .75);
+      g.addColorStop(0, 'hsl(' + hh + ',100%,' + (30 + p * 15) + '%)');
+      g.addColorStop(.5, 'hsl(' + ((hh + 40) % 360) + ',90%,14%)');
+      g.addColorStop(1, '#020006');
+      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+      cx.save(); cx.translate(W / 2, H / 2); cx.rotate(now * .00008); cx.globalCompositeOperation = 'lighter';
+      for (var r = 0; r < rays.length; r++) {
+        var a = rays[r][2] + Math.sin(now * .0003 + r) * .05, len = Math.max(W, H) * rays[r][1];
+        cx.fillStyle = 'hsla(' + ((hh + r * 6) % 360) + ',100%,60%,' + (.03 + p * .05) + ')';
+        cx.beginPath(); cx.moveTo(0, 0); cx.lineTo(Math.cos(a - .03) * len, Math.sin(a - .03) * len); cx.lineTo(Math.cos(a + .03) * len, Math.sin(a + .03) * len); cx.fill();
+      }
+      cx.restore(); cx.globalCompositeOperation = 'source-over';
+      var fs = Math.floor(Math.min(W, H) * .22 * (1 + b.k * .08));
+      cx.font = '900 ' + fs + 'px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.shadowColor = 'hsl(' + hh + ',100%,60%)'; cx.shadowBlur = fs * .35;
+      cx.fillStyle = 'hsl(' + hh + ',100%,88%)'; cx.fillText('NEXUS', W / 2, H / 2);
+      cx.shadowBlur = 0;
+    }
+    function edge(px, py, a) {
+      var dx = Math.cos(a), dy = Math.sin(a), t = 1e9;
+      if (dx > 1e-6) t = Math.min(t, (W - px) / dx); if (dx < -1e-6) t = Math.min(t, -px / dx);
+      if (dy > 1e-6) t = Math.min(t, (H - py) / dy); if (dy < -1e-6) t = Math.min(t, -py / dy);
+      return [px + dx * t, py + dy * t];
+    }
+    function smash(now) {
+      snap.width = W; snap.height = H; sx.drawImage(cv, 0, 0);
+      var px = W * (.3 + Math.random() * .4), py = H * (.3 + Math.random() * .4), n = 16;
+      impact = [px, py]; shards = []; cracks = [];
+      var angs = [], fr = [];
+      for (var i = 0; i < n; i++) { angs.push((i + Math.random() * .6) / n * 6.2832); fr.push(.25 + Math.random() * .35); }
+      var corners = [[0, 0], [W, 0], [W, H], [0, H]].map(function (c) { var a = Math.atan2(c[1] - py, c[0] - px); return [c[0], c[1], a < 0 ? a + 6.2832 : a]; });
+      for (var k = 0; k < n; k++) {
+        var a0 = angs[k], a1 = k + 1 < n ? angs[k + 1] : angs[0] + 6.2832;
+        var e0 = edge(px, py, a0), e1 = edge(px, py, a1);
+        var m0 = [px + (e0[0] - px) * fr[k], py + (e0[1] - py) * fr[k]], k1 = (k + 1) % n, m1 = [px + (e1[0] - px) * fr[k1], py + (e1[1] - py) * fr[k1]];
+        var outer = [m0, e0];
+        corners.forEach(function (c) { var ca = c[2]; if (ca < a0) ca += 6.2832; if (ca > a0 && ca < a1) outer.push([c[0], c[1], ca]); });
+        outer.sort(function (u, v) { return (u[2] || 0) - (v[2] || 0); });
+        outer = [m0, e0].concat(outer.filter(function (q) { return q.length === 3; })).concat([e1, m1]);
+        [[[px, py], m0, m1], outer].forEach(function (poly, inner) {
+          var cxm = 0, cym = 0; poly.forEach(function (q) { cxm += q[0]; cym += q[1]; }); cxm /= poly.length; cym /= poly.length;
+          var dx = cxm - px, dy = cym - py, d = Math.sqrt(dx * dx + dy * dy) || 1, sp = (inner ? 3 : 6) * (W / 640);
+          shards.push({ poly: poly, cx: cxm, cy: cym, vx: dx / d * sp * (.5 + Math.random()), vy: dy / d * sp * (.5 + Math.random()) - 2 * (W / 640), r: 0, vr: (Math.random() - .5) * .12, ox: 0, oy: 0 });
+        });
+        cracks.push([m0, e0]); cracks.push([m0, m1]);
+      }
+      crackT = now; lastSmash = now;
+    }
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      if (b.hit && !shards && now - lastSmash > 2400 && b.k > .35) smash(now);
+      scene(now, hh, p);
+      if (shards) {
+        var t = now - crackT, lw = Math.max(1, S * 2.5);
+        if (t < 200) {                         // the crack appears first…
+          cx.drawImage(snap, 0, 0);
+          cx.strokeStyle = 'rgba(255,255,255,.9)'; cx.lineWidth = lw; cx.beginPath();
+          cracks.forEach(function (c) { cx.moveTo(impact[0], impact[1]); cx.lineTo(c[0][0], c[0][1]); cx.moveTo(c[0][0], c[0][1]); cx.lineTo(c[1][0], c[1][1]); });
+          cx.stroke();
+          flash('#fff', .25 * (1 - t / 200));
+        } else {                               // …then the glass falls away
+          var life = (t - 200) / 1100, grav = .5 * (W / 640);
+          if (life >= 1) shards = null;
+          else {
+            cx.globalAlpha = 1 - life * life;
+            shards.forEach(function (sh) {
+              sh.vy += grav; sh.ox += sh.vx; sh.oy += sh.vy; sh.r += sh.vr;
+              cx.save(); cx.translate(sh.cx + sh.ox, sh.cy + sh.oy); cx.rotate(sh.r); cx.translate(-sh.cx, -sh.cy);
+              cx.beginPath(); sh.poly.forEach(function (q, i) { if (i) cx.lineTo(q[0], q[1]); else cx.moveTo(q[0], q[1]); }); cx.closePath();
+              cx.save(); cx.clip(); cx.drawImage(snap, 0, 0); cx.restore();
+              cx.strokeStyle = 'rgba(255,255,255,.7)'; cx.lineWidth = lw; cx.stroke();
+              cx.restore();
+            });
+            cx.globalAlpha = 1;
+          }
+        }
+      }
+    }, 30);
+  }
+
+  // 11. HYPERSPACE — lightspeed jump, star colours change with the beat
+  function hyper() {
+    var b = beatTracker(), hue = beatHue(210, 60), stars = [], NS = 260, warp = 0, beats = 0, jump = 0;
+    function reset(st, far) { st.x = (Math.random() - .5) * 2; st.y = (Math.random() - .5) * 2; st.z = far ? 1 : Math.random(); st.pz = st.z; st.h = (Math.random() - .5) * 60; }
+    for (var i = 0; i < NS; i++) { var st = {}; reset(st, false); stars.push(st); }
+    text('xpTop', 'HYPERSPACE');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      if (b.hit) { beats++; if (beats % 16 === 0) jump = 1; }
+      jump *= .95;
+      warp += ((.006 + b.e * .02 + b.k * .02 + jump * .06) - warp) * .2;
+      cx.fillStyle = 'rgba(0,0,6,' + (.55 - jump * .4) + ')'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H / 2, F = Math.min(W, H) * .5;
+      var g = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, F * (.5 + p * .4));
+      g.addColorStop(0, 'hsla(' + hh + ',100%,70%,' + (.15 + p * .2 + jump * .5) + ')'); g.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
+      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+      cx.lineCap = 'round';
+      for (var i = 0; i < NS; i++) {
+        var s2 = stars[i]; s2.pz = s2.z; s2.z -= warp;
+        if (s2.z <= .02) { reset(s2, true); continue; }
+        var x = cxp + s2.x / s2.z * F, y = cyp + s2.y / s2.z * F, px = cxp + s2.x / s2.pz * F, py = cyp + s2.y / s2.pz * F;
+        if (x < -20 || x > W + 20 || y < -20 || y > H + 20) { reset(s2, true); continue; }
+        var near = 1 - s2.z;
+        cx.strokeStyle = 'hsla(' + ((hh + s2.h + 360) % 360) + ',100%,' + (55 + near * 15) + '%,' + (.35 + near * .65) + ')';
+        cx.lineWidth = Math.max(1, near * 3 * S * 2);
+        cx.beginPath(); cx.moveTo(px, py); cx.lineTo(x, y); cx.stroke();
+      }
+      flash('hsl(' + hh + ',100%,85%)', jump > .9 ? .5 : 0);
+    }, 30);
+  }
+
+  // 12. UNDERWATER — calm deep sea, glowing jellyfish, colour shifts on the beat
+  function water() {
+    var b = beatTracker(), hue = beatHue(195, 45), bubbles = [], snow = [], jellies = [];
+    for (var i = 0; i < 40; i++) bubbles.push([Math.random(), Math.random(), .3 + Math.random(), Math.random() * 6]);
+    for (var j = 0; j < 90; j++) snow.push([Math.random(), Math.random(), Math.random()]);
+    for (var k = 0; k < 5; k++) jellies.push({ x: .12 + k * .19 + Math.random() * .05, y: .35 + Math.random() * .4, s: .07 + Math.random() * .05, ph: Math.random() * 6, h: k * 50, pulse: 0 });
+    text('xpTop', 'DEEP SEA');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit), t = now * .001;
+      var g = cx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, 'hsl(' + hh + ',80%,' + (22 + p * 6) + '%)'); g.addColorStop(.55, 'hsl(' + ((hh + 20) % 360) + ',85%,9%)'); g.addColorStop(1, '#000206');
+      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+      // light rays from the surface, gently swaying
+      cx.globalCompositeOperation = 'lighter';
+      for (var r = 0; r < 7; r++) {
+        var x0 = W * (r / 6) + Math.sin(t * .3 + r) * W * .05, wdt = W * (.04 + .02 * Math.sin(t * .5 + r * 2));
+        var rg = cx.createLinearGradient(0, 0, 0, H * .9);
+        rg.addColorStop(0, 'hsla(' + ((hh + 30) % 360) + ',100%,80%,' + (.08 + p * .05) + ')'); rg.addColorStop(1, 'hsla(' + hh + ',100%,60%,0)');
+        cx.fillStyle = rg; cx.beginPath(); cx.moveTo(x0 - wdt, 0); cx.lineTo(x0 + wdt, 0); cx.lineTo(x0 + wdt * 3 + W * .1, H * .9); cx.lineTo(x0 - wdt * 2 + W * .1, H * .9); cx.fill();
+      }
+      // drifting specks
+      cx.fillStyle = 'rgba(200,240,255,.35)';
+      snow.forEach(function (q) { q[1] += .0004 + q[2] * .0004; if (q[1] > 1) q[1] = 0; cx.fillRect((q[0] + Math.sin(t * .4 + q[2] * 9) * .01) * W, q[1] * H, S * 2, S * 2); });
+      // jellyfish
+      jellies.forEach(function (jf, idx) {
+        if (b.hit && idx % 2 === (Math.random() < .5 ? 0 : 1)) jf.pulse = 1;
+        jf.pulse *= .9;
+        jf.y -= .0006 + jf.pulse * .004; if (jf.y < -.15) { jf.y = 1.15; jf.x = .1 + Math.random() * .8; }
+        var jx = (jf.x + Math.sin(t * .3 + jf.ph) * .03) * W, jy = jf.y * H, R = jf.s * Math.min(W, H) * 2, sq = 1 - jf.pulse * .25;
+        var jh = (hh + jf.h) % 360;
+        var gl = cx.createRadialGradient(jx, jy, 0, jx, jy, R * 2.2);
+        gl.addColorStop(0, 'hsla(' + jh + ',100%,70%,' + (.25 + jf.pulse * .35 + p * .1) + ')'); gl.addColorStop(1, 'hsla(' + jh + ',100%,50%,0)');
+        cx.fillStyle = gl; cx.fillRect(jx - R * 2.2, jy - R * 2.2, R * 4.4, R * 4.4);
+        cx.strokeStyle = 'hsla(' + jh + ',100%,75%,.5)'; cx.lineWidth = Math.max(1, S * 2);
+        for (var tn = 0; tn < 6; tn++) {
+          cx.beginPath(); var bx = jx - R * .7 * sq + tn * R * .28 * sq; cx.moveTo(bx, jy);
+          for (var sg = 1; sg <= 8; sg++) cx.lineTo(bx + Math.sin(t * 2 + sg * .7 + tn + jf.ph) * R * .15, jy + sg * R * .3);
+          cx.stroke();
+        }
+        cx.fillStyle = 'hsla(' + jh + ',100%,' + (70 + jf.pulse * 15) + '%,.55)';
+        cx.beginPath(); cx.ellipse(jx, jy, R * sq, R * (.8 + jf.pulse * .2), 0, Math.PI, 0); cx.closePath(); cx.fill();
+        cx.fillStyle = 'rgba(255,255,255,.25)'; cx.beginPath(); cx.ellipse(jx - R * .3, jy - R * .45, R * .25, R * .12, -.4, 0, 6.283); cx.fill();
+      });
+      // bubbles
+      cx.strokeStyle = 'rgba(220,250,255,.5)'; cx.lineWidth = Math.max(1, S * 1.5);
+      bubbles.forEach(function (q) {
+        q[1] -= .002 * q[2] * (1 + b.e); if (q[1] < -.05) { q[1] = 1.05; q[0] = Math.random(); }
+        var bx = (q[0] + Math.sin(t * 2 + q[3]) * .006) * W, rr = (2 + q[2] * 4) * S * 2;
+        cx.beginPath(); cx.arc(bx, q[1] * H, rr, 0, 6.283); cx.stroke();
+      });
+      cx.globalCompositeOperation = 'source-over';
+    }, 30);
+  }
+
+  // 13. HOLOGRAM FRIEND — glowing wireframe head that looks around, blinks and talks
+  function friend() {
+    var b = beatTracker(), hue = beatHue(190, 50), LAT = 14, LON = 20, mesh = [];
+    function headPt(v, u) {             // v: -1 chin … 1 top,  u: angle around the head (0 = face)
+      var r = Math.sqrt(Math.max(0, 1 - v * v));
+      var wx = v < -.2 ? .78 + .22 * Math.max(0, 1 + (v + .2) * 1.25) : 1;   // narrower jaw
+      var x = Math.sin(u) * r * .82 * wx, z = Math.cos(u) * r * .95, y = -v * 1.18;
+      var face = Math.exp(-u * u * 8);
+      z += face * .14 * Math.exp(-Math.pow((v + .05) / .14, 2));             // nose
+      z -= face * .05 * Math.exp(-Math.pow((v - .22) / .08, 2)) * (1 - Math.exp(-u * u * 60)); // eye sockets
+      if (v < -.55) z *= .92;
+      return [x, y, z];
+    }
+    for (var a = 0; a <= LAT; a++) { var row = []; for (var o = 0; o <= LON; o++) row.push(headPt(-.98 + a / LAT * 1.96, o / LON * 6.2832 - Math.PI)); mesh.push(row); }
+    var eyeL = headPt(.22, -.42), eyeR = headPt(.22, .42), blink = 0, nextBlink = 0, listening = false, look = [0, 0], lookT = [0, 0], nextLook = 0;
+    function proj(pt, yaw, pitch, cxp, cyp, R) {
+      var x = pt[0] * Math.cos(yaw) + pt[2] * Math.sin(yaw), z = -pt[0] * Math.sin(yaw) + pt[2] * Math.cos(yaw), y = pt[1];
+      var y2 = y * Math.cos(pitch) - z * Math.sin(pitch), z2 = y * Math.sin(pitch) + z * Math.cos(pitch);
+      var f = 3.2 / (3.2 - z2);
+      return [cxp + x * R * f, cyp + y2 * R * f, z2];
+    }
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      var talking = window.Nexus.speaking, talk = talking ? (.3 + .7 * Math.abs(Math.sin(now * .02) * Math.sin(now * .009 + 1))) : (listening ? .15 : 0);
+      if (now > nextLook) { lookT = [(Math.random() - .5) * .9, (Math.random() - .5) * .35]; if (talking || listening) lookT = [0, 0]; nextLook = now + 1500 + Math.random() * 3000; }
+      look[0] += (lookT[0] - look[0]) * .05; look[1] += (lookT[1] - look[1]) * .05;
+      if (now > nextBlink) { blink = 1; nextBlink = now + 2000 + Math.random() * 4000; }
+      blink = Math.max(0, blink - .2);
+      cx.fillStyle = '#000308'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H * .47, R = Math.min(W, H) * .36 * (1 + b.k * .03);
+      var g = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * 1.8);
+      g.addColorStop(0, 'hsla(' + hh + ',100%,55%,' + (.16 + p * .12 + talk * .1) + ')'); g.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
+      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+      var yaw = look[0] + Math.sin(now * .0005) * .06, pitch = look[1] - .05;
+      var P = mesh.map(function (row) { return row.map(function (pt) { return proj(pt, yaw, pitch, cxp, cyp, R); }); });
+      cx.lineWidth = Math.max(1, S * 2.2);
+      function seg(a2, b2) {
+        var dep = (a2[2] + b2[2]) / 2, al = dep > 0 ? .25 + dep * .7 : .06;
+        cx.strokeStyle = 'hsla(' + hh + ',100%,' + (62 + talk * 15) + '%,' + al + ')';
+        cx.beginPath(); cx.moveTo(a2[0], a2[1]); cx.lineTo(b2[0], b2[1]); cx.stroke();
+      }
+      for (var a = 0; a <= LAT; a++) for (var o = 0; o < LON; o++) seg(P[a][o], P[a][o + 1]);
+      for (var o2 = 0; o2 < LON; o2++) for (var a3 = 0; a3 < LAT; a3++) seg(P[a3][o2], P[a3 + 1][o2]);
+      // eyes
+      [eyeL, eyeR].forEach(function (e) {
+        var q = proj([e[0], e[1], e[2] + .02], yaw, pitch, cxp, cyp, R), ew = R * .13, eh = R * .05 * (1 - blink) + 1;
+        cx.shadowColor = 'hsl(' + ((hh + 180) % 360) + ',100%,70%)'; cx.shadowBlur = R * .15;
+        cx.fillStyle = 'hsl(' + ((hh + 180) % 360) + ',100%,' + (75 + p * 15) + '%)';
+        cx.beginPath(); cx.ellipse(q[0], q[1], ew, eh, 0, 0, 6.283); cx.fill(); cx.shadowBlur = 0;
+      });
+      // mouth
+      var m0 = proj(headPt(-.42, -.32), yaw, pitch, cxp, cyp, R), m1 = proj(headPt(-.42, .32), yaw, pitch, cxp, cyp, R), open = R * (.015 + talk * .09);
+      cx.strokeStyle = 'hsl(' + ((hh + 180) % 360) + ',100%,75%)'; cx.lineWidth = Math.max(1, S * 3);
+      cx.beginPath(); cx.moveTo(m0[0], m0[1]);
+      cx.quadraticCurveTo((m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2 + open, m1[0], m1[1]);
+      cx.quadraticCurveTo((m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2 - open * .35, m0[0], m0[1]); cx.stroke();
+      // hologram base + scanlines + flicker
+      var by = cyp + R * 1.45;
+      var bg2 = cx.createRadialGradient(cxp, by, 0, cxp, by, R * .9);
+      bg2.addColorStop(0, 'hsla(' + hh + ',100%,60%,' + (.35 + p * .3) + ')'); bg2.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
+      cx.fillStyle = bg2; cx.beginPath(); cx.ellipse(cxp, by, R * .9, R * .14, 0, 0, 6.283); cx.fill();
+      cx.fillStyle = 'rgba(0,0,0,.2)';
+      for (var s2 = (now / 40 | 0) % 4; s2 < H; s2 += 4) cx.fillRect(0, s2, W, 1);
+      if (Math.random() < .02) { cx.fillStyle = 'hsla(' + hh + ',100%,70%,.08)'; cx.fillRect(0, Math.random() * H, W, H * .05); }
+    }, 30);
+    text('xpTop', 'NEXUS · HOLOGRAM FRIEND');
+    text('xpBottom', 'TAP ME TO TALK');
+    var busy = false;
+    layer.onclick = function () {
+      if (busy) return; busy = true;
+      N.stopTalking();
+      listening = true; text('xpBottom', 'LISTENING…');
+      N.listen().then(function (res) {
+        listening = false;
+        if (typeof res !== 'string' || !res.trim()) { busy = false; N.resumeAfterTalk(); text('xpBottom', 'DIDN\'T CATCH THAT · TAP TO TRY AGAIN'); return; }
+        text('xpBottom', '“' + N.esc(res) + '”');
+        return N.handleSpeech(res).then(function () { busy = false; N.resumeAfterTalk(); text('xpBottom', 'TAP ME TO TALK'); },
+          function () { busy = false; N.resumeAfterTalk(); });
+      });
+    };
   }
 
   // ------------------------------------------------------------------

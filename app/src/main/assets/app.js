@@ -1154,12 +1154,13 @@
   window.NX = {
     say: say, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
     pauseForTalk: pauseForTalk, resumeAfterTalk: resumeAfterTalk,
-    getCoords: function () { return getCoords(); }, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
+    getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'], ['aurora', '🌌', 'NORTHERN LIGHTS'],
+    ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLOGRAM FRIEND'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
   ];
   function openVisuals() {
