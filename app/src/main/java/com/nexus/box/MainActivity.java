@@ -533,6 +533,17 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void speakWith(String text, String id, float rate, float pitch) {
+            if (tts == null) return;
+            if (!ttsReady) { speak(text, id); return; }
+            tts.setSpeechRate(rate);
+            tts.setPitch(pitch);
+            doSpeak(text, id);
+            tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
+            tts.setPitch(prefs.getFloat("pitch", 0.9f));
+        }
+
+        @JavascriptInterface
         public void stopSpeaking() { if (tts != null) tts.stop(); }
 
         @JavascriptInterface

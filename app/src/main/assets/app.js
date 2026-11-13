@@ -14,16 +14,18 @@
   function pref(k) { try { return A ? A.getPref(k) : (localStorage.getItem('p_' + k) || ''); } catch (e) { return ''; } }
   function setPref(k, v) { try { if (A) A.setPref(k, v); else localStorage.setItem('p_' + k, v); } catch (e) {} }
 
-  function say(text) {
+  function say(text, opts) {
+    opts = opts || {};
     return new Promise(function (resolve) {
       var id = 's' + (++seq);
       var fallback = setTimeout(function () { done(); }, 2500 + text.length * 90);
-      function done() { clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); resolve(); }
+      function done() { clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; resolve(); }
       speakWaiters[id] = done;
       setOrb('speaking', true);
-      if (A) { A.speak(text, id); }
+      Nexus.speaking = true;
+      if (A) { if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id); }
       else if (window.speechSynthesis) {
-        var u = new SpeechSynthesisUtterance(text); u.rate = .95; u.pitch = .9;
+        var u = new SpeechSynthesisUtterance(text); u.rate = opts.rate || .95; u.pitch = opts.pitch || .9;
         u.onend = done; u.onerror = done; speechSynthesis.speak(u);
       } else { done(); }
     });
@@ -509,6 +511,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
+      case 'wake': case 'sky': case 'holo': case 'aura': openExperience(name); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
       case 'story': openStory(); break;
@@ -591,6 +594,7 @@
   }
 
   Nexus._meter = function (rms) {
+    if (window.XP && XP.onMeter) XP.onMeter(rms);
     if (!P.on) return;
     if (rms > 0.006) P.lastMeter = Date.now();
     $('pMeterFill').style.width = Math.min(100, rms * 900) + '%';
@@ -1060,12 +1064,32 @@
   }
 
   // ------------------------------------------------------------------
+  // Experiences (loaded only when first opened, run only while on screen)
+  // ------------------------------------------------------------------
+  window.NX = {
+    say: say, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
+    pauseForTalk: pauseForTalk, resumeAfterTalk: resumeAfterTalk,
+    getCoords: function () { return getCoords(); }, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
+    weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
+  };
+  var xpLoaded = false;
+  function openExperience(name) {
+    if (P.on) exitParty(true);
+    function go() { if (window.XP) XP.open(name); }
+    if (xpLoaded) return go();
+    var sc = document.createElement('script');
+    sc.src = 'experiences.js';
+    sc.onload = function () { xpLoaded = true; go(); };
+    document.body.appendChild(sc);
+  }
+
+  // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
-  Nexus.back = function () { if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
-  Nexus.home = function () { closePanel(); };
+  Nexus.back = function () { if (window.XP && XP.active) { XP.close(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
+  Nexus.home = function () { if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
-  Nexus.paused = function () { awaySince = Date.now(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.paused = function () { awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
     if (awaySince && Date.now() - awaySince > 10 * 60 * 1000 && !booting) {
       setTimeout(function () { closePanel(); runBoot(); }, 300);
