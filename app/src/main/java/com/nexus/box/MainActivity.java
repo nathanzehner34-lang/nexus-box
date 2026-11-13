@@ -74,6 +74,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private String appsCache = null;
     private volatile boolean meterOn = false;
+    private volatile List<String[]> labelCache = null;
     private Thread meterThread = null;
 
     @Override
@@ -100,6 +101,7 @@ public class MainActivity extends Activity {
         hideSystemUi();
 
         startTts();
+        pool.execute(this::labels);
 
         if (Build.VERSION.SDK_INT >= 23) {
             List<String> need = new ArrayList<>();
@@ -262,6 +264,32 @@ public class MainActivity extends Activity {
         return list == null ? new ArrayList<>() : list;
     }
 
+    private List<String[]> labels() {
+        List<String[]> c = labelCache;
+        if (c != null) return c;
+        PackageManager pm = getPackageManager();
+        List<String[]> out = new ArrayList<>();
+        for (ResolveInfo ri : launchables()) {
+            if (ri.activityInfo.packageName.equals(getPackageName())) continue;
+            out.add(new String[]{String.valueOf(ri.loadLabel(pm)).toLowerCase(Locale.ROOT),
+                    ri.activityInfo.packageName, ri.activityInfo.name});
+        }
+        labelCache = out;
+        return out;
+    }
+
+    private void startComponent(String pkg, String cls) {
+        try {
+            Intent i = new Intent(Intent.ACTION_MAIN);
+            i.addCategory(Intent.CATEGORY_LAUNCHER);
+            i.setComponent(new ComponentName(pkg, cls));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            startActivity(i);
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not open that app", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private boolean launch(ResolveInfo ri) {
         try {
             Intent i = new Intent(Intent.ACTION_MAIN);
@@ -358,7 +386,7 @@ public class MainActivity extends Activity {
                     for (int i = 0; i < n; i++) sum += (double) buf[i] * buf[i];
                     double rms = Math.sqrt(sum / n) / 32768.0;
                     long now = System.currentTimeMillis();
-                    if (now - lastSend > 60) {
+                    if (now - lastSend > 80) {
                         lastSend = now;
                         js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", rms) + ")");
                     }
@@ -492,26 +520,23 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void refreshApps() { appsCache = null; }
+        public void refreshApps() { appsCache = null; labelCache = null; pool.execute(MainActivity.this::labels); }
 
         @JavascriptInterface
         public boolean launchApp(String namesCsv) {
-            PackageManager pm = getPackageManager();
-            List<ResolveInfo> list = launchables();
+            List<String[]> list = labels();
             for (String raw : namesCsv.split(",")) {
                 String q = raw.trim().toLowerCase(Locale.ROOT);
                 if (q.isEmpty()) continue;
-                for (ResolveInfo ri : list) {
-                    if (ri.activityInfo.packageName.equals(getPackageName())) continue;
-                    String label = String.valueOf(ri.loadLabel(pm)).toLowerCase(Locale.ROOT);
-                    String pkg = ri.activityInfo.packageName.toLowerCase(Locale.ROOT);
-                    if (label.contains(q) || pkg.contains(q)) {
-                        final ResolveInfo target = ri;
-                        ui.post(() -> launch(target));
+                for (String[] a : list) {
+                    if (a[0].contains(q) || a[1].toLowerCase(Locale.ROOT).contains(q)) {
+                        final String pkg = a[1], cls = a[2];
+                        ui.post(() -> startComponent(pkg, cls));
                         return true;
                     }
                 }
             }
+            labelCache = null;
             return false;
         }
 

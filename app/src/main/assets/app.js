@@ -514,7 +514,6 @@
         var on = k ? (i >= (24 - lit) / 2 && i < (24 + lit) / 2) : (Math.random() < lit / 24);
         var hh = (P.hue + i * 12) % 360;
         segs[i].style.backgroundColor = on ? 'hsl(' + hh + ',100%,55%)' : '#151515';
-        segs[i].style.boxShadow = on ? '0 0 14px hsl(' + hh + ',100%,55%)' : 'none';
       }
     });
     clearTimeout(P.decay);
