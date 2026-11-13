@@ -83,8 +83,8 @@
   }
   var running = false, wantStill = false;
   function motionAlways() { return pref('motion') === 'always'; }
-  function startAnim() { if (!running) { running = true; last = 0; requestAnimationFrame(frame); } }
-  function stopAnim() { if (motionAlways() || mode.party || mode.intruder || booting) return; wantStill = true; }
+  function startAnim() { redraw(); }
+  function stopAnim() { }
   function redraw() { if (!running) { wantStill = true; running = true; requestAnimationFrame(frame); } }
   window.addEventListener('resize', redraw);
   function frame(now) {
@@ -153,27 +153,17 @@
 
   function runBoot() {
     booting = true;
-    startAnim();
+    redraw();
     $('home').classList.add('hidden');
     $('panel').classList.add('hidden');
     var boot = $('boot'); boot.classList.remove('hidden'); boot.style.opacity = 1;
-    var list = $('bootList'); list.style.opacity = 1;
+    $('bootList').innerHTML = '';
     $('bootWelcome').classList.remove('on');
-    list.innerHTML = SYSTEMS.map(function (s) {
-      return '<div class="brow"><span>' + s[0] + '</span><span class="dots"></span><span class="st">' + s[1] + '</span></div>';
-    }).join('');
-    var rows = list.children;
-    var chain = wait(900);
-    SYSTEMS.forEach(function (s, idx) {
-      chain = chain.then(function () { rows[idx].classList.add('on'); return wait(500); })
-        .then(function () { rows[idx].querySelector('.st').classList.add('on'); return say(s[2]); })
-        .then(function () { return wait(200); });
-    });
-    return chain.then(function () { return wait(300); })
+    return wait(500)
       .then(function () { $('bootWelcome').classList.add('on'); return say('Hello, Nathan. Biometrics complete. How may I assist you?'); })
-      .then(function () { return wait(900); })
+      .then(function () { return wait(700); })
       .then(function () { boot.style.opacity = 0; return wait(800); })
-      .then(function () { boot.classList.add('hidden'); showHome(); booting = false; stopAnim(); });
+      .then(function () { boot.classList.add('hidden'); showHome(); booting = false; });
   }
 
   function showHome() {
@@ -200,29 +190,61 @@
     95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Thunderstorm with hail' };
   var weatherNow = null;
 
-  function loadWeather() {
-    var city = pref('city');
-    if (!city) { $('weather').textContent = 'Weather: set your city in Settings'; return Promise.resolve(null); }
-    var lat = pref('lat'), lon = pref('lon');
-    var geo = (lat && lon && pref('geocity') === city) ? Promise.resolve({ lat: lat, lon: lon }) :
-      http('GET', 'https://geocoding-api.open-meteo.com/v1/search?count=1&name=' + encodeURIComponent(city)).then(function (r) {
-        var j = JSON.parse(r.text); var g = j.results && j.results[0];
-        if (!g) throw new Error('city');
-        setPref('lat', String(g.latitude)); setPref('lon', String(g.longitude)); setPref('geocity', city);
-        return { lat: g.latitude, lon: g.longitude };
+  var placeNow = '';
+  function reversePlace(lat, lon) {
+    var name = '';
+    try { name = A ? A.placeName(lat, lon) : ''; } catch (e) {}
+    if (name) return Promise.resolve(name);
+    return http('GET', 'https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&lat=' + lat + '&lon=' + lon, null,
+      { 'User-Agent': 'NexusTruckBox/1.0', 'Accept-Language': 'en' }).then(function (r) {
+      var a = (JSON.parse(r.text).address) || {};
+      var town = a.city || a.town || a.village || a.hamlet || a.county || '';
+      var region = a.state || a.province || '';
+      return town && region ? town + ', ' + region : (town || region || '');
+    }).catch(function () { return ''; });
+  }
+
+  function getCoords() {
+    var loc = null;
+    try { loc = A ? JSON.parse(A.getLocation() || 'null') : null; } catch (e) {}
+    if (loc && loc.lat) {
+      return reversePlace(loc.lat, loc.lon).then(function (name) {
+        return { lat: loc.lat, lon: loc.lon, name: name || (loc.lat.toFixed(2) + ', ' + loc.lon.toFixed(2)), live: true };
       });
-    return geo.then(function (g) {
+    }
+    var city = pref('city');
+    if (!city) return Promise.resolve(null);
+    if (pref('lat') && pref('lon') && pref('geocity') === city) return Promise.resolve({ lat: pref('lat'), lon: pref('lon'), name: city, live: false });
+    return http('GET', 'https://geocoding-api.open-meteo.com/v1/search?count=1&name=' + encodeURIComponent(city)).then(function (r) {
+      var g = (JSON.parse(r.text).results || [])[0];
+      if (!g) return null;
+      setPref('lat', String(g.latitude)); setPref('lon', String(g.longitude)); setPref('geocity', city);
+      return { lat: g.latitude, lon: g.longitude, name: city, live: false };
+    }).catch(function () { return null; });
+  }
+
+  function loadWeather() {
+    return getCoords().then(function (g) {
+      if (!g) {
+        $('place').textContent = '📍 Location off · set a city in Settings';
+        $('weather').textContent = '';
+        return null;
+      }
+      placeNow = g.name;
+      $('place').textContent = '📍 ' + g.name;
       return http('GET', 'https://api.open-meteo.com/v1/forecast?latitude=' + g.lat + '&longitude=' + g.lon +
-        '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1');
-    }).then(function (r) {
-      var j = JSON.parse(r.text), c = j.current;
-      weatherNow = { temp: Math.round(c.temperature_2m), feels: Math.round(c.apparent_temperature), desc: WCODES[c.weather_code] || 'Unknown',
-        wind: Math.round(c.wind_speed_10m), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]), city: city };
-      $('weather').textContent = weatherNow.temp + '° · ' + weatherNow.desc + ' · ' + city.toUpperCase();
-      return weatherNow;
+        '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1')
+        .then(function (r) {
+          var j = JSON.parse(r.text), c = j.current;
+          weatherNow = { temp: Math.round(c.temperature_2m), feels: Math.round(c.apparent_temperature), desc: WCODES[c.weather_code] || 'Unknown',
+            wind: Math.round(c.wind_speed_10m), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]), city: g.name };
+          $('weather').textContent = weatherNow.temp + '° · ' + weatherNow.desc + ' · feels ' + weatherNow.feels + '°';
+          return weatherNow;
+        });
     }).catch(function () { $('weather').textContent = 'Weather unavailable'; return null; });
   }
-  loadWeather(); setInterval(loadWeather, 15 * 60 * 1000);
+  Nexus.locationChanged = function () { loadWeather(); };
+  loadWeather(); setInterval(loadWeather, 10 * 60 * 1000);
 
   // ------------------------------------------------------------------
   // AI (Google Gemini, free tier) with offline fallback
@@ -373,6 +395,7 @@
     var d = new Date();
     if (/\b(what time|the time|time is it)\b/.test(t)) return 'It\'s ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.';
     if (/\b(what day|today's date|the date|what's the date)\b/.test(t)) return 'It\'s ' + d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }) + '.';
+    if (/\b(where am i|my location|where are we)\b/.test(t)) return placeNow ? 'We\'re in ' + placeNow + '.' : 'I can\'t get a location fix right now.';
     if (/\b(weather|temperature|how cold|how hot)\b/.test(t) && weatherNow) return 'It\'s ' + weatherNow.temp + ' degrees and ' + weatherNow.desc.toLowerCase() + ' in ' + weatherNow.city + '.';
     return null;
   }
@@ -723,7 +746,7 @@
       '<div class="hint">Get a free key at aistudio.google.com → Get API key. This powers chat, trivia, stories and briefings.</div>' +
       '<span class="btn go" id="sKeySave">SAVE KEY</span><span class="btn" id="sKeyTest">TEST AI</span><div id="sKeyMsg" class="hint">' + (lastAiError ? 'Last AI problem: ' + esc(lastAiError) : (window.NEXUS_DEFAULT_KEY ? 'A built-in key is installed. A key saved here overrides it.' : '')) + '</div></div>' +
 
-      '<div class="field"><label>YOUR CITY (FOR WEATHER)</label>' +
+      '<div class="field"><label>BACKUP CITY (USED IF GPS IS OFF)</label>' +
       '<input type="text" id="sCity" placeholder="e.g. Cambridge Bay" value="' + esc(pref('city')) + '">' +
       '<span class="btn go" id="sCitySave">SAVE CITY</span><div id="sCityMsg" class="hint"></div></div>' +
 
@@ -739,9 +762,6 @@
       homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
       '<div class="hint">Use the "Open …" buttons to get back to the box\'s original home screen any time.</div></div>' +
 
-      '<div class="field"><label>BACKGROUND MOTION</label>' +
-      '<span class="btn' + (motionAlways() ? '' : ' go') + '" id="sMoStart">STARTUP ONLY (FASTEST)</span><span class="btn' + (motionAlways() ? ' go' : '') + '" id="sMoAlways">ALWAYS MOVING</span>' +
-      '<div class="hint">Startup only: the ribbons move during the startup and party mode, then freeze so everything else runs fast.</div></div>' +
       '<div class="field"><label>GRAPHICS</label>' +
       '<span class="btn' + (LITE ? ' go' : '') + '" id="sLite">SMOOTH (RECOMMENDED)</span><span class="btn' + (LITE ? '' : ' go') + '" id="sHigh">HIGH DETAIL</span>' +
       '<div class="hint">Smooth mode runs better on this box. Changes apply after Replay Startup.</div></div>' +
@@ -776,8 +796,6 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
     });
-    $('sMoStart').addEventListener('click', function () { setPref('motion', 'startup'); stopAnim(); openSettings(); });
-    $('sMoAlways').addEventListener('click', function () { setPref('motion', 'always'); startAnim(); openSettings(); });
     $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); redraw(); openSettings(); });
     $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); redraw(); openSettings(); });
     $('sReplay').addEventListener('click', function () { closePanel(); runBoot(); });

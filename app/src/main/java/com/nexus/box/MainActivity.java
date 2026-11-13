@@ -11,6 +11,11 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -91,9 +96,12 @@ public class MainActivity extends Activity {
 
         startTts();
 
-        if (Build.VERSION.SDK_INT >= 23 &&
-                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
+        if (Build.VERSION.SDK_INT >= 23) {
+            List<String> need = new ArrayList<>();
+            for (String perm : new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}) {
+                if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) need.add(perm);
+            }
+            if (!need.isEmpty()) requestPermissions(need.toArray(new String[0]), 7);
         }
 
         String page = "file:///android_asset/index.html";
@@ -318,6 +326,42 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ---------- Location ----------
+
+    private Location bestLocation() {
+        try {
+            LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            Location best = null;
+            for (String prov : lm.getProviders(true)) {
+                Location l = null;
+                try { l = lm.getLastKnownLocation(prov); } catch (SecurityException ignored) {}
+                if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+            }
+            return best;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void requestFreshLocation() {
+        ui.post(() -> {
+            try {
+                LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+                for (String prov : lm.getProviders(true)) {
+                    if (LocationManager.PASSIVE_PROVIDER.equals(prov)) continue;
+                    try {
+                        lm.requestSingleUpdate(prov, new LocationListener() {
+                            @Override public void onLocationChanged(Location location) { js("Nexus.locationChanged && Nexus.locationChanged()"); }
+                            @Override public void onStatusChanged(String p, int s, Bundle b) {}
+                            @Override public void onProviderEnabled(String p) {}
+                            @Override public void onProviderDisabled(String p) {}
+                        }, Looper.getMainLooper());
+                    } catch (SecurityException ignored) {}
+                }
+            } catch (Exception ignored) {}
+        });
+    }
+
     // ---------- JS bridge ----------
 
     private class Bridge {
@@ -517,6 +561,34 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void toast(String msg) {
             ui.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+        }
+
+        @JavascriptInterface
+        public String getLocation() {
+            Location l = bestLocation();
+            if (l == null) { requestFreshLocation(); return ""; }
+            if (System.currentTimeMillis() - l.getTime() > 10 * 60 * 1000) requestFreshLocation();
+            try {
+                JSONObject o = new JSONObject();
+                o.put("lat", l.getLatitude());
+                o.put("lon", l.getLongitude());
+                o.put("acc", l.getAccuracy());
+                return o.toString();
+            } catch (Exception e) { return ""; }
+        }
+
+        @JavascriptInterface
+        public String placeName(double lat, double lon) {
+            try {
+                if (!Geocoder.isPresent()) return "";
+                List<Address> list = new Geocoder(MainActivity.this, Locale.getDefault()).getFromLocation(lat, lon, 1);
+                if (list == null || list.isEmpty()) return "";
+                Address a = list.get(0);
+                String town = a.getLocality() != null ? a.getLocality() : (a.getSubAdminArea() != null ? a.getSubAdminArea() : "");
+                String region = a.getAdminArea() != null ? a.getAdminArea() : "";
+                if (town.isEmpty()) return region;
+                return region.isEmpty() ? town : town + ", " + region;
+            } catch (Exception e) { return ""; }
         }
 
         @JavascriptInterface
