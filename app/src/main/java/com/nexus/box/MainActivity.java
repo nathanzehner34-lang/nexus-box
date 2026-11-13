@@ -89,7 +89,19 @@ public class MainActivity extends Activity {
         setContentView(web);
         hideSystemUi();
 
-        tts = new TextToSpeech(this, status -> {
+        startTts();
+
+        if (Build.VERSION.SDK_INT >= 23 &&
+                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
+        }
+
+        String page = "file:///android_asset/index.html";
+        web.loadUrl(savedInstanceState == null ? page + "#boot" : page);
+    }
+
+    private void startTts() {
+        TextToSpeech.OnInitListener listener = status -> {
             if (status == TextToSpeech.SUCCESS) {
                 applyVoice();
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
@@ -103,15 +115,10 @@ public class MainActivity extends Activity {
                     pendingSpeech.clear();
                 }
             }
-        });
-
-        if (Build.VERSION.SDK_INT >= 23 &&
-                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 7);
-        }
-
-        String page = "file:///android_asset/index.html";
-        web.loadUrl(savedInstanceState == null ? page + "#boot" : page);
+        };
+        boolean hasGoogle = false;
+        try { getPackageManager().getPackageInfo("com.google.android.tts", 0); hasGoogle = true; } catch (Exception ignored) {}
+        tts = hasGoogle ? new TextToSpeech(this, listener, "com.google.android.tts") : new TextToSpeech(this, listener);
     }
 
     private void hideSystemUi() {

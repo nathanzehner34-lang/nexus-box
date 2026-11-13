@@ -62,7 +62,8 @@
   // Background: flowing light ribbons
   // ------------------------------------------------------------------
   var mode = { night: false, party: false, intruder: false };
-  var cv = $('bg'), cx = cv.getContext('2d'), W = 0, H = 0, D = Math.min(1.5, window.devicePixelRatio || 1);
+  var LITE = pref('quality') !== 'high';
+  var cv = $('bg'), cx = cv.getContext('2d', { alpha: false }), W = 0, H = 0, D = LITE ? 0.5 : Math.min(1, window.devicePixelRatio || 1);
   function resize() { W = cv.width = Math.floor(cv.clientWidth * D); H = cv.height = Math.floor(cv.clientHeight * D); }
   window.addEventListener('resize', resize); resize();
 
@@ -74,14 +75,17 @@
     { h: 200, a: .10, amp: .06, f: 2.4, s: .00035, y: .52, w: .06 }
   ];
   var STARS = [];
-  for (var i = 0; i < 140; i++) STARS.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.6 + .3, v: Math.random() * .00008 + .00002, t: Math.random() * 6 });
-  var SEG = 80, clockT = 0, last = 0;
+  for (var i = 0; i < (LITE ? 60 : 120); i++) STARS.push({ x: Math.random(), y: Math.random(), r: Math.random() * 1.6 + .3, v: Math.random() * .00008 + .00002, t: Math.random() * 6 });
+  var SEG = LITE ? 36 : 64, clockT = 0, last = 0, lastDraw = 0, FRAME_MS = LITE ? 40 : 30, gradCache = {};
 
   function ribY(r, u, t) {
     return H * r.y + Math.sin(u * Math.PI * r.f + t * r.s * 6) * H * r.amp + Math.sin(u * Math.PI * r.f * 2.1 - t * r.s * 4) * H * r.amp * .4;
   }
   function frame(now) {
-    var dt = Math.min(64, now - (last || now)); last = now;
+    requestAnimationFrame(frame);
+    if (now - lastDraw < FRAME_MS) return;
+    lastDraw = now;
+    var dt = Math.min(80, now - (last || now)); last = now;
     var speed = mode.party ? 3.2 : mode.night ? .45 : 1;
     clockT += dt * speed;
     var t = clockT;
@@ -104,25 +108,27 @@
       for (j = 0; j <= SEG; j++) { u = j / SEG; var y = ribY(r, u, t); if (j) cx.lineTo(u * W, y); else cx.moveTo(0, y); }
       for (j = SEG; j >= 0; j--) { u = j / SEG; cx.lineTo(u * W, ribY(r, u, t) + H * r.w * (.6 + .4 * Math.sin(u * 5 + t * .0004))); }
       cx.closePath();
-      var gr = cx.createLinearGradient(0, H * .3, 0, H);
-      gr.addColorStop(0, 'hsla(' + hue + ',90%,65%,' + a + ')'); gr.addColorStop(1, 'hsla(' + hue + ',90%,40%,0)');
+      var gk = k + ':' + Math.round(hue / 3) + ':' + Math.round(a * 50) + ':' + H;
+      var gr = gradCache[gk];
+      if (!gr) {
+        gr = cx.createLinearGradient(0, H * .3, 0, H);
+        gr.addColorStop(0, 'hsla(' + hue + ',90%,65%,' + a + ')'); gr.addColorStop(1, 'hsla(' + hue + ',90%,40%,0)');
+        gradCache[gk] = gr;
+        if (Object.keys(gradCache).length > 400) gradCache = {};
+      }
       cx.fillStyle = gr; cx.fill();
       cx.beginPath();
       for (j = 0; j <= SEG; j++) { u = j / SEG; var y2 = ribY(r, u, t); if (j) cx.lineTo(u * W, y2); else cx.moveTo(0, y2); }
-      cx.strokeStyle = 'hsla(' + hue + ',100%,80%,' + Math.min(1, a + .15) + ')'; cx.lineWidth = 1.2 * D; cx.stroke();
+      cx.strokeStyle = 'hsla(' + hue + ',100%,80%,' + Math.min(1, a + .15) + ')'; cx.lineWidth = Math.max(1, 1.2 * D * 2); cx.stroke();
     }
     var starBoost = mode.night ? 1.6 : 1;
     for (var s = 0; s < STARS.length; s++) {
       var p = STARS[s]; p.x += p.v * speed * (dt / 16); if (p.x > 1) p.x = 0;
       var tw = .5 + .5 * Math.sin(now * .002 + p.t);
       cx.fillStyle = 'rgba(190,225,255,' + Math.min(1, tw * .7 * starBoost) + ')';
-      cx.beginPath(); cx.arc(p.x * W, p.y * H, p.r * D, 0, 6.283); cx.fill();
+      cx.fillRect(p.x * W, p.y * H, Math.max(1, p.r * D * 1.6), Math.max(1, p.r * D * 1.6));
     }
     cx.globalCompositeOperation = 'source-over';
-    var vg = cx.createRadialGradient(W / 2, H / 2, H * .2, W / 2, H / 2, W * .7);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, mode.night ? 'rgba(0,0,0,.75)' : 'rgba(0,0,0,.55)');
-    cx.fillStyle = vg; cx.fillRect(0, 0, W, H);
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
@@ -704,6 +710,9 @@
       homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
       '<div class="hint">Use the "Open …" buttons to get back to the box\'s original home screen any time.</div></div>' +
 
+      '<div class="field"><label>GRAPHICS</label>' +
+      '<span class="btn' + (LITE ? ' go' : '') + '" id="sLite">SMOOTH (RECOMMENDED)</span><span class="btn' + (LITE ? '' : ' go') + '" id="sHigh">HIGH DETAIL</span>' +
+      '<div class="hint">Smooth mode runs better on this box. Changes apply after Replay Startup.</div></div>' +
       '<div class="field"><label>SYSTEM</label>' +
       '<span class="btn" id="sReplay">REPLAY STARTUP</span><span class="btn" id="sAndroid">ANDROID SETTINGS</span>' +
       '<div class="hint">Nexus version ' + esc(A ? A.version() : 'preview') + '</div></div>';
@@ -735,6 +744,8 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
     });
+    $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); openSettings(); });
+    $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); openSettings(); });
     $('sReplay').addEventListener('click', function () { closePanel(); runBoot(); });
     $('sAndroid').addEventListener('click', function () { if (A) A.openSystemSettings(); });
   }
