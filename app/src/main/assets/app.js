@@ -228,9 +228,10 @@
       speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
       if (!already) A.greet(gkey, gtext, id);
     }) : say(gtext);
-    return spoken
-      .then(function () { return wait(700); })
-      .then(function () { boot.style.opacity = 0; return wait(800); })
+    // Tap anywhere to skip straight to the home screen (the voice keeps talking).
+    var skipped = false, skip = new Promise(function (res) { boot.onclick = function () { skipped = true; res(); }; });
+    return Promise.race([spoken.then(function () { return wait(250); }), skip])
+      .then(function () { boot.onclick = null; boot.style.opacity = 0; return wait(skipped ? 150 : 400); })
       .then(function () { boot.classList.add('hidden'); showHome(); booting = false; });
   }
 

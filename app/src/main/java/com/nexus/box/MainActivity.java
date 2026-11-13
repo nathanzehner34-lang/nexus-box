@@ -168,15 +168,7 @@ public class MainActivity extends Activity {
 
         // Start the recorded greeting right away, before the screen has even finished loading.
         if (savedInstanceState == null) {
-            int hr = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-            try {
-                String off = prefs.getString("p_utcoff", "");
-                if (!off.isEmpty()) {
-                    long localMs = System.currentTimeMillis() + Long.parseLong(off) * 1000L;
-                    hr = (int) ((localMs / 3600000L) % 24);
-                }
-            } catch (Exception ignored) {}
-            String key = hr >= 4 && hr < 12 ? "morning" : hr >= 12 && hr < 17 ? "afternoon" : "evening";
+            String key = greetKey();
             if (greetFile(key).exists() && greetFile(key).length() > 1000) {
                 nativeGreeting = true;
                 nativeGreetUsed = true;
@@ -199,7 +191,7 @@ public class MainActivity extends Activity {
                     @Override public void onError(String id) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
                 });
                 ttsReady = true;
-                ui.postDelayed(MainActivity.this::cacheGreetings, 20000);
+                ui.postDelayed(MainActivity.this::cacheGreetings, 3000);
                 synchronized (pendingSpeech) {
                     for (String[] p : pendingSpeech) doSpeak(p[0], p[1]);
                     pendingSpeech.clear();
@@ -218,6 +210,20 @@ public class MainActivity extends Activity {
         {"afternoon", "Good afternoon, Nathan. I am Nexus, your personal assistant. How may I assist you?"},
         {"evening", "Good evening, Nathan. I am Nexus, your personal assistant. How may I assist you?"}
     };
+
+    private long pausedAt = 0;
+
+    private String greetKey() {
+        int hr = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        try {
+            String off = prefs.getString("p_utcoff", "");
+            if (!off.isEmpty()) {
+                long localMs = System.currentTimeMillis() + Long.parseLong(off) * 1000L;
+                hr = (int) ((localMs / 3600000L) % 24);
+            }
+        } catch (Exception ignored) {}
+        return hr >= 4 && hr < 12 ? "morning" : hr >= 12 && hr < 17 ? "afternoon" : "evening";
+    }
 
     private File greetFile(String key) { return new File(getFilesDir(), "greet_" + key + ".wav"); }
 
@@ -286,6 +292,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (pausedAt > 0 && System.currentTimeMillis() - pausedAt > 10 * 60 * 1000L) {
+            String key = greetKey();
+            if (greetFile(key).exists() && greetFile(key).length() > 1000) {
+                nativeGreeting = true;
+                nativeGreetUsed = true;
+                playGreeting(key, "", "nativegreet");
+            }
+        }
+        pausedAt = 0;
         if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
     }
@@ -293,6 +308,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         // Stop all drawing and timers while another app (SmartTube, Stremio...) is on screen.
+        pausedAt = System.currentTimeMillis();
         js("Nexus.paused && Nexus.paused()");
         stopMeter();
         audioHolds = 0;
@@ -333,7 +349,9 @@ public class MainActivity extends Activity {
         try { voices = tts.getVoices(); } catch (Exception ignored) {}
         if (voices != null) {
             if (!chosen.isEmpty()) {
-                for (Voice v : voices) if (v.getName().equals(chosen)) { tts.setVoice(v); return; }
+                String local = chosen.replace("-network", "-local");
+                for (Voice v : voices) if (v.getName().equals(local) && !v.isNetworkConnectionRequired()) { tts.setVoice(v); return; }
+                for (Voice v : voices) if (v.getName().equals(chosen) && !v.isNetworkConnectionRequired()) { tts.setVoice(v); return; }
             }
             String[] preferred = {"en-gb-x-rjs", "en-gb-x-gbd", "en-gb-x-gbb", "en-us-x-iom", "en-us-x-iol", "en-us-x-tpd"};
             for (String p : preferred) {
@@ -751,7 +769,7 @@ public class MainActivity extends Activity {
                 if (tts != null && tts.getVoices() != null) {
                     List<String> names = new ArrayList<>();
                     for (Voice v : tts.getVoices()) {
-                        if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage())) names.add(v.getName());
+                        if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && !v.isNetworkConnectionRequired()) names.add(v.getName());
                     }
                     Collections.sort(names);
                     for (String n : names) arr.put(n);
