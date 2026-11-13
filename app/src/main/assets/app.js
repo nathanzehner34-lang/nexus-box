@@ -159,8 +159,11 @@
     var boot = $('boot'); boot.classList.remove('hidden'); boot.style.opacity = 1;
     $('bootList').innerHTML = '';
     $('bootWelcome').classList.remove('on');
+    var hr = new Date().getHours();
+    var greet = hr >= 4 && hr < 12 ? 'Good morning' : hr >= 12 && hr < 17 ? 'Good afternoon' : 'Good evening';
+    $('bootHello').textContent = greet + ', Nathan';
     return wait(500)
-      .then(function () { $('bootWelcome').classList.add('on'); return say('Hello, Nathan. Biometrics complete. How may I assist you?'); })
+      .then(function () { $('bootWelcome').classList.add('on'); return say(greet + ', Nathan. I am Nexus, your personal assistant. How may I assist you?'); })
       .then(function () { return wait(700); })
       .then(function () { boot.style.opacity = 0; return wait(800); })
       .then(function () { boot.classList.add('hidden'); showHome(); booting = false; });
@@ -791,7 +794,7 @@
     $('sVoice').addEventListener('change', tune);
     $('sRate').addEventListener('change', tune);
     $('sPitch').addEventListener('change', tune);
-    $('sVoiceTest').addEventListener('click', function () { tune(); setTimeout(function () { say('Hello, Nathan. Biometrics complete. How may I assist you?'); }, 300); });
+    $('sVoiceTest').addEventListener('click', function () { tune(); setTimeout(function () { say('Good morning, Nathan. I am Nexus, your personal assistant. How may I assist you?'); }, 300); });
     $('sHomeChoose').addEventListener('click', function () { if (A) A.openHomeChooser(); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
