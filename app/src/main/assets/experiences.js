@@ -9,12 +9,14 @@
   var QMIN = 0.4, QMAX = 0.8;
   var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || 0.5));
   var W = 0, H = 0;
-  var running = null, raf = 0, timers = [], last = 0;
+  var running = null, raf = 0, timers = [], last = 0, xpDom = [];
   var perf = { n: 0, slow: 0, since: 0 };
   function saveQ() { try { if (A) A.setPref('xpq', String(S)); else localStorage.setItem('p_xpq', String(S)); } catch (e) {} }
   function tuneQuality(now, gap, took) {
-    if (!perf.since) perf.since = now;
-    perf.n++; if (took > gap * .7) perf.slow++;
+    if (!perf.since) { perf.since = now; perf.prev = now; }
+    var late = perf.prev && now - perf.prev > gap * 1.6;
+    perf.prev = now;
+    perf.n++; if (took > gap * .7 || late) perf.slow++;
     if (now - perf.since < 3000) return;
     var slowShare = perf.slow / perf.n;
     var old = S;
@@ -24,7 +26,61 @@
     if (S !== old) { size(); saveQ(); }
   }
 
-  function size() { W = cv.width = Math.max(1, Math.floor(cv.clientWidth * S)); H = cv.height = Math.max(1, Math.floor(cv.clientHeight * S)); }
+  function size() {
+    W = cv.width = Math.max(1, Math.floor(layer.clientWidth * S)); H = cv.height = Math.max(1, Math.floor(layer.clientHeight * S));
+    if (glc) { glc.width = Math.max(1, Math.floor(layer.clientWidth * S * GLX)); glc.height = Math.max(1, Math.floor(layer.clientHeight * S * GLX)); }
+  }
+
+  // ---- Graphics-chip (WebGL) visuals: the sharpest, smoothest look for the least effort ----
+  var glc = null, gl = null, GLX = 1.25, glBuf = null, glProgs = {};
+  var GL_HEAD = '#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n' +
+    'uniform vec2 res; uniform float time, hue, kick, energy;\n' +
+    'vec3 pal(float t){ return .5 + .5 * cos(6.28318 * (t + vec3(0., .33, .67))); }\n' +
+    'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n' +
+    'float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);' +
+    ' return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }\n';
+  function glStart(name, frag) {
+    if (!glc) {
+      glc = document.createElement('canvas');
+      glc.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:none';
+      cv.parentNode.insertBefore(glc, cv.nextSibling);
+      try { gl = glc.getContext('webgl', { antialias: false, alpha: false, depth: false, powerPreference: 'high-performance' }) || glc.getContext('experimental-webgl'); } catch (e) { gl = null; }
+      if (gl) {
+        glBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      }
+    }
+    if (!gl) return null;
+    var prog = glProgs[name];
+    if (!prog) {
+      function sh(type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) { console.log(gl.getShaderInfoLog(o)); return null; } return o; }
+      var vs = sh(gl.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }'), fs = sh(gl.FRAGMENT_SHADER, GL_HEAD + frag);
+      if (!vs || !fs) return null;
+      prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+      prog.loc = {}; glProgs[name] = prog;
+    }
+    gl.useProgram(prog);
+    var pl = gl.getAttribLocation(prog, 'p'); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf); gl.enableVertexAttribArray(pl); gl.vertexAttribPointer(pl, 2, gl.FLOAT, false, 0, 0);
+    glc.style.display = 'block'; cv.style.visibility = 'hidden';
+    size();
+    function U(n) { if (!(n in prog.loc)) prog.loc[n] = gl.getUniformLocation(prog, n); return prog.loc[n]; }
+    return {
+      f: function (n, v) { gl.uniform1f(U(n), v); },
+      v2: function (n, a, b2) { gl.uniform2f(U(n), a, b2); },
+      v4a: function (n, arr) { gl.uniform4fv(U(n), arr); },
+      v3a: function (n, arr) { gl.uniform3fv(U(n), arr); },
+      draw: function (now, b, hueDeg) {
+        gl.viewport(0, 0, glc.width, glc.height);
+        gl.uniform2f(U('res'), glc.width, glc.height);
+        gl.uniform1f(U('time'), now / 1000);
+        gl.uniform1f(U('hue'), (hueDeg || 0) / 360);
+        gl.uniform1f(U('kick'), b ? b.k : 0); gl.uniform1f(U('energy'), b ? b.e : 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+    };
+  }
+  function glStop() { if (glc) glc.style.display = 'none'; cv.style.visibility = ''; }
   function later(fn, ms) { var t = setTimeout(fn, ms); timers.push(t); return t; }
   function every(fn, ms) { var t = setInterval(fn, ms); timers.push(t); return t; }
   function text(id, v) { $(id).innerHTML = v || ''; }
@@ -52,10 +108,12 @@
       running = name;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, aurora: aurora, shatter: shatter, hyper: hyper, water: water, friend: friend })[name]();
+      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams })[name]();
     },
     close: function (quiet) {
       running = null;
+      glStop();
+      xpDom.forEach(function (d) { if (d.parentNode) d.parentNode.removeChild(d); }); xpDom = [];
       cancelAnimationFrame(raf);
       timers.forEach(function (t) { clearTimeout(t); clearInterval(t); });
       timers = [];
@@ -578,84 +636,80 @@
     }, 30);
   }
 
-  // 9. NORTHERN LIGHTS — calm, slow curtains; the COLOURS change with the beat
-  function aurora() {
-    var b = beatTracker(), stars = [];
-    for (var i = 0; i < 120; i++) stars.push([Math.random(), Math.random() * .8, Math.random() * 6, Math.random()]);
-    // three colour sets the curtains glide between on each beat
-    var PALETTES = [[135, 160, 285], [180, 200, 300], [100, 140, 320], [160, 290, 330], [120, 190, 260], [60, 140, 200]];
-    var pal = 0, cur = PALETTES[0].slice(), glow = 0;
-    text('xpTop', 'NORTHERN LIGHTS');
-    loop(function (now) {
-      b.tick(now);
-      if (b.hit) { pal = (pal + 1) % PALETTES.length; glow = 1; }
-      glow *= .92;
-      for (var c = 0; c < 3; c++) {                    // smooth glide toward the new colours
-        var target = PALETTES[pal][c], d = ((target - cur[c] + 540) % 360) - 180;
-        cur[c] = (cur[c] + d * .12 + 360) % 360;
-      }
-      var g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#000208'); g.addColorStop(1, '#03142a'); cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-      stars.forEach(function (s2) { cx.fillStyle = 'rgba(255,255,255,' + (.2 + .6 * Math.abs(Math.sin(now * .0015 + s2[2]))) * s2[3] + ')'; cx.fillRect(s2[0] * W, s2[1] * H, S * 2, S * 2); });
-      cx.globalCompositeOperation = 'lighter';
-      for (var band = 0; band < 3; band++) {
-        var baseY = H * (.25 + band * .1), hh = cur[band];
-        for (var x = 0; x < W; x += Math.max(2, 3 * S * 2)) {
-          var u = x / W, y = baseY + Math.sin(u * 6 + now * .0004 + band) * H * .07 + Math.sin(u * 15 - now * .0007) * H * .02;
-          var hgt = H * (.22 + .1 * Math.sin(u * 9 + now * .0005 + band));
-          var al = (.1 + .05 * Math.sin(u * 20 + now * .002)) * (1 + glow * .6);
-          var gr = cx.createLinearGradient(0, y - hgt, 0, y);
-          gr.addColorStop(0, 'hsla(' + hh + ',100%,60%,0)'); gr.addColorStop(1, 'hsla(' + hh + ',100%,' + (55 + glow * 10) + '%,' + Math.min(.7, al) + ')');
-          cx.fillStyle = gr; cx.fillRect(x, y - hgt, Math.max(2, 3 * S * 2), hgt);
-        }
-      }
-      cx.globalCompositeOperation = 'source-over';
-      cx.fillStyle = '#000'; cx.beginPath(); cx.moveTo(0, H);
-      for (var m = 0; m <= 30; m++) { var tx = m / 30 * W, ty = H * (.86 - .06 * Math.abs(Math.sin(m * 1.3)) - (m % 3 === 0 ? .05 : 0)); cx.lineTo(tx, ty); }
-      cx.lineTo(W, H); cx.closePath(); cx.fill();
-    }, 24);
-  }
-
-
-  // ==================================================================
-  // NEW: colour that changes with the music. Every beat moves to a new
-  // colour and it glides there smoothly (no jumpy flashing).
-  // ==================================================================
-  function beatHue(start, step) {
-    var h = { cur: start || 200, target: start || 200, step: step || 70 };
-    h.tick = function (hit) {
-      if (hit) h.target = (h.target + h.step * (.7 + Math.random() * .6)) % 360;
-      var d = ((h.target - h.cur + 540) % 360) - 180;
-      h.cur = (h.cur + d * .1 + 360) % 360;
-      return h.cur;
-    };
-    return h;
-  }
-
-  // 10. SHATTER — glowing screen that cracks and smashes on big hits
+  // 10. SHATTER — a living scene behind glass. Every bass hit cracks the glass more until it
+  //     EXPLODES toward you (3D shards, sparks, shockwave) and reveals the next scene.
   function shatter() {
-    var b = beatTracker(), hue = beatHue(200, 80), shards = null, crackT = 0, lastSmash = 0, impact = null, cracks = [];
+    var b = beatTracker(), hue = beatHue(200, 60), scene = 0, cracks = [], hits = 0, impact = null, shards = null, sparks = [], smashT = 0, cycleStart = performance.now();
     var snap = document.createElement('canvas'), sx = snap.getContext('2d');
-    var rays = [];
-    for (var i = 0; i < 40; i++) rays.push([Math.random(), Math.random() * .5 + .5, Math.random() * 6.28]);
-    text('xpTop', 'SHATTER');
-    function scene(now, hh, p) {
-      var g = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * .75);
-      g.addColorStop(0, 'hsl(' + hh + ',100%,' + (30 + p * 15) + '%)');
-      g.addColorStop(.5, 'hsl(' + ((hh + 40) % 360) + ',90%,14%)');
-      g.addColorStop(1, '#020006');
-      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-      cx.save(); cx.translate(W / 2, H / 2); cx.rotate(now * .00008); cx.globalCompositeOperation = 'lighter';
-      for (var r = 0; r < rays.length; r++) {
-        var a = rays[r][2] + Math.sin(now * .0003 + r) * .05, len = Math.max(W, H) * rays[r][1];
-        cx.fillStyle = 'hsla(' + ((hh + r * 6) % 360) + ',100%,60%,' + (.03 + p * .05) + ')';
-        cx.beginPath(); cx.moveTo(0, 0); cx.lineTo(Math.cos(a - .03) * len, Math.sin(a - .03) * len); cx.lineTo(Math.cos(a + .03) * len, Math.sin(a + .03) * len); cx.fill();
+    var stars = []; for (var i = 0; i < 160; i++) stars.push([Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random()]);
+    var gal = []; for (var gi = 0; gi < 700; gi++) { var arm = gi % 4, t = Math.pow(Math.random(), .7); gal.push([arm * Math.PI / 2 + t * 5 + (Math.random() - .5) * .5 * (1 - t * .5), t, .2 + Math.random() * .6, Math.random() * 40]); }
+    var SCENES = [
+      function tunnel(now, hh, p) {           // neon rings rushing toward you
+        cx.fillStyle = '#02000a'; cx.fillRect(0, 0, W, H);
+        cx.globalCompositeOperation = 'lighter';
+        for (var k = 0; k < 18; k++) {
+          var z = ((k / 18) + now * .00025 * (1 + b.e * 2)) % 1, sc = Math.pow(z, 2.2) * Math.max(W, H) * 1.1;
+          cx.strokeStyle = 'hsla(' + ((hh + k * 12) % 360) + ',100%,60%,' + (z * .9) + ')'; cx.lineWidth = Math.max(1, z * 6 * S * 2);
+          cx.save(); cx.translate(W / 2, H / 2); cx.rotate(z * 1.5 + now * .0003); cx.strokeRect(-sc / 2, -sc / 2 * .62, sc, sc * .62); cx.restore();
+        }
+        cx.globalCompositeOperation = 'source-over';
+      },
+      function nebula(now, hh, p) {           // swirling 4-arm galaxy with a bright core
+        cx.fillStyle = 'rgba(1,0,8,.4)'; cx.fillRect(0, 0, W, H);
+        cx.globalCompositeOperation = 'lighter';
+        var rot = now * .00025, M = Math.min(W, H) * .6;
+        for (var j = 0; j < gal.length; j++) {
+          var g2 = gal[j], ang = g2[0] + rot * (1.4 - g2[1]), rr = g2[1] * M;
+          cx.fillStyle = 'hsla(' + ((hh + g2[1] * 140 + g2[3]) % 360) + ',100%,' + (55 + p * 20) + '%,' + g2[2] + ')';
+          var sz = (1.2 - g2[1]) * 3.5 * S * 2 + 1; cx.fillRect(W / 2 + Math.cos(ang) * rr * 1.5 - sz / 2, H / 2 + Math.sin(ang) * rr * .75 - sz / 2, sz, sz);
+        }
+        var c = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * .3); c.addColorStop(0, 'hsla(' + hh + ',100%,85%,' + (.55 + p * .4) + ')'); c.addColorStop(1, 'rgba(0,0,0,0)');
+        cx.fillStyle = c; cx.fillRect(0, 0, W, H);
+        cx.globalCompositeOperation = 'source-over';
+      },
+      function lasers(now, hh, p) {           // sweeping laser fans like a club
+        cx.fillStyle = 'rgba(0,0,6,.4)'; cx.fillRect(0, 0, W, H);
+        cx.globalCompositeOperation = 'lighter';
+        for (var s2 = 0; s2 < 3; s2++) {
+          var ox = W * (.2 + s2 * .3), base = Math.sin(now * .0011 * (s2 + 1) + s2) * .7;
+          for (var l = 0; l < 9; l++) {
+            var ang = -Math.PI / 2 + base + (l - 4) * .13;
+            cx.strokeStyle = 'hsla(' + ((hh + s2 * 70) % 360) + ',100%,60%,' + (.35 + p * .5) + ')'; cx.lineWidth = Math.max(1, S * 3);
+            cx.beginPath(); cx.moveTo(ox, H); cx.lineTo(ox + Math.cos(ang) * H * 2, H + Math.sin(ang) * H * 2); cx.stroke();
+          }
+        }
+        cx.globalCompositeOperation = 'source-over';
+      },
+      function warp(now, hh, p) {             // stars streaking past
+        cx.fillStyle = 'rgba(0,0,8,.45)'; cx.fillRect(0, 0, W, H);
+        cx.globalCompositeOperation = 'lighter';
+        stars.forEach(function (st) {
+          st[2] -= .008 + b.e * .02 + b.k * .02; if (st[2] <= .02) { st[0] = Math.random() * 2 - 1; st[1] = Math.random() * 2 - 1; st[2] = 1; }
+          var x = W / 2 + st[0] / st[2] * W * .3, y = H / 2 + st[1] / st[2] * H * .3, x2 = W / 2 + st[0] / (st[2] + .05) * W * .3, y2 = H / 2 + st[1] / (st[2] + .05) * H * .3;
+          cx.strokeStyle = 'hsla(' + ((hh + st[0] * 60 + 360) % 360) + ',100%,70%,' + (1 - st[2]) + ')'; cx.lineWidth = Math.max(1, (1 - st[2]) * 4 * S * 2);
+          cx.beginPath(); cx.moveTo(x2, y2); cx.lineTo(x, y); cx.stroke();
+        });
+        cx.globalCompositeOperation = 'source-over';
+      },
+      function grid(now, hh, p) {             // neon grid racing under a glowing sun
+        var H0 = H * .55; var g = cx.createLinearGradient(0, 0, 0, H0); g.addColorStop(0, '#05001a'); g.addColorStop(1, 'hsl(' + hh + ',80%,30%)');
+        cx.fillStyle = g; cx.fillRect(0, 0, W, H0); cx.fillStyle = '#020008'; cx.fillRect(0, H0, W, H - H0);
+        var sr = H * .22 * (1 + b.k * .08); var sg = cx.createLinearGradient(0, H0 - sr, 0, H0); sg.addColorStop(0, 'hsl(' + ((hh + 50) % 360) + ',100%,70%)'); sg.addColorStop(1, 'hsl(' + hh + ',100%,55%)');
+        cx.fillStyle = sg; cx.beginPath(); cx.arc(W / 2, H0, sr, Math.PI, 0); cx.fill();
+        cx.strokeStyle = 'hsla(' + hh + ',100%,65%,.9)'; cx.lineWidth = Math.max(1, S * 2.5);
+        var off = (now * .0006 * (1 + b.e * 2)) % 1;
+        for (var r = 0; r < 14; r++) { var zz = (r + 1 - off) / 14, y = H0 + (H - H0) * zz * zz; cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
+        for (var c2 = -12; c2 <= 12; c2++) { cx.beginPath(); cx.moveTo(W / 2 + c2 * W * .015, H0); cx.lineTo(W / 2 + c2 * W * .12, H); cx.stroke(); }
       }
-      cx.restore(); cx.globalCompositeOperation = 'source-over';
-      var fs = Math.floor(Math.min(W, H) * .22 * (1 + b.k * .08));
-      cx.font = '900 ' + fs + 'px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
-      cx.shadowColor = 'hsl(' + hh + ',100%,60%)'; cx.shadowBlur = fs * .35;
-      cx.fillStyle = 'hsl(' + hh + ',100%,88%)'; cx.fillText('NEXUS', W / 2, H / 2);
-      cx.shadowBlur = 0;
+    ];
+    function newCycle(now) { impact = [W * (.3 + Math.random() * .4), H * (.3 + Math.random() * .4)]; cracks = []; hits = 0; cycleStart = now; }
+    function addCracks(n) {
+      for (var i = 0; i < n; i++) {
+        if (cracks.length < 6 || Math.random() < .4) { var a = Math.random() * 6.283; cracks.push({ pts: [[impact[0], impact[1]]], a: a }); }
+        var c = cracks[Math.random() * cracks.length | 0];
+        for (var st = 0; st < 3; st++) { var l = c.pts[c.pts.length - 1]; c.a += (Math.random() - .5) * .7; var len = Math.min(W, H) * (.04 + Math.random() * .07); c.pts.push([l[0] + Math.cos(c.a) * len, l[1] + Math.sin(c.a) * len]); }
+        if (Math.random() < .3) { var bp = c.pts[Math.random() * c.pts.length | 0]; cracks.push({ pts: [[bp[0], bp[1]]], a: c.a + (Math.random() < .5 ? 1 : -1) * (.6 + Math.random() * .6) }); }
+      }
     }
     function edge(px, py, a) {
       var dx = Math.cos(a), dy = Math.sin(a), t = 1e9;
@@ -663,58 +717,72 @@
       if (dy > 1e-6) t = Math.min(t, (H - py) / dy); if (dy < -1e-6) t = Math.min(t, -py / dy);
       return [px + dx * t, py + dy * t];
     }
-    function smash(now) {
+    function smash(now, hh) {
       snap.width = W; snap.height = H; sx.drawImage(cv, 0, 0);
-      var px = W * (.3 + Math.random() * .4), py = H * (.3 + Math.random() * .4), n = 16;
-      impact = [px, py]; shards = []; cracks = [];
-      var angs = [], fr = [];
-      for (var i = 0; i < n; i++) { angs.push((i + Math.random() * .6) / n * 6.2832); fr.push(.25 + Math.random() * .35); }
+      var px = impact[0], py = impact[1], n = 18, angs = [], fr = [];
+      for (var i = 0; i < n; i++) { angs.push((i + Math.random() * .6) / n * 6.2832); fr.push(.2 + Math.random() * .3); }
       var corners = [[0, 0], [W, 0], [W, H], [0, H]].map(function (c) { var a = Math.atan2(c[1] - py, c[0] - px); return [c[0], c[1], a < 0 ? a + 6.2832 : a]; });
+      shards = [];
       for (var k = 0; k < n; k++) {
-        var a0 = angs[k], a1 = k + 1 < n ? angs[k + 1] : angs[0] + 6.2832;
-        var e0 = edge(px, py, a0), e1 = edge(px, py, a1);
-        var m0 = [px + (e0[0] - px) * fr[k], py + (e0[1] - py) * fr[k]], k1 = (k + 1) % n, m1 = [px + (e1[0] - px) * fr[k1], py + (e1[1] - py) * fr[k1]];
-        var outer = [m0, e0];
-        corners.forEach(function (c) { var ca = c[2]; if (ca < a0) ca += 6.2832; if (ca > a0 && ca < a1) outer.push([c[0], c[1], ca]); });
-        outer.sort(function (u, v) { return (u[2] || 0) - (v[2] || 0); });
-        outer = [m0, e0].concat(outer.filter(function (q) { return q.length === 3; })).concat([e1, m1]);
-        [[[px, py], m0, m1], outer].forEach(function (poly, inner) {
+        var a0 = angs[k], a1 = k + 1 < n ? angs[k + 1] : angs[0] + 6.2832, e0 = edge(px, py, a0), e1 = edge(px, py, a1), k1 = (k + 1) % n;
+        var m0 = [px + (e0[0] - px) * fr[k], py + (e0[1] - py) * fr[k]], m1 = [px + (e1[0] - px) * fr[k1], py + (e1[1] - py) * fr[k1]];
+        var mid0 = [px + (e0[0] - px) * (fr[k] + .35), py + (e0[1] - py) * (fr[k] + .35)], mid1 = [px + (e1[0] - px) * (fr[k1] + .35), py + (e1[1] - py) * (fr[k1] + .35)];
+        var cs = corners.filter(function (c) { var ca = c[2]; if (ca < a0) ca += 6.2832; return ca > a0 && ca < a1; }).sort(function (u, v) { var ua = u[2] < a0 ? u[2] + 6.2832 : u[2], va = v[2] < a0 ? v[2] + 6.2832 : v[2]; return ua - va; });
+        [[[px, py], m0, m1], [m0, mid0, mid1, m1], [mid0, e0].concat(cs.map(function (c) { return [c[0], c[1]]; })).concat([e1, mid1])].forEach(function (poly, ring) {
           var cxm = 0, cym = 0; poly.forEach(function (q) { cxm += q[0]; cym += q[1]; }); cxm /= poly.length; cym /= poly.length;
-          var dx = cxm - px, dy = cym - py, d = Math.sqrt(dx * dx + dy * dy) || 1, sp = (inner ? 3 : 6) * (W / 640);
-          shards.push({ poly: poly, cx: cxm, cy: cym, vx: dx / d * sp * (.5 + Math.random()), vy: dy / d * sp * (.5 + Math.random()) - 2 * (W / 640), r: 0, vr: (Math.random() - .5) * .12, ox: 0, oy: 0 });
+          var dx = cxm - px, dy = cym - py, d = Math.sqrt(dx * dx + dy * dy) || 1;
+          shards.push({ poly: poly, cx: cxm, cy: cym, dx: dx / d, dy: dy / d, sp: (1.5 - ring * .35) * (.7 + Math.random() * .6), r: 0, vr: (Math.random() - .5) * .25, flip: Math.random() * 6, vf: (Math.random() - .5) * .3 });
         });
-        cracks.push([m0, e0]); cracks.push([m0, m1]);
       }
-      crackT = now; lastSmash = now;
+      sparks = [];
+      for (var s2 = 0; s2 < 260; s2++) { var an = Math.random() * 6.283, v = (.5 + Math.random() * 2.5) * Math.min(W, H) * .02; sparks.push({ x: px, y: py, vx: Math.cos(an) * v, vy: Math.sin(an) * v, life: 1, h: (hh + Math.random() * 80) % 360 }); }
+      smashT = now; scene = (scene + 1) % SCENES.length;
     }
+    newCycle(performance.now());
+    text('xpTop', 'SHATTER');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      if (b.hit && !shards && now - lastSmash > 2400 && b.k > .35) smash(now);
-      scene(now, hh, p);
-      if (shards) {
-        var t = now - crackT, lw = Math.max(1, S * 2.5);
-        if (t < 200) {                         // the crack appears first…
-          cx.drawImage(snap, 0, 0);
-          cx.strokeStyle = 'rgba(255,255,255,.9)'; cx.lineWidth = lw; cx.beginPath();
-          cracks.forEach(function (c) { cx.moveTo(impact[0], impact[1]); cx.lineTo(c[0][0], c[0][1]); cx.moveTo(c[0][0], c[0][1]); cx.lineTo(c[1][0], c[1][1]); });
-          cx.stroke();
-          flash('#fff', .25 * (1 - t / 200));
-        } else {                               // …then the glass falls away
-          var life = (t - 200) / 1100, grav = .5 * (W / 640);
-          if (life >= 1) shards = null;
-          else {
-            cx.globalAlpha = 1 - life * life;
-            shards.forEach(function (sh) {
-              sh.vy += grav; sh.ox += sh.vx; sh.oy += sh.vy; sh.r += sh.vr;
-              cx.save(); cx.translate(sh.cx + sh.ox, sh.cy + sh.oy); cx.rotate(sh.r); cx.translate(-sh.cx, -sh.cy);
-              cx.beginPath(); sh.poly.forEach(function (q, i) { if (i) cx.lineTo(q[0], q[1]); else cx.moveTo(q[0], q[1]); }); cx.closePath();
-              cx.save(); cx.clip(); cx.drawImage(snap, 0, 0); cx.restore();
-              cx.strokeStyle = 'rgba(255,255,255,.7)'; cx.lineWidth = lw; cx.stroke();
-              cx.restore();
-            });
-            cx.globalAlpha = 1;
-          }
-        }
+      var since = now - smashT, shake = shards && since < 400 ? (1 - since / 400) * Math.min(W, H) * .03 : 0;
+      cx.save(); if (shake) cx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+      SCENES[scene](now, hh, p);
+      cx.restore();
+      if (!shards) {
+        if (b.hit && b.k > .2) { hits++; addCracks(1 + (b.k > .6 ? 1 : 0)); }
+        if (!b.hit && now - cycleStart > 1500 && Math.random() < .01) addCracks(1);
+        if (hits >= 10 || now - cycleStart > 14000) smash(now, hh);
+        // draw the cracks on the glass
+        cx.globalCompositeOperation = 'lighter';
+        [[S * 7, .12], [S * 3, .35], [S * 1.2, 1]].forEach(function (pass, i) {
+          cx.strokeStyle = i === 2 ? 'rgba(255,255,255,.95)' : 'hsla(' + ((hh + 180) % 360) + ',100%,70%,' + pass[1] + ')'; cx.lineWidth = Math.max(1, pass[0]);
+          cx.beginPath(); cracks.forEach(function (c) { c.pts.forEach(function (q, j) { if (j) cx.lineTo(q[0], q[1]); else cx.moveTo(q[0], q[1]); }); }); cx.stroke();
+        });
+        if (cracks.length) { var ig = cx.createRadialGradient(impact[0], impact[1], 0, impact[0], impact[1], Math.min(W, H) * .1 * (1 + hits * .1)); ig.addColorStop(0, 'rgba(255,255,255,' + Math.min(.6, hits * .06) + ')'); ig.addColorStop(1, 'rgba(255,255,255,0)'); cx.fillStyle = ig; cx.fillRect(0, 0, W, H); }
+        cx.globalCompositeOperation = 'source-over';
+      } else {
+        var t = since / 1000, slow = t < .15 ? .25 : 1;
+        // shockwave
+        cx.globalCompositeOperation = 'lighter';
+        var wr = t * Math.max(W, H) * 1.2;
+        cx.strokeStyle = 'hsla(' + hh + ',100%,75%,' + Math.max(0, .8 - t) + ')'; cx.lineWidth = Math.max(2, (1 - t) * Math.min(W, H) * .03);
+        cx.beginPath(); cx.arc(impact[0], impact[1], wr, 0, 6.283); cx.stroke();
+        cx.globalCompositeOperation = 'source-over';
+        var life = Math.min(1, t / 1.4);
+        shards.forEach(function (sh) {
+          var dist = (Math.pow(t, 1.4) * sh.sp * Math.min(W, H) * 1.1) * slow, sc = 1 + Math.pow(t, 1.6) * 2.4 * sh.sp;
+          sh.r += sh.vr * slow; sh.flip += sh.vf * slow;
+          cx.save(); cx.globalAlpha = Math.max(0, 1 - life * life);
+          cx.translate(sh.cx + sh.dx * dist, sh.cy + sh.dy * dist + t * t * H * .15); cx.rotate(sh.r); cx.scale(sc * Math.max(.15, Math.abs(Math.cos(sh.flip))), sc); cx.translate(-sh.cx, -sh.cy);
+          cx.beginPath(); sh.poly.forEach(function (q, j) { if (j) cx.lineTo(q[0], q[1]); else cx.moveTo(q[0], q[1]); }); cx.closePath();
+          cx.save(); cx.clip(); cx.drawImage(snap, 0, 0); cx.fillStyle = 'rgba(255,255,255,' + (.08 + .15 * Math.abs(Math.sin(sh.flip))) + ')'; cx.fill(); cx.restore();
+          cx.strokeStyle = 'hsla(' + ((hh + 180) % 360) + ',100%,80%,.9)'; cx.lineWidth = Math.max(1, S * 2.5 / sc); cx.stroke();
+          cx.restore();
+        });
+        cx.globalCompositeOperation = 'lighter';
+        sparks.forEach(function (sp) { sp.x += sp.vx * slow; sp.y += sp.vy * slow; sp.vy += Math.min(W, H) * .0012; sp.vx *= .97; sp.life -= .025;
+          if (sp.life > 0) { cx.strokeStyle = 'hsla(' + sp.h + ',100%,70%,' + sp.life + ')'; cx.lineWidth = Math.max(1, S * 2.5); cx.beginPath(); cx.moveTo(sp.x, sp.y); cx.lineTo(sp.x - sp.vx * 1.5, sp.y - sp.vy * 1.5); cx.stroke(); } });
+        cx.globalCompositeOperation = 'source-over';
+        if (t < .12) flash('hsl(' + hh + ',100%,85%)', .55 * (1 - t / .12));
+        if (t > 1.5) { shards = null; newCycle(now); }
       }
     }, 30);
   }
@@ -755,7 +823,51 @@
     var b = beatTracker(), hue = beatHue(195, 45), bubbles = [], snow = [], jellies = [];
     for (var i = 0; i < 40; i++) bubbles.push([Math.random(), Math.random(), .3 + Math.random(), Math.random() * 6]);
     for (var j = 0; j < 90; j++) snow.push([Math.random(), Math.random(), Math.random()]);
-    for (var k = 0; k < 5; k++) jellies.push({ x: .12 + k * .19 + Math.random() * .05, y: .35 + Math.random() * .4, s: .07 + Math.random() * .05, ph: Math.random() * 6, h: k * 50, pulse: 0 });
+    for (var k = 0; k < 4; k++) jellies.push({ x: .12 + k * .24 + Math.random() * .05, y: .3 + Math.random() * .4, s: .06 + Math.random() * .04, ph: Math.random() * 6, h: k * 60, pulse: 0 });
+    // more sea life: fish schools, a manta ray, a sea turtle, a whale far away, kelp
+    var schools = [0, 1, 2].map(function (i) { var f = []; for (var n = 0; n < 22; n++) f.push([Math.random() * .25, (Math.random() - .5) * .12, Math.random() * 6]); return { x: Math.random(), y: .3 + i * .2, dir: i % 2 ? -1 : 1, sp: .0012 + Math.random() * .001, fish: f, h: i * 90, turn: 0 }; });
+    var kelp = []; for (var kk = 0; kk < 14; kk++) kelp.push([kk / 13 + (Math.random() - .5) * .05, .25 + Math.random() * .3, Math.random() * 6, Math.random() < .5]);
+    var critters = [{ kind: 'manta', x: -0.15, y: .35, dir: 1, sp: .0011, wait: 0 }, { kind: 'turtle', x: 1.15, y: .62, dir: -1, sp: .0007, wait: 60 }, { kind: 'whale', x: 1.05, y: .22, dir: -1, sp: .00035, wait: 0 }];
+    function fishShape(x, y, sz, dir, col, wag) {
+      cx.fillStyle = col; cx.beginPath(); cx.ellipse(x, y, sz, sz * .38, 0, 0, 6.283); cx.fill();
+      cx.beginPath(); cx.moveTo(x - dir * sz * .8, y); cx.lineTo(x - dir * sz * 1.5, y - sz * .45 + wag); cx.lineTo(x - dir * sz * 1.5, y + sz * .45 + wag); cx.closePath(); cx.fill();
+    }
+    function critter(c, t, hh) {
+      var x = c.x * W, y = (c.y + Math.sin(t * .4 + c.wait) * .02) * H, d = c.dir;
+      if (c.kind === 'manta') {
+        var s2 = Math.min(W, H) * .2, flap = Math.sin(t * 1.6) * .35;
+        cx.save(); cx.translate(x, y); cx.scale(d, 1);
+        var mg = cx.createLinearGradient(0, -s2, 0, s2); mg.addColorStop(0, 'hsla(' + hh + ',40%,22%,.95)'); mg.addColorStop(1, 'hsla(' + hh + ',50%,8%,.95)');
+        cx.fillStyle = mg; cx.beginPath(); cx.moveTo(s2 * .55, 0);
+        cx.quadraticCurveTo(s2 * .1, -s2 * (.3 + flap), -s2 * .25, -s2 * (.95 + flap * .8));
+        cx.quadraticCurveTo(-s2 * .2, -s2 * .2, -s2 * .45, 0);
+        cx.quadraticCurveTo(-s2 * .2, s2 * .2, -s2 * .25, s2 * (.95 - flap * .8));
+        cx.quadraticCurveTo(s2 * .1, s2 * (.3 - flap), s2 * .55, 0); cx.fill();
+        cx.strokeStyle = 'hsla(' + ((hh + 160) % 360) + ',100%,70%,.5)'; cx.lineWidth = Math.max(1, S * 2); cx.stroke();
+        cx.beginPath(); cx.moveTo(-s2 * .45, 0); cx.quadraticCurveTo(-s2 * .8, s2 * .05 * Math.sin(t * 3), -s2 * 1.1, 0); cx.stroke();
+        cx.restore();
+      } else if (c.kind === 'turtle') {
+        var s3 = Math.min(W, H) * .09, fl = Math.sin(t * 2.2) * .5;
+        cx.save(); cx.translate(x, y); cx.scale(d, 1);
+        cx.fillStyle = 'hsla(' + ((hh + 90) % 360) + ',45%,30%,.95)';
+        [[.35, -.5, -.6 - fl], [.35, .5, .6 + fl], [-.45, -.4, -.3 + fl * .5], [-.45, .4, .3 - fl * .5]].forEach(function (f) { cx.beginPath(); cx.ellipse(f[0] * s3, f[1] * s3, s3 * .5, s3 * .16, f[2], 0, 6.283); cx.fill(); });
+        cx.beginPath(); cx.ellipse(s3 * .85, 0, s3 * .25, s3 * .2, 0, 0, 6.283); cx.fill();
+        var sg = cx.createRadialGradient(-s3 * .1, -s3 * .2, 0, 0, 0, s3 * .7); sg.addColorStop(0, 'hsl(' + ((hh + 60) % 360) + ',55%,45%)'); sg.addColorStop(1, 'hsl(' + ((hh + 90) % 360) + ',50%,18%)');
+        cx.fillStyle = sg; cx.beginPath(); cx.ellipse(0, 0, s3 * .7, s3 * .5, 0, 0, 6.283); cx.fill();
+        cx.strokeStyle = 'rgba(0,0,0,.35)'; cx.lineWidth = Math.max(1, S * 1.5);
+        for (var hx = -1; hx <= 1; hx++) { cx.beginPath(); cx.arc(hx * s3 * .3, 0, s3 * .16, 0, 6.283); cx.stroke(); }
+        cx.restore();
+      } else {
+        var s4 = Math.min(W, H) * .55;
+        cx.save(); cx.translate(x, y); cx.scale(d, 1); cx.globalAlpha = .28;
+        cx.fillStyle = 'hsl(' + ((hh + 20) % 360) + ',40%,6%)';
+        cx.beginPath(); cx.moveTo(s4 * .6, 0); cx.quadraticCurveTo(s4 * .5, -s4 * .2, 0, -s4 * .17); cx.quadraticCurveTo(-s4 * .5, -s4 * .1, -s4 * .8, -s4 * .02);
+        cx.lineTo(-s4 * 1.0, -s4 * (.14 + Math.sin(t * .8) * .05)); cx.lineTo(-s4 * .92, 0); cx.lineTo(-s4 * 1.0, s4 * (.14 - Math.sin(t * .8) * .05)); cx.lineTo(-s4 * .8, s4 * .03);
+        cx.quadraticCurveTo(-s4 * .4, s4 * .14, 0, s4 * .15); cx.quadraticCurveTo(s4 * .45, s4 * .15, s4 * .6, 0); cx.fill();
+        cx.beginPath(); cx.ellipse(s4 * .05, s4 * .14, s4 * .18, s4 * .04, .5, 0, 6.283); cx.fill();
+        cx.restore();
+      }
+    }
     text('xpTop', 'DEEP SEA');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit), t = now * .001;
@@ -773,6 +885,38 @@
       // drifting specks
       cx.fillStyle = 'rgba(200,240,255,.35)';
       snow.forEach(function (q) { q[1] += .0004 + q[2] * .0004; if (q[1] > 1) q[1] = 0; cx.fillRect((q[0] + Math.sin(t * .4 + q[2] * 9) * .01) * W, q[1] * H, S * 2, S * 2); });
+      // whale far away, then kelp, fish schools, manta and turtle
+      cx.globalCompositeOperation = 'source-over';
+      critters.forEach(function (c) {
+        if (c.wait > 0) { c.wait--; return; }
+        c.x += c.dir * c.sp * (1 + b.e * .5);
+        if ((c.dir > 0 && c.x > 1.4) || (c.dir < 0 && c.x < -0.4)) { c.dir *= -1; c.y = c.kind === 'whale' ? .18 + Math.random() * .12 : .3 + Math.random() * .4; c.wait = 300 + Math.random() * 600 | 0; }
+        if (c.kind === 'whale') critter(c, t, hh);
+      });
+      cx.globalCompositeOperation = 'source-over';
+      kelp.forEach(function (k2) {
+        if (!k2[3]) return;
+        var kx = k2[0] * W, kh = k2[1] * H; cx.strokeStyle = 'hsla(' + ((hh + 100) % 360) + ',60%,14%,.9)'; cx.lineWidth = Math.max(2, W * .008);
+        cx.beginPath(); cx.moveTo(kx, H); for (var seg = 1; seg <= 8; seg++) cx.lineTo(kx + Math.sin(t * .9 + k2[2] + seg * .5) * seg * W * .004, H - kh * seg / 8); cx.stroke();
+      });
+      schools.forEach(function (sc) {
+        sc.x += sc.dir * sc.sp * (1 + b.e); if (b.hit && Math.random() < .25) sc.turn = 1;
+        sc.turn *= .9;
+        if (sc.x > 1.35) { sc.dir = -1; } if (sc.x < -0.35) { sc.dir = 1; }
+        var fh = (hh + sc.h) % 360;
+        sc.fish.forEach(function (f) {
+          var fx = (sc.x - sc.dir * f[0]) * W, fy = (sc.y + f[1] + Math.sin(t * 1.3 + f[2]) * .015 + sc.turn * Math.sin(f[2]) * .05) * H;
+          var sz = Math.min(W, H) * .028;
+          fishShape(fx, fy, sz, sc.dir, 'hsla(' + fh + ',90%,' + (55 + b.k * 25) + '%,.85)', Math.sin(t * 9 + f[2]) * sz * .25);
+        });
+      });
+      critters.forEach(function (c) { if (c.kind !== 'whale' && c.wait <= 0) critter(c, t, hh); });
+      kelp.forEach(function (k2) {
+        if (k2[3]) return;
+        var kx = k2[0] * W, kh = k2[1] * H; cx.strokeStyle = 'hsla(' + ((hh + 110) % 360) + ',70%,22%,.95)'; cx.lineWidth = Math.max(2, W * .01);
+        cx.beginPath(); cx.moveTo(kx, H); for (var seg = 1; seg <= 8; seg++) cx.lineTo(kx + Math.sin(t * .9 + k2[2] + seg * .5) * seg * W * .005, H - kh * seg / 8); cx.stroke();
+      });
+      cx.globalCompositeOperation = 'lighter';
       // jellyfish
       jellies.forEach(function (jf, idx) {
         if (b.hit && idx % 2 === (Math.random() < .5 ? 0 : 1)) jf.pulse = 1;
@@ -801,6 +945,8 @@
         cx.beginPath(); cx.arc(bx, q[1] * H, rr, 0, 6.283); cx.stroke();
       });
       cx.globalCompositeOperation = 'source-over';
+      var sand = cx.createLinearGradient(0, H * .9, 0, H); sand.addColorStop(0, 'rgba(0,0,0,0)'); sand.addColorStop(1, 'hsla(' + ((hh + 30) % 360) + ',40%,12%,.9)');
+      cx.fillStyle = sand; cx.fillRect(0, H * .9, W, H * .1);
     }, 30);
   }
 
@@ -931,6 +1077,415 @@
     }, 30);
     text('xpTop', 'NEXUS · HOLOGRAM');
     layer.onclick = function () { startMove(null, performance.now()); };
+  }
+
+
+  // ==================================================================
+  // GRAPHICS-CHIP VISUALS (sharp, smooth, music-synced)
+  // ==================================================================
+
+  // 14. FRACTAL DIVE — endless dive into the Mandelbrot set; colours shift on the beat
+  function fractal() {
+    var b = beatTracker(), hue = beatHue(200, 40);
+    var g = glStart('fractal',
+      'uniform vec2 center; uniform float scale, fade, maxIter;\n' +
+      'void main(){ vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y; vec2 c = center + uv * scale; vec2 z = vec2(0.); float n = 0.; float m2 = 0.;\n' +
+      ' for (int i = 0; i < 320; i++) { if (float(i) >= maxIter) break; z = vec2(z.x*z.x - z.y*z.y, 2.*z.x*z.y) + c; m2 = dot(z, z); if (m2 > 256.) break; n += 1.; }\n' +
+      ' vec3 col = vec3(0.);\n' +
+      ' if (n < maxIter) { float sn = n - log2(log2(m2)) + 4.; col = pal(hue + sn * .022 + time * .015); col *= .5 + .5 * sin(sn * .3 - time * 1.5); col *= pow(clamp((sn - 2.) / (maxIter * .3), 0., 1.), 1.1); col = pow(col, vec3(.85)) * 1.25; col *= 1. + kick * .5; }\n' +
+      ' else { col = pal(hue + .6) * .05 * (1. + kick); }\n' +
+      ' float v = 1. - dot(uv, uv) * .35; gl_FragColor = vec4(col * fade * v, 1.); }');
+    if (!g) return kaleido();
+    var TARGETS = [[-0.743643887, 0.131825904], [-0.10109636, 0.95628651], [-0.77468061, -0.13741689], [-0.77568377, 0.13646737], [0.36024044, -0.64131306], [0.00164372, -0.82246763], [-1.62917, -0.0203968], [-0.74529, 0.11307]];
+    var ti = Math.random() * TARGETS.length | 0, start = performance.now(), DIVE = 26;
+    text('xpTop', 'FRACTAL DIVE');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      var t = (now - start) / 1000;
+      if (t > DIVE) { ti = (ti + 1 + (Math.random() * (TARGETS.length - 1) | 0)) % TARGETS.length; start = now; t = 0; }
+      var depth = Math.pow(t / DIVE, 1.15), scale = 2.6 * Math.pow(1.2e-4, depth) * (1 - b.k * .025);
+      var fade = Math.min(1, t / 1.2, (DIVE - t) / 1.2);
+      g.v2('center', TARGETS[ti][0], TARGETS[ti][1]);
+      g.f('scale', scale); g.f('fade', Math.max(0, fade)); g.f('maxIter', 90 + 160 * depth);
+      g.draw(now, b, hh);
+    }, 30);
+  }
+
+  // 15. WORMHOLE — twisting tunnel of light; opens into a galaxy on big drops
+  function wormhole() {
+    var b = beatTracker(), hue = beatHue(260, 60), z = 0, open = 0, beats = 0;
+    var g = glStart('wormhole',
+      'uniform float travel, open;\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
+      ' vec2 bend = vec2(sin(time * .31), cos(time * .23)) * .08 * (1. - open); p += bend * length(p) * 1.5;\n' +
+      ' float r = length(p), a = atan(p.y, p.x);\n' +
+      ' float d = .32 / max(r, .001) + travel;\n' +
+      ' float tw = a / 3.14159 + d * .06 + .12 * sin(d * .7 + time);\n' +
+      ' float rings = pow(.5 + .5 * sin(d * 12.566), 6.);\n' +
+      ' float streaks = pow(.5 + .5 * sin(tw * 3.14159 * 22. + d * 3.), 22.);\n' +
+      ' float n = noise(vec2(tw * 18., d * 3.)) * .6 + noise(vec2(tw * 40., d * 9.)) * .4;\n' +
+      ' vec3 c1 = pal(hue + d * .04), c2 = pal(hue + .33 + d * .03);\n' +
+      ' float panel = smoothstep(.45, .8, n);\n' +
+      ' vec3 col = c1 * (.04 + .55 * panel) + c1 * rings * (.5 + .5 * n) * 1.2 + c2 * streaks * 1.3;\n' +
+      ' col *= smoothstep(.0, .25, r) * (.8 + kick * .8);\n' +
+      ' col += c1 * pow(max(0., 1. - r * 3.), 4.) * (.4 + kick);\n' +
+      ' float ga = a + log(r + .001) * 3. - time * .4; float arms = pow(.5 + .5 * sin(ga * 2.), 4.) * exp(-r * 3.);\n' +
+      ' vec3 gal = pal(hue + .15 + r) * arms * 1.6 + vec3(1., .95, .85) * exp(-r * 22.) * 1.5 + step(.997, hash(floor(p * 260.))) * .8;\n' +
+      ' col = mix(col, gal, open * smoothstep(.75, .0, r));\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return hyper();
+    text('xpTop', 'WORMHOLE');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      if (b.hit) { beats++; if (beats % 32 === 0) open = 1.0001; }
+      if (open > 0) open = Math.max(0, open - .004);
+      z += (.02 + b.e * .05 + b.k * .06) * (1 - open * .8);
+      g.f('travel', z); g.f('open', Math.min(1, open * 1.6));
+      g.draw(now, b, hh);
+    }, 30);
+  }
+
+  // 16. BLACK MIRROR — dark liquid; every bass hit drops a ripple and colour bleeds out like ink
+  function mirror() {
+    var b = beatTracker(), hue = beatHue(200, 70), slots = [], next = 0, lastDrip = 0;
+    for (var i = 0; i < 8; i++) slots.push([0, 0, -99, 0, 0, 0, 0]);
+    var g = glStart('mirror',
+      'uniform vec4 R[8]; uniform vec3 RC[8];\n' +
+      'float hgt(vec2 p){ float s = .015 * sin(p.x * 6. + time * .6) * sin(p.y * 5. - time * .5);\n' +
+      ' for (int i = 0; i < 8; i++) { vec4 r = R[i]; float age = time - r.z; if (age < 0. || age > 7.) continue;\n' +
+      '  float d = length(p - r.xy), front = age * .32; s += sin((d - front) * 46.) * exp(-abs(d - front) * 7.) * exp(-age * .55) * r.w * .06; }\n' +
+      ' return s; }\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; vec2 e = vec2(.003, 0.);\n' +
+      ' float hx = hgt(p + e.xy) - hgt(p - e.xy), hy = hgt(p + e.yx) - hgt(p - e.yx);\n' +
+      ' vec3 nrm = normalize(vec3(-hx, -hy, e.x * 2.));\n' +
+      ' vec3 ink = vec3(0.); vec2 q = p + nrm.xy * .4;\n' +
+      ' for (int i = 0; i < 8; i++) { vec4 r = R[i]; float age = time - r.z; if (age < 0. || age > 9.) continue;\n' +
+      '  float d = length(q - r.xy); float spread = .04 + age * .09;\n' +
+      '  float wisp = .7 + .6 * noise(q * 9. + vec2(age * .3, float(i) * 7.));\n' +
+      '  ink += RC[i] * exp(-pow(d / spread, 2.)) * exp(-age * .32) * r.w * wisp; }\n' +
+      ' vec3 refl = reflect(vec3(0., 0., -1.), nrm);\n' +
+      ' vec3 sky = mix(vec3(.01, .015, .03), pal(hue) * .25, smoothstep(-.2, .9, refl.y));\n' +
+      ' float spec = pow(max(dot(refl, normalize(vec3(-.4, .6, .7))), 0.), 60.);\n' +
+      ' vec3 col = vec3(.004, .006, .012) + ink * .9 + sky * .5 + spec * (.7 + kick * .6);\n' +
+      ' col *= 1. - dot(p, p) * .5; gl_FragColor = vec4(col, 1.); }');
+    if (!g) return water();
+    var start = performance.now();
+    function drop(now, strength, h) {
+      var asp = (glc.width / glc.height) || 1.7, c = hsl(h);
+      slots[next] = [(Math.random() - .5) * asp * .85, (Math.random() - .5) * .8, (now - start) / 1000, strength, c[0], c[1], c[2]];
+      next = (next + 1) % 8;
+    }
+    function hsl(h) { var f = function (n) { var k = (n + h / 30) % 12; return .5 - .5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; }
+    text('xpTop', 'BLACK MIRROR');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      if (b.hit && b.k > .25) { drop(now, .6 + b.k * .8, hh); lastDrip = now; }
+      else if (now - lastDrip > 2500) { drop(now, .5, hh); lastDrip = now; }
+      var R = [], C = [];
+      slots.forEach(function (s2) { R.push(s2[0], s2[1], s2[2], s2[3]); C.push(s2[4], s2[5], s2[6]); });
+      g.v4a('R', R); g.v3a('RC', C);
+      g.draw(now - start, b, hh);
+    }, 30);
+  }
+
+  // 17. CYBER EYE — giant robotic eye; iris spins and changes colour with the music
+  function eye() {
+    var b = beatTracker(), hue = beatHue(180, 60), gaze = [0, 0], gazeT = [0, 0], nextGaze = 0, blink = 0, nextBlink = 0, spin = 0, dil = 0, lastSong = '';
+    var g = glStart('eye',
+      'uniform vec2 gaze; uniform float blink, dilate, spin;\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; vec2 q = p * .78;\n' +
+      ' vec3 col = vec3(.025, .03, .04) * (.6 + .5 * noise(p * 60.));\n' +
+      ' vec2 cg = p * 9.; vec2 id = floor(cg), f = fract(cg) - .5; float h1 = hash(id);\n' +
+      ' float ln = h1 > .5 ? abs(f.x) : abs(f.y); float trace = smoothstep(.035, .0, ln) * step(.35, hash(id + 3.));\n' +
+      ' float pulse = .5 + .5 * sin(time * 3. - length(p) * 12.);\n' +
+      ' col += pal(hue) * trace * (.08 + .3 * energy * pulse);\n' +
+      ' float r0 = length(q), a0 = atan(q.y, q.x);\n' +
+      ' float seg = step(.45, fract(a0 / 6.2832 * 36. + spin * .2));\n' +
+      ' col += pal(hue + .1) * smoothstep(.008, .0, abs(r0 - .56) - .01) * seg * (.5 + kick);\n' +
+      ' col += pal(hue + .2) * smoothstep(.006, .0, abs(r0 - .6) - .003) * .5;\n' +
+      ' float lid = .43 * (1. - blink) * sqrt(max(0., 1. - pow(q.x / .98, 2.)));\n' +
+      ' float inEye = smoothstep(.005, -.005, abs(q.y) - lid);\n' +
+      ' col += pal(hue) * exp(-abs(abs(q.y) - lid) * 90.) * step(abs(q.x), .98) * (.7 + kick * .6);\n' +
+      ' vec2 e = q - gaze * vec2(.24, .1); float r = length(e), a = atan(e.y, e.x);\n' +
+      ' vec3 ec = vec3(.04, .045, .06) * (1.2 - r);\n' +
+      ' ec += pal(hue + .5) * pow(noise(vec2(a * 5., r * 9.)), 8.) * .25;\n' +
+      ' float IR = .27; float fib = .5 + .5 * sin(a * 90. + noise(vec2(a * 12., r * 30.)) * 5.);\n' +
+      ' vec3 iris = pal(hue + r * .9 - spin * .03) * (.3 + .7 * fib) * (.5 + 1.1 * r / IR);\n' +
+      ' iris += pal(hue + .4) * exp(-abs(r - IR * .55) * 70.) * .8;\n' +
+      ' float seg2 = step(.5, fract(a / 6.2832 * 12. - spin * .5)); iris += vec3(1.) * smoothstep(.004, .0, abs(r - IR * .8) - .004) * seg2 * .5;\n' +
+      ' iris *= smoothstep(IR, IR - .02, r) * (1. + kick * .6);\n' +
+      ' ec = mix(ec, iris, smoothstep(IR + .005, IR - .005, r));\n' +
+      ' ec *= 1. - .6 * exp(-abs(r - IR) * 60.);\n' +
+      ' float PR = .07 + dilate * .07; ec = mix(ec, vec3(0.), smoothstep(PR + .006, PR - .006, r));\n' +
+      ' ec += pal(hue + .5) * .3 * exp(-abs(r - PR) * 120.);\n' +
+      ' ec += vec3(1.) * smoothstep(.03, .0, length(e - vec2(-.08, .08))) * .9 + vec3(1.) * smoothstep(.012, .0, length(e - vec2(.06, -.05))) * .5;\n' +
+      ' col = mix(col, ec, inEye);\n' +
+      ' col *= .92 + .08 * sin(gl_FragCoord.y * 1.5); col *= 1. - dot(p, p) * .4;\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return ring();
+    text('xpTop', 'CYBER EYE');
+    every(function () { try { var np = A && JSON.parse(A.nowPlaying() || '{}'); var s2 = np && np.title ? np.title : ''; if (s2 && s2 !== lastSong) { if (lastSong) blink = 1.0001; lastSong = s2; } } catch (e) {} }, 3000);
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      if (now > nextGaze) { gazeT = [(Math.random() - .5) * 2, (Math.random() - .5) * 1.6]; if (Math.random() < .3) gazeT = [0, 0]; nextGaze = now + 500 + Math.random() * 2500; }
+      gaze[0] += (gazeT[0] - gaze[0]) * .3; gaze[1] += (gazeT[1] - gaze[1]) * .3;
+      if (now > nextBlink) { blink = 1.0001; nextBlink = now + 3000 + Math.random() * 5000; }
+      if (blink > 0) blink = Math.max(0, blink - .14);
+      spin += .02 + b.e * .08 + (b.hit ? .6 : 0);
+      dil += ((b.k * .9 + b.e * .3) - dil) * .3;
+      g.v2('gaze', gaze[0], gaze[1]); g.f('blink', Math.min(1, blink > 1 ? 1 : (blink > .5 ? (1 - blink) * 2 : blink * 2))); g.f('dilate', dil); g.f('spin', spin);
+      g.draw(now, b, hh);
+    }, 30);
+  }
+
+  // 18. PLANET BUILDER — dust forms a planet, rings and moons appear, then it goes supernova on a drop
+  function planet() {
+    var b = beatTracker(), hue = beatHue(30, 35), bg = null, bgW = 0, phase = 'form', t0 = performance.now(), dust = [], blast = [], moons = [], novaAt = 0, spinX = 0;
+    function makeBg() {
+      bg = document.createElement('canvas'); bg.width = W; bg.height = H; bgW = W; var c = bg.getContext('2d');
+      c.fillStyle = '#01010a'; c.fillRect(0, 0, W, H);
+      for (var i = 0; i < 6; i++) { var x = Math.random() * W, y = Math.random() * H, r = Math.max(W, H) * (.2 + Math.random() * .3), gg = c.createRadialGradient(x, y, 0, x, y, r);
+        gg.addColorStop(0, 'hsla(' + (200 + Math.random() * 140 | 0) + ',80%,40%,.12)'); gg.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gg; c.fillRect(0, 0, W, H); }
+      for (var j = 0; j < 400; j++) { c.fillStyle = 'rgba(255,255,255,' + Math.random() * .8 + ')'; var s2 = Math.random() < .05 ? 2 : 1; c.fillRect(Math.random() * W, Math.random() * H, s2 * S * 1.5, s2 * S * 1.5); }
+    }
+    function reset(now) {
+      phase = 'form'; t0 = now; dust = []; blast = []; moons = [];
+      for (var i = 0; i < 500; i++) { var a = Math.random() * 6.283, r = .6 + Math.random() * 1.2; dust.push({ a: a, r: r, ta: Math.random() * 6.283, tr: Math.sqrt(Math.random()) * .98, sp: .3 + Math.random() * .7, hue: Math.random() * 60 }); }
+    }
+    reset(performance.now());
+    text('xpTop', 'PLANET BUILDER');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit), t = (now - t0) / 1000;
+      if (!bg || bgW !== W) makeBg();
+      var shake = phase === 'nova' && t < .6 ? (1 - t / .6) * W * .02 : 0;
+      cx.drawImage(bg, (Math.random() - .5) * shake, (Math.random() - .5) * shake);
+      var cxp = W / 2, cyp = H / 2, R = Math.min(W, H) * .26 * (1 + b.k * .02);
+      cx.globalCompositeOperation = 'lighter';
+      if (phase === 'form' || phase === 'alive') {
+        var built = Math.min(1, Math.max(0, (t - 2.5) / 3));
+        // dust spiralling in
+        if (built < 1) dust.forEach(function (d) {
+          var k = Math.min(1, t / (4 + d.sp * 2)); var e2 = 1 - Math.pow(1 - k, 3);
+          var a = d.a + (1 - e2) * 4 + t * .5 * d.sp, r = d.r + (d.tr - d.r) * e2;
+          var x = cxp + Math.cos(a) * r * R, y = cyp + Math.sin(a) * r * R * (1 - e2 * 0 + .0) * (.35 + .65 * e2);
+          cx.fillStyle = 'hsla(' + ((hh + d.hue) % 360) + ',100%,70%,' + (.7 * (1 - built)) + ')';
+          cx.fillRect(x, y, S * 3, S * 3);
+        });
+        cx.globalCompositeOperation = 'source-over';
+        if (built > 0) {
+          if (phase === 'form' && built >= 1) phase = 'alive';
+          spinX += .004 + b.e * .006;
+          var ringsOn = Math.min(1, Math.max(0, (t - 7) / 2.5));
+          var tilt = .28;
+          function ringPass(back) {
+            if (!ringsOn) return;
+            for (var k2 = 0; k2 < 26; k2++) {
+              var rr = R * (1.45 + k2 * .028) * (.6 + .4 * ringsOn);
+              cx.strokeStyle = 'hsla(' + ((hh + 20 + k2 * 3) % 360) + ',70%,' + (55 + (k2 % 3) * 8) + '%,' + (ringsOn * (.12 + (k2 % 4 === 0 ? .15 : .05)) * (1 + b.k * .6)) + ')';
+              cx.lineWidth = Math.max(1, R * .02);
+              cx.beginPath(); cx.ellipse(cxp, cyp, rr, rr * tilt, -.25, back ? Math.PI : 0, back ? 2 * Math.PI : Math.PI); cx.stroke();
+            }
+          }
+          ringPass(true);
+          cx.save(); cx.globalAlpha = built;
+          cx.beginPath(); cx.arc(cxp, cyp, R, 0, 6.283); cx.save(); cx.clip();
+          var base = cx.createLinearGradient(cxp, cyp - R, cxp, cyp + R);
+          base.addColorStop(0, 'hsl(' + hh + ',60%,55%)'); base.addColorStop(1, 'hsl(' + ((hh + 40) % 360) + ',60%,35%)');
+          cx.fillStyle = base; cx.fillRect(cxp - R, cyp - R, R * 2, R * 2);
+          for (var bnd = 0; bnd < 22; bnd++) {
+            var y0 = cyp - R + bnd / 22 * R * 2, hb = R * 2 / 22;
+            cx.fillStyle = 'hsla(' + ((hh + (bnd % 5) * 14 - 20 + 360) % 360) + ',' + (50 + (bnd % 3) * 15) + '%,' + (35 + (bnd * 37 % 30)) + '%,.55)';
+            cx.beginPath(); cx.moveTo(cxp - R, y0);
+            for (var xx = 0; xx <= 24; xx++) { var ux = xx / 24; cx.lineTo(cxp - R + ux * R * 2, y0 + Math.sin(ux * 9 + spinX * 8 + bnd * 1.7) * hb * .35); }
+            cx.lineTo(cxp + R, y0 + hb * 1.2); cx.lineTo(cxp - R, y0 + hb * 1.2); cx.closePath(); cx.fill();
+          }
+          var storm = cx.createRadialGradient(cxp + Math.cos(spinX * 3) * R * .4, cyp + R * .25, 0, cxp + Math.cos(spinX * 3) * R * .4, cyp + R * .25, R * .18);
+          storm.addColorStop(0, 'hsla(' + ((hh + 180) % 360) + ',80%,70%,.6)'); storm.addColorStop(1, 'rgba(0,0,0,0)'); cx.fillStyle = storm; cx.fillRect(cxp - R, cyp - R, R * 2, R * 2);
+          var shade = cx.createRadialGradient(cxp - R * .45, cyp - R * .45, R * .1, cxp - R * .2, cyp - R * .2, R * 1.6);
+          shade.addColorStop(0, 'rgba(255,255,255,.18)'); shade.addColorStop(.45, 'rgba(0,0,0,0)'); shade.addColorStop(1, 'rgba(0,0,0,.92)');
+          cx.fillStyle = shade; cx.fillRect(cxp - R, cyp - R, R * 2, R * 2);
+          cx.restore();
+          var atm = cx.createRadialGradient(cxp, cyp, R * .95, cxp, cyp, R * 1.18);
+          atm.addColorStop(0, 'hsla(' + hh + ',100%,70%,' + (.45 + b.k * .4) + ')'); atm.addColorStop(1, 'hsla(' + hh + ',100%,60%,0)');
+          cx.fillStyle = atm; cx.beginPath(); cx.arc(cxp, cyp, R * 1.18, 0, 6.283); cx.fill();
+          cx.restore();
+          ringPass(false);
+          if (t > 11 && moons.length < 1) moons.push({ d: 2.3, s: .5, sz: .13, h: 160, a: 0 });
+          if (t > 15 && moons.length < 2) moons.push({ d: 3.0, s: .32, sz: .09, h: 280, a: 2 });
+          moons.forEach(function (m) {
+            m.a += .01 * m.s * (1 + b.e); var mx = cxp + Math.cos(m.a) * R * m.d, my = cyp + Math.sin(m.a) * R * m.d * .3, front = Math.sin(m.a) > 0, mr = R * m.sz * (front ? 1.08 : .92);
+            if (!front && Math.hypot(mx - cxp, (my - cyp) / 1) < R) return;
+            var mg = cx.createRadialGradient(mx - mr * .4, my - mr * .4, mr * .1, mx, my, mr);
+            mg.addColorStop(0, 'hsl(' + ((hh + m.h) % 360) + ',40%,80%)'); mg.addColorStop(1, 'hsl(' + ((hh + m.h) % 360) + ',50%,12%)');
+            cx.fillStyle = mg; cx.beginPath(); cx.arc(mx, my, mr, 0, 6.283); cx.fill();
+          });
+          if (phase === 'alive' && t > 22 && ((b.hit && b.k > .45) || t > 38)) { phase = 'nova'; t0 = now; novaAt = hh;
+            for (var i = 0; i < 420; i++) { var a = Math.random() * 6.283, sp = .3 + Math.random() * 2.2; blast.push({ x: cxp, y: cyp, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, h: (hh + Math.random() * 90) % 360 }); } }
+        }
+      } else if (phase === 'nova') {
+        var k = t / 3.2;
+        var core = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * (1.4 - k));
+        core.addColorStop(0, 'rgba(255,255,255,' + Math.max(0, 1 - k) + ')'); core.addColorStop(1, 'rgba(255,255,255,0)');
+        cx.fillStyle = core; cx.fillRect(0, 0, W, H);
+        for (var w = 0; w < 4; w++) {
+          var wr = (t - w * .18) * Math.max(W, H) * .5; if (wr <= 0) continue;
+          cx.strokeStyle = 'hsla(' + ((novaAt + w * 50) % 360) + ',100%,65%,' + Math.max(0, .8 - k) + ')'; cx.lineWidth = Math.max(2, R * .06 * (1 - k));
+          cx.beginPath(); cx.ellipse(cxp, cyp, wr, wr * (.55 + w * .1), 0, 0, 6.283); cx.stroke();
+        }
+        blast.forEach(function (p2) { p2.x += p2.vx * R * .04; p2.y += p2.vy * R * .04; p2.vx *= .985; p2.vy *= .985;
+          cx.strokeStyle = 'hsla(' + p2.h + ',100%,70%,' + Math.max(0, 1 - k) + ')'; cx.lineWidth = Math.max(1, S * 2.5);
+          cx.beginPath(); cx.moveTo(p2.x, p2.y); cx.lineTo(p2.x - p2.vx * R * .12, p2.y - p2.vy * R * .12); cx.stroke(); });
+        if (t < .25) flash('#fff', .7 * (1 - t / .25));
+        if (t > 3.4) reset(now);
+      }
+      cx.globalCompositeOperation = 'source-over';
+    }, 30);
+  }
+
+  // 19. NEON SKULL — glowing line skull; jaw moves to the bass, fire pours from the eyes
+  function skull() {
+    var b = beatTracker(), hue = beatHue(140, 70), fire = [], jaw = 0;
+    var HEAD = [[0, -.62], [-.22, -.6], [-.37, -.5], [-.46, -.32], [-.48, -.12], [-.45, .04], [-.43, .14], [-.45, .2], [-.38, .27], [-.3, .3], [-.24, .33], [-.18, .33]];
+    var JAWP = [[-.32, .3], [-.31, .4], [-.27, .5], [-.17, .58], [0, .6]];
+    function mirrorPath(pts, closeMid) { var out = pts.slice(); for (var i = pts.length - 1; i >= 0; i--) if (pts[i][0] !== 0) out.push([-pts[i][0], pts[i][1]]); return out; }
+    var head = mirrorPath(HEAD), jawp = mirrorPath(JAWP);
+    function smooth(pts, X, Y, R, close) {
+      cx.beginPath(); cx.moveTo(X + pts[0][0] * R, Y + pts[0][1] * R);
+      for (var i = 1; i < pts.length - 1; i++) { var mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; cx.quadraticCurveTo(X + pts[i][0] * R, Y + pts[i][1] * R, X + mx * R, Y + my * R); }
+      var l = pts[pts.length - 1]; cx.lineTo(X + l[0] * R, Y + l[1] * R); if (close) cx.closePath();
+    }
+    function glowStroke(col, R, drawFn) {
+      [[R * .06, .1], [R * .028, .3], [R * .011, 1]].forEach(function (pass, i) {
+        cx.strokeStyle = i === 2 ? 'hsla(' + col + ',100%,88%,1)' : 'hsla(' + col + ',100%,60%,' + pass[1] + ')'; cx.lineWidth = Math.max(1, pass[0]);
+        drawFn(); cx.stroke();
+      });
+    }
+    text('xpTop', 'NEON SKULL');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      jaw += ((b.k * .09 + b.e * .02) - jaw) * .45;
+      cx.fillStyle = 'rgba(0,0,6,.5)'; cx.fillRect(0, 0, W, H);
+      var R = H * .62 * (1 + b.k * .04), X = W / 2 + Math.sin(now * .0007) * W * .02, Y = H * .47;
+      cx.save(); cx.translate(X, Y); cx.rotate(Math.sin(now * .0009) * .05); cx.translate(-X, -Y);
+      cx.globalCompositeOperation = 'lighter';
+      // eye sockets glow + fire
+      [-1, 1].forEach(function (sd) {
+        var ex = X + sd * .19 * R, ey = Y + .02 * R;
+        var gg = cx.createRadialGradient(ex, ey, 0, ex, ey, R * .16);
+        gg.addColorStop(0, 'hsla(' + ((hh + 180) % 360) + ',100%,60%,' + (.5 + p * .5) + ')'); gg.addColorStop(1, 'hsla(' + ((hh + 180) % 360) + ',100%,50%,0)');
+        cx.fillStyle = gg; cx.fillRect(ex - R * .2, ey - R * .2, R * .4, R * .4);
+        for (var f = 0; f < 3 + (b.hit ? 10 : 0); f++) fire.push({ x: ex + (Math.random() - .5) * R * .14, y: ey + (Math.random() - .3) * R * .06, vy: -(.004 + Math.random() * .01 + b.k * .01) * R, vx: (Math.random() - .5) * .003 * R, life: 1, h: (hh + 180 + Math.random() * 50) % 360 });
+      });
+      fire = fire.filter(function (f2) { f2.x += f2.vx + Math.sin(now * .01 + f2.y) * .3; f2.y += f2.vy; f2.life -= .03; return f2.life > 0; });
+      if (fire.length > 300) fire.splice(0, fire.length - 300);
+      fire.forEach(function (f2) { cx.fillStyle = 'hsla(' + f2.h + ',100%,' + (50 + f2.life * 30) + '%,' + f2.life * .55 + ')'; var sz = R * .03 * (.4 + f2.life); cx.fillRect(f2.x - sz / 2, f2.y - sz / 2, sz, sz); });
+      // skull lines
+      glowStroke(hh, R, function () { smooth(head, X, Y, R, false); });
+      [-1, 1].forEach(function (sd) { glowStroke(hh, R, function () { cx.beginPath(); cx.ellipse(X + sd * .19 * R, Y + .03 * R, .13 * R, .11 * R, sd * .25, 0, 6.283); }); });
+      glowStroke(hh, R, function () { cx.beginPath(); cx.moveTo(X, Y + .1 * R); cx.quadraticCurveTo(X - .07 * R, Y + .2 * R, X - .03 * R, Y + .23 * R); cx.lineTo(X, Y + .2 * R); cx.lineTo(X + .03 * R, Y + .23 * R); cx.quadraticCurveTo(X + .07 * R, Y + .2 * R, X, Y + .1 * R); });
+      glowStroke((hh + 30) % 360, R, function () { cx.beginPath(); cx.moveTo(X - .44 * R, Y + .15 * R); cx.quadraticCurveTo(X - .32 * R, Y + .1 * R, X - .24 * R, Y + .2 * R); cx.moveTo(X + .44 * R, Y + .15 * R); cx.quadraticCurveTo(X + .32 * R, Y + .1 * R, X + .24 * R, Y + .2 * R); cx.moveTo(X, Y - .6 * R); cx.quadraticCurveTo(X + .05 * R, Y - .4 * R, X - .02 * R, Y - .25 * R); });
+      glowStroke(hh, R, function () { cx.beginPath(); for (var t2 = 0; t2 <= 8; t2++) { var tx = X + (-.18 + t2 * .045) * R; cx.moveTo(tx, Y + .3 * R); cx.lineTo(tx, Y + .38 * R); } cx.moveTo(X - .18 * R, Y + .38 * R); cx.lineTo(X + .18 * R, Y + .38 * R); });
+      var JY = Y + jaw * R;
+      glowStroke((hh + 20) % 360, R, function () { smooth(jawp, X, JY, R, false); cx.moveTo(X - .18 * R, JY + .4 * R); cx.lineTo(X + .18 * R, JY + .4 * R); for (var t3 = 0; t3 <= 8; t3++) { var tx3 = X + (-.18 + t3 * .045) * R; cx.moveTo(tx3, JY + .4 * R); cx.lineTo(tx3, JY + .47 * R); } });
+      cx.restore();
+      cx.globalCompositeOperation = 'source-over';
+      if (b.hit && b.k > .5) flash('hsl(' + hh + ',100%,60%)', .12);
+    }, 30);
+  }
+
+
+  // ==================================================================
+  // WEBCAM WALL — nine live cameras from around the world, security-room style
+  // ==================================================================
+  var imgCbs = {}, imgSeq = 0;
+  Nexus._img = function (id, data) { var cb = imgCbs[id]; delete imgCbs[id]; if (cb) cb(data); };
+  function loadImg(url, cb) {
+    var bust = url + (url.indexOf('?') < 0 ? '?' : '&') + 't=' + Math.floor(Date.now() / 30000);
+    if (A && A.fetchImage) { var id = 'i' + (++imgSeq); imgCbs[id] = cb; A.fetchImage(id, bust, 'https://www.skylinewebcams.com/'); }
+    else { var im = new Image(); im.onload = function () { cb(bust); }; im.onerror = function () { cb(''); }; im.src = bust; }
+  }
+  var CAMS = [
+    ['TOKYO · SHIBUYA', 1825, 'japan/kanto/tokyo/tokyo-shibuya-scramble-crossing', 'Asia/Tokyo'],
+    ['TOKYO · KABUKICHO', 2999, 'japan/kanto/tokyo/shinjuku-kabukicho', 'Asia/Tokyo'],
+    ['LAS VEGAS · FREMONT ST', 5925, 'united-states/nevada/las-vegas/fremont-street', 'America/Los_Angeles'],
+    ['LOS ANGELES · VENICE BEACH', 2806, 'united-states/california/los-angeles/venice-beach', 'America/Los_Angeles'],
+    ['HOLLYWOOD BLVD', 6233, 'united-states/california/los-angeles/hollywood-boulevard', 'America/Los_Angeles'],
+    ['ST. MAARTEN · MAHO BEACH', 4682, 'sint-maarten/saint-martin/simpson-bay/maho-beach', 'America/Lower_Princes'],
+    ['FINLAND · NORTHERN LIGHTS', 5226, 'finland/lapland/rovaniemi/northern-lights', 'Europe/Helsinki'],
+    ['ICELAND · NORTHERN LIGHTS', 2698, 'iceland/sueurland/blaskogabygge/apavatn-northern-lights', 'Atlantic/Reykjavik'],
+    ['HAWAII · KILAUEA VOLCANO', 3842, 'united-states/hawaii/pahoa/kilauea-volcano', 'Pacific/Honolulu'],
+    ['MEXICO · POPOCATEPETL VOLCANO', 5827, 'mexico/puebla/san-pedro-benito-juarez/popocatepetl', 'America/Mexico_City'],
+    ['KENYA · MASAI MARA', 4905, 'kenya/rift-valley-province/nakuru/masai-mara', 'Africa/Nairobi'],
+    ['JAPAN · MOUNT FUJI', 1871, 'japan/yamanashi-prefecture/fujikawaguchiko/mount-fuji', 'Asia/Tokyo'],
+    ['TOKYO TOWER', 1855, 'japan/kanto/tokyo/tokyo-tower', 'Asia/Tokyo'],
+    ['SEOUL · HONGDAE', 5817, 'south-korea/seoul-capital/seoul/hongdae', 'Asia/Seoul'],
+    ['BANGKOK · SUKHUMVIT', 5185, 'thailand/central-thailand/bangkok/sukhumvit', 'Asia/Bangkok'],
+    ['DUBLIN · TEMPLE BAR', 4883, 'ireland/leinster/dublin/temple-bar', 'Europe/Dublin'],
+    ['LONDON · ABBEY ROAD', 1207, 'united-kingdom/england/london/london-abbey-road', 'Europe/London'],
+    ['RIO · COPACABANA', 604, 'brasil/rio-de-janeiro/rio-de-janeiro/copacabana-beach', 'America/Sao_Paulo'],
+    ['MIAMI · COLLINS AVE', 5499, 'united-states/florida/miami/collins-avenue', 'America/New_York'],
+    ['NEW YORK · MANHATTAN', 545, 'united-states/new-york/new-york/new-york-manhattan', 'America/New_York'],
+    ['TEXAS · SPACEX STARSHIP', 2286, 'united-states/texas/south-padre-island/spacex-starship-launch-facility', 'America/Chicago'],
+    ['VANCOUVER', 5590, 'canada/british-columbia/vancouver/panorama', 'America/Vancouver'],
+    ['CALGARY', 2063, 'canada/alberta/calgary/calgary-skyline', 'America/Edmonton'],
+    ['REVELSTOKE · RAILWAY', 2372, 'canada/british-columbia/revelstoke/railfan', 'America/Vancouver'],
+    ['TOFINO · LONG BEACH', 2402, 'canada/british-columbia/tofino/long-beach', 'America/Vancouver'],
+    ['SYDNEY', 4885, 'australia/new-south-wales/sydney/panorama', 'Australia/Sydney'],
+    ['AMSTERDAM · DAM SQUARE', 1794, 'netherlands/north-holland/amsterdam/amsterdam-dam-square', 'Europe/Amsterdam'],
+    ['VATICAN · ST. PETER\'S', 1814, 'citta-del-vaticano/citta-del-vaticano/citta-del-vaticano/vaticano-piazza-san-pietro', 'Europe/Rome'],
+    ['ISTANBUL · GOLDEN HORN', 5209, 'turkey/marmara/istanbul/golden-horn', 'Europe/Istanbul'],
+    ['OSAKA · SHINSAIBASHI', 5964, 'japan/kansai/osaka/shinsaibashi', 'Asia/Tokyo'],
+    ['SINGAPORE', 1263, 'republic-of-singapore/singapore/singapore/singapore', 'Asia/Singapore'],
+    ['CHICAGO · SKYDECK', 5104, 'united-states/illinois/chicago/skydeck', 'America/Chicago']
+  ];
+  function camTime(tz) { try { return new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }); } catch (e) { return ''; } }
+  function webcams() {
+    cv.style.visibility = 'hidden';
+    var wrap = document.createElement('div'); wrap.id = 'camwall'; layer.appendChild(wrap);
+    xpDom.push(wrap);
+    var pick = [];
+    function shuffle() { var pool = CAMS.slice(); pick = []; while (pick.length < 9) pick.push(pool.splice(Math.random() * pool.length | 0, 1)[0]); }
+    function tileHtml(c, i) {
+      return '<div class="cam" data-i="' + i + '"><div class="camimg"></div><div class="camlost">SIGNAL LOST</div>' +
+        '<div class="camlab"><span class="rec">●</span> CAM ' + ('0' + (i + 1)).slice(-2) + ' · ' + c[0] + '</div><div class="camtime"></div></div>';
+    }
+    function setImg(el, data) {
+      var im = el.querySelector('.camimg'), lost = el.querySelector('.camlost');
+      if (data) { im.style.backgroundImage = 'url("' + data + '")'; im.style.opacity = 1; lost.style.display = 'none'; }
+      else if (!im.style.backgroundImage) lost.style.display = 'flex';
+    }
+    function refreshWall() {
+      Array.prototype.forEach.call(wrap.querySelectorAll('.cam'), function (el) {
+        var c = pick[+el.getAttribute('data-i')];
+        loadImg('https://cdn.skylinewebcams.com/live' + c[1] + '.jpg', function (d) { if (el.parentNode) setImg(el, d); });
+      });
+    }
+    function tickTimes() { Array.prototype.forEach.call(wrap.querySelectorAll('.cam'), function (el) { var c = pick[+el.getAttribute('data-i')]; if (c) el.querySelector('.camtime').textContent = camTime(c[3]); }); var big = wrap.querySelector('.bigtime'); if (big && wrap.bigCam) big.textContent = camTime(wrap.bigCam[3]); }
+    function showWall() {
+      wrap.bigCam = null;
+      wrap.innerHTML = '<div class="camgrid">' + pick.map(tileHtml).join('') + '</div>' +
+        '<div class="cambar"><span class="cambtn" id="camShuffle">⟳ NEW CAMERAS</span><span class="camnote">TAP A CAMERA TO GO FULL SCREEN</span></div>';
+      Array.prototype.forEach.call(wrap.querySelectorAll('.cam'), function (el) { el.onclick = function (e) { e.stopPropagation(); showOne(pick[+el.getAttribute('data-i')]); }; });
+      $('camShuffle').onclick = function (e) { e.stopPropagation(); shuffle(); showWall(); };
+      refreshWall(); tickTimes();
+    }
+    function showOne(c) {
+      wrap.bigCam = c;
+      wrap.innerHTML = '<div class="cambig"><div class="camimg"></div><div class="camlost">CONNECTING…</div>' +
+        '<div class="camlab big"><span class="rec">●</span> LIVE · ' + c[0] + ' · <span class="bigtime"></span></div></div>' +
+        '<div class="cambar"><span class="cambtn" id="camBack">◀ ALL CAMERAS</span><span class="cambtn go" id="camLive">▶ LIVE VIDEO</span></div>';
+      var el = wrap.querySelector('.cambig');
+      function load() { loadImg('https://cdn.skylinewebcams.com/live' + c[1] + '.jpg', function (d) { if (el.parentNode) setImg(el, d); }); }
+      load(); wrap.bigTimer = load;
+      $('camBack').onclick = function (e) { e.stopPropagation(); showWall(); };
+      $('camLive').onclick = function (e) { e.stopPropagation(); var ok = A && A.openUrl && A.openUrl('https://www.skylinewebcams.com/en/webcam/' + c[2] + '.html'); if (!ok) { try { A && A.toast('No web browser on the box to play live video'); } catch (er) {} } };
+      tickTimes();
+    }
+    shuffle(); showWall();
+    text('xpTop', 'NEXUS SURVEILLANCE NETWORK · LIVE FEEDS');
+    every(function () { if (wrap.bigCam) { if (wrap.bigTimer) wrap.bigTimer(); } }, 6000);
+    every(function () { if (!wrap.bigCam) refreshWall(); }, 45000);
+    every(tickTimes, 15000);
   }
 
   // ------------------------------------------------------------------

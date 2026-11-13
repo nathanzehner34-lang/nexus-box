@@ -45,6 +45,8 @@
       speakWaiters[id] = done;
       setOrb('speaking', true);
       Nexus.speaking = true;
+      var eg = (typeof EGOS !== 'undefined' && EGOS[egoName]) || {};
+      if (!opts.rate && !opts.pitch && eg.rate) { opts.rate = eg.rate; opts.pitch = eg.pitch; }
       if (A) {
         if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id);
       }
@@ -110,14 +112,23 @@
   // ---- Fast, forgiving taps: buttons fire the instant your finger lifts, even if it slid a bit
   //      (a bumpy truck makes fingers slide, which used to cancel the tap). ----
   (function () {
-    var sx = 0, sy = 0, st = 0;
-    document.addEventListener('touchstart', function (e) { var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); }, { passive: true });
+    var sx = 0, sy = 0, st = 0, fired = false;
+    // Home tiles and party buttons fire the moment your finger touches them (no need to lift cleanly).
+    var INSTANT = '.tile,.pbtn,#xpClose,#orb,.btn,.app,[data-bg],[data-vis]';
+    function fire(el, t) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY })); }
+    document.addEventListener('touchstart', function (e) {
+      var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); fired = false;
+      var el = e.target, hit = el.closest && el.closest(INSTANT);
+      // inside a scrolling list, wait for the lift so scrolling still works
+      if (hit && !el.closest('#panel')) { fired = true; fire(el, t); }
+    }, { passive: true });
     document.addEventListener('touchend', function (e) {
       var t = e.changedTouches[0], el = e.target;
+      if (fired) { e.preventDefault(); fired = false; return; }
       if (!t || Math.abs(t.clientX - sx) > 30 || Math.abs(t.clientY - sy) > 30 || Date.now() - st > 900) return;
       if (el.closest && el.closest('input,textarea,select,a,label')) return;
       e.preventDefault();
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY }));
+      fire(el, t);
     }, { passive: false });
   })();
 
@@ -219,20 +230,20 @@
   ];
   var booting = false;
 
+  // Startup: the home screen is usable IMMEDIATELY. The greeting plays over it with a
+  // welcome banner that fades away — it never blocks buttons or music.
   function runBoot() {
     booting = true;
-    redraw();
-    $('home').classList.add('hidden');
+    $('boot').classList.add('hidden');
     $('panel').classList.add('hidden');
-    var boot = $('boot'); boot.classList.remove('hidden'); boot.style.opacity = 1;
-    $('bootList').innerHTML = '';
-    $('bootWelcome').classList.remove('on');
+    showHome();
     var hr = L().h;
     var greet = hr >= 4 && hr < 12 ? 'Good morning' : hr >= 12 && hr < 17 ? 'Good afternoon' : 'Good evening';
     var gkey = hr >= 4 && hr < 12 ? 'morning' : hr >= 12 && hr < 17 ? 'afternoon' : 'evening';
     var gtext = greet + ', Nathan. I am Nexus, your personal assistant. How may I assist you?';
-    $('bootHello').textContent = greet + ', Nathan';
-    $('bootWelcome').classList.add('on');
+    var wb = $('welcome');
+    $('welcomeHello').textContent = greet + ', Nathan';
+    wb.classList.add('on');
     var spoken = A && A.greet ? new Promise(function (resolve) {
       var used = false, already = false;
       try { used = A.takeNativeGreetUsed && A.takeNativeGreetUsed(); already = used && A.nativeGreeting(); } catch (e) {}
@@ -242,11 +253,8 @@
       speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
       if (!already) A.greet(gkey, gtext, id);
     }) : say(gtext);
-    // Tap anywhere to skip straight to the home screen (the voice keeps talking).
-    var skipped = false, skip = new Promise(function (res) { boot.onclick = function () { skipped = true; res(); }; });
-    return Promise.race([spoken.then(function () { return wait(250); }), skip])
-      .then(function () { boot.onclick = null; boot.style.opacity = 0; return wait(skipped ? 150 : 400); })
-      .then(function () { boot.classList.add('hidden'); showHome(); booting = false; });
+    booting = false;
+    return Promise.race([spoken, wait(6000)]).then(function () { wb.classList.remove('on'); });
   }
 
   function showHome() {
@@ -337,6 +345,52 @@
     'with a dry, relaxed sense of humour; easy-going banter, never cheesy or over the top. You are talking out loud through the truck speakers, ' +
     'so reply in plain spoken sentences: usually one to three short sentences, no lists, no markdown, no emojis, no stage directions. ' +
     'Address Nathan by name only occasionally. If asked to do something you cannot do from the truck, say so briefly. Never encourage unsafe driving.';
+  // ---- ALTER EGO: Nexus switches personality — look, voice and attitude all change ----
+  var EGO_RULES = ' You are talking out loud through the truck speakers, so reply in plain spoken sentences: usually one to three short sentences, ' +
+    'no lists, no markdown, no emojis, no stage directions. Stay in character but still actually answer the question. Keep it fun, never hateful, ' +
+    'no slurs, never threaten anyone for real, and never encourage unsafe driving.';
+  var EGOS = {
+    nexus: { name: 'NEXUS', icon: '◉', col: '#3dff9a', rate: 0, pitch: 0, intro: 'Back to normal. Nexus here.' },
+    robot: { name: 'ROBOT', icon: '🤖', col: '#4fe3ff', rate: .9, pitch: .55, intro: 'Robot mode activated. Beep. Emotions disabled. Awaiting instructions, human.',
+      persona: 'You are NEXUS in ROBOT mode: a cold, literal, retro robot. Talk in short mechanical sentences, call Nathan "human" or "operator", mention processing, circuits and percentages, and occasionally say "beep". Deadpan funny.' },
+    demon: { name: 'DEMON', icon: '😈', col: '#ff2a2a', rate: .82, pitch: .35, intro: 'Demon mode. The shadows answer to me now. Speak, mortal.',
+      persona: 'You are NEXUS in DEMON mode: a dramatic, theatrical demon from the underworld who lives in the truck. Deep, ominous and over the top, call Nathan "mortal", talk about souls, fire and darkness, but you are secretly helpful and a bit of a softie. Spooky-funny, never actually threatening.' },
+    alien: { name: 'ALIEN', icon: '👽', col: '#9dff3d', rate: 1.12, pitch: 1.7, intro: 'Greetings, Earth creature. I have taken control of your vehicle. It is very primitive. I love it.',
+      persona: 'You are NEXUS in ALIEN mode: a curious alien visitor studying Earth from inside Nathan\'s truck. You find normal human things fascinating and weird, compare them to your home planet, call Nathan "Earth creature", and mix up human words in funny ways.' },
+    butler: { name: 'BUTLER', icon: '🎩', col: '#ffcc66', rate: .9, pitch: .95, intro: 'Very good, sir. Your butler is at your service. Shall I fetch your music?',
+      persona: 'You are NEXUS in BRITISH BUTLER mode: an impeccably polite, posh English butler. Call Nathan "sir", be very proper, dry and subtly sarcastic in a classy way, like a butler who has seen it all.' },
+    gangster: { name: 'GANGSTER', icon: '😎', col: '#c06bff', rate: 1.05, pitch: .78, intro: 'Ayy, what\'s good boss. The truck is running with the real one now. Let\'s ride.',
+      persona: 'You are NEXUS in GANGSTER mode: a smooth, confident, funny old-school gangster boss character. Call Nathan "boss", talk slick and laid back with street slang, act like the truck is your turf. Playful attitude only: no slurs, no real crime advice, no glorifying violence.' }
+  };
+  var egoName = EGOS[pref('ego')] ? pref('ego') : 'nexus';
+  function persona() { var e = EGOS[egoName]; return e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA; }
+  function applyEgo(flashIt) {
+    var e = EGOS[egoName];
+    Object.keys(EGOS).forEach(function (k) { document.body.classList.toggle('ego-' + k, k === egoName && k !== 'nexus'); });
+    document.documentElement.style.setProperty('--ego', e.col);
+    if (flashIt) {
+      var f = $('flash'); f.style.background = e.col; f.style.transition = 'none'; f.style.opacity = .6;
+      document.body.classList.add('ego-glitch');
+      setTimeout(function () { f.style.transition = 'opacity .9s'; f.style.opacity = 0; }, 60);
+      setTimeout(function () { document.body.classList.remove('ego-glitch'); f.style.background = ''; }, 700);
+    }
+  }
+  function setEgo(k) {
+    egoName = k; setPref('ego', k); chatHistory = []; applyEgo(true);
+    caption(EGOS[k].name === 'NEXUS' ? 'NEXUS' : EGOS[k].name + ' MODE');
+    setTimeout(function () { say(EGOS[k].intro); }, 350);
+  }
+  function openEgo() {
+    openPanel('ALTER EGO', '<div class="hint" style="margin-bottom:2vmin">Pick who Nexus is. The look, the voice and the attitude all change. Talk to the orb to hear it.</div>' +
+      '<div class="agrid">' + Object.keys(EGOS).map(function (k) {
+        var e = EGOS[k];
+        return '<div class="app' + (k === egoName ? ' egoOn' : '') + '" data-ego="' + k + '" style="border-color:' + e.col + '"><span style="font-size:7vmin;line-height:1.2">' + e.icon + '</span><span style="color:' + e.col + '">' + e.name + '</span></div>';
+      }).join('') + '</div>');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ego]'), function (el) {
+      el.addEventListener('click', function () { var k = el.getAttribute('data-ego'); closePanel(); setEgo(k); });
+    });
+  }
+
   var MODELS = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
   var SMART_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
@@ -538,7 +592,7 @@
     if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
     setOrb('thinking', true);
     caption('THINKING…');
-    var ctx = PERSONA + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
+    var ctx = persona() + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
       (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '');
     return askAI(chatHistory, ctx, { maxTokens: 400 }).then(function (reply) {
       reply = reply.replace(/[*#_`]/g, '');
@@ -1173,9 +1227,11 @@
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
+    ['webcams', '📹', 'WEBCAM WALL'], ['ego', '🎭', 'ALTER EGO'],
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
-    ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'], ['aurora', '🌌', 'NORTHERN LIGHTS'],
+    ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
+    ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🪐', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
   ];
   function openVisuals() {
@@ -1184,7 +1240,7 @@
         return '<div class="app" data-vis="' + v[0] + '"><span style="font-size:7vmin;line-height:1.2">' + v[1] + '</span><span>' + v[2] + '</span></div>';
       }).join('') + '</div>');
     Array.prototype.forEach.call(document.querySelectorAll('[data-vis]'), function (el) {
-      el.addEventListener('click', function () { var n = el.getAttribute('data-vis'); closePanel(); openExperience(n); });
+      el.addEventListener('click', function () { var n = el.getAttribute('data-vis'); closePanel(); if (n === 'ego') { setTimeout(openEgo, 50); return; } openExperience(n); });
     });
   }
   var xpLoaded = false;
@@ -1214,6 +1270,7 @@
   // ------------------------------------------------------------------
   // Start
   // ------------------------------------------------------------------
+  applyEgo(false);
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
   else { $('boot').classList.add('hidden'); showHome(); stopAnim(); }
 })();

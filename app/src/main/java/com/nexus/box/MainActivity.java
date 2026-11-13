@@ -921,6 +921,41 @@ public class MainActivity extends Activity {
             MainActivity.this.http(id, method, url, body, headersJson);
         }
 
+        // Download a picture (webcam snapshot) natively and hand it to the page as a data URL.
+        @JavascriptInterface
+        public void fetchImage(String id, String url, String referer) {
+            pool.execute(() -> {
+                String out = "";
+                HttpURLConnection c = null;
+                try {
+                    c = (HttpURLConnection) new URL(url).openConnection();
+                    c.setConnectTimeout(10000); c.setReadTimeout(20000);
+                    c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36");
+                    if (referer != null && !referer.isEmpty()) c.setRequestProperty("Referer", referer);
+                    if (c.getResponseCode() < 400) {
+                        InputStream is = c.getInputStream(); ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                        byte[] buf = new byte[16384]; int n; while ((n = is.read(buf)) > 0) bo.write(buf, 0, n); is.close();
+                        String type = c.getContentType(); if (type == null || !type.startsWith("image")) type = "image/jpeg";
+                        out = "data:" + type + ";base64," + Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
+                    }
+                } catch (Exception ignored) {
+                } finally { if (c != null) c.disconnect(); }
+                js("Nexus._img && Nexus._img(" + JSONObject.quote(id) + "," + JSONObject.quote(out) + ")");
+            });
+        }
+
+        // Open a web page in the box's browser (or whatever app handles it).
+        @JavascriptInterface
+        public boolean openUrl(String url) {
+            try {
+                Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (i.resolveActivity(getPackageManager()) == null) return false;
+                ui.post(() -> { try { startActivity(i); } catch (Exception ignored) {} });
+                return true;
+            } catch (Exception e) { return false; }
+        }
+
         @JavascriptInterface
         public boolean isOnline() {
             try {

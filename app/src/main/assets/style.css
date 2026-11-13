@@ -166,3 +166,49 @@ body.party .tile { border-color: rgba(255,255,255,.35); }
 body.photo .tile { background: rgba(4,8,24,.62); border-color: rgba(170,200,255,.22); }
 body.photo .tile .lb, body.photo .tile .ic { text-shadow: 0 1px 3px rgba(0,0,0,.9); }
 body.photo #clock, body.photo #statusBox, body.photo #caption { text-shadow: 0 1px 4px rgba(0,0,0,.9); }
+
+/* welcome banner over the home screen at startup — never blocks taps */
+#welcome { position: fixed; left: 0; right: 0; top: 38%; z-index: 40; text-align: center; pointer-events: none;
+  opacity: 0; transition: opacity .5s; padding: 2vmin 0; background: radial-gradient(ellipse at center, rgba(0,4,16,.75), rgba(0,4,16,0) 70%); }
+#welcome.on { opacity: 1; }
+#welcome .hello { font-size: 7vmin; color: #fff; letter-spacing: 4px; font-weight: 300; text-shadow: 0 0 2vmin rgba(80,160,255,.8); }
+#welcome .sub { font-size: 2.4vmin; color: #3dff9a; letter-spacing: 4px; margin-top: 1vmin; }
+
+/* Webcam Wall */
+#camwall { position: absolute; left: 0; right: 0; top: 7vh; bottom: 0; display: flex; flex-direction: column; padding: 0 1.2vw 1vh; z-index: 2; }
+.camgrid { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: .8vmin; }
+.cam, .cambig { position: relative; overflow: hidden; background: #050a0c; border: 1px solid rgba(120,255,200,.25); }
+.cambig { flex: 1; }
+.camimg { position: absolute; inset: 0; top: 0; left: 0; right: 0; bottom: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity .6s; filter: contrast(1.08) saturate(1.1); }
+.cambig .camimg { animation: kenburns 30s ease-in-out infinite alternate; }
+@keyframes kenburns { from { transform: scale(1); } to { transform: scale(1.12) translate(-2%, -1%); } }
+.cam::after, .cambig::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55)); }
+.camlost { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; align-items: center; justify-content: center; color: rgba(160,255,210,.6);
+  font-family: monospace; letter-spacing: .5vmin; font-size: 2.4vmin; animation: flick 1.2s steps(2) infinite; }
+@keyframes flick { 50% { opacity: .4; } }
+.camlab { position: absolute; left: .8vmin; top: .6vmin; z-index: 2; font-family: monospace; font-size: 1.9vmin; color: #d9ffe9; text-shadow: 0 0 .6vmin #000, 0 0 .3vmin #000; letter-spacing: .15vmin; }
+.camlab.big { font-size: 2.8vmin; left: 1.5vmin; top: 1.2vmin; }
+.camtime { position: absolute; right: .8vmin; bottom: .6vmin; z-index: 2; font-family: monospace; font-size: 1.9vmin; color: #d9ffe9; text-shadow: 0 0 .6vmin #000; }
+.rec { color: #ff3b3b; animation: flick 1s steps(2) infinite; }
+.cambar { display: flex; align-items: center; gap: 2vw; padding-top: 1vh; }
+.cambtn { font-family: monospace; font-size: 2.4vmin; color: #cfffe6; border: 1px solid rgba(120,255,200,.5); padding: 1.2vmin 2.4vmin; border-radius: 1vmin; background: rgba(0,40,30,.5); }
+.cambtn.go { background: rgba(255,40,60,.35); border-color: rgba(255,120,120,.7); }
+.camnote { font-family: monospace; font-size: 1.9vmin; color: rgba(200,255,230,.6); letter-spacing: .2vmin; }
+
+/* Alter Ego: the whole home screen takes on the personality's colour */
+body[class*="ego-"] #orb { background: radial-gradient(circle at 35% 35%, #fff, var(--ego) 45%, #000); box-shadow: 0 0 30px var(--ego); }
+body[class*="ego-"] #orbRing { border-color: var(--ego); }
+body[class*="ego-"] .tile { border-color: var(--ego); box-shadow: inset 0 0 1.5vmin rgba(0,0,0,.3); }
+body[class*="ego-"] .tile .ic { color: var(--ego); text-shadow: 0 0 1vmin var(--ego); }
+body[class*="ego-"] #clock { text-shadow: 0 0 2vmin var(--ego); }
+body[class*="ego-"] #caption { color: var(--ego); }
+body.ego-demon #photo { filter: hue-rotate(140deg) saturate(1.6) brightness(.8); }
+body.ego-alien #photo { filter: hue-rotate(-80deg) saturate(1.4); }
+body.ego-robot #photo { filter: grayscale(.7) contrast(1.2) brightness(.9); }
+body.ego-butler #photo { filter: sepia(.6) saturate(1.2); }
+body.ego-gangster #photo { filter: hue-rotate(60deg) saturate(1.5) contrast(1.1); }
+body.ego-glitch #home { animation: egoGlitch .7s steps(7); }
+@keyframes egoGlitch { 0% { transform: translate(0); filter: none; } 20% { transform: translate(-1.5vw, .5vh) skewX(8deg); filter: hue-rotate(90deg); }
+  40% { transform: translate(1vw, -.5vh); filter: invert(1); } 60% { transform: translate(-.5vw, 0) skewX(-6deg); filter: hue-rotate(-90deg); } 100% { transform: none; filter: none; } }
+.app.egoOn { background: rgba(255,255,255,.14); }
