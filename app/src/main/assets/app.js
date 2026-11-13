@@ -573,6 +573,7 @@
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
       case 'wake': case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
+      case 'visuals': openVisuals(); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
       case 'story': openStory(); break;
@@ -1145,6 +1146,20 @@
     getCoords: function () { return getCoords(); }, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
+  var VISUALS = [
+    ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['city', '🌃', 'NEON CITY'], ['bluefire', '🔥', 'BLUE FIRE'], ['cycles', '⚡', 'LIGHT CYCLES'],
+    ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'], ['aurora', '🌌', 'NORTHERN LIGHTS'],
+    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
+  ];
+  function openVisuals() {
+    openPanel('VISUALS', '<div class="hint" style="margin-bottom:2vmin">All of these move with your music and never pause it. Tap ✕ to come back.</div>' +
+      '<div class="agrid">' + VISUALS.map(function (v) {
+        return '<div class="app" data-vis="' + v[0] + '"><span style="font-size:7vmin;line-height:1.2">' + v[1] + '</span><span>' + v[2] + '</span></div>';
+      }).join('') + '</div>');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-vis]'), function (el) {
+      el.addEventListener('click', function () { var n = el.getAttribute('data-vis'); closePanel(); openExperience(n); });
+    });
+  }
   var xpLoaded = false;
   function openExperience(name) {
     if (P.on) exitParty(true);
