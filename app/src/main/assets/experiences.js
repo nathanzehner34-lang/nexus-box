@@ -636,6 +636,18 @@
     }, 30);
   }
 
+  // Colour that changes with the music: every beat moves to a new colour and glides there smoothly.
+  function beatHue(start, step) {
+    var h = { cur: start || 200, target: start || 200, step: step || 70 };
+    h.tick = function (hit) {
+      if (hit) h.target = (h.target + h.step * (.7 + Math.random() * .6)) % 360;
+      var d = ((h.target - h.cur + 540) % 360) - 180;
+      h.cur = (h.cur + d * .1 + 360) % 360;
+      return h.cur;
+    };
+    return h;
+  }
+
   // 10. SHATTER — a living scene behind glass. Every bass hit cracks the glass more until it
   //     EXPLODES toward you (3D shards, sparks, shockwave) and reveals the next scene.
   function shatter() {

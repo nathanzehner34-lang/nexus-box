@@ -135,15 +135,19 @@
   // ---- Photo backgrounds (a still picture costs the box nothing to show) ----
   var BGS = {
     moon: { file: 'bg_moon.jpg', pos: 'center 18%', label: 'MOONLIGHT' },
-    lake: { file: 'bg_lake.jpg', pos: 'center 32%', label: 'MOUNTAIN LAKE' },
-    skull: { file: 'bg_skull.jpg', pos: 'center 30%', label: 'BLUE SKULL' },
-    hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' },
     truck: { file: 'bg_truck.jpg', pos: 'center 72%', label: 'TRUCK' },
+    outrun: { file: 'bg_outrun.jpg', pos: 'center 55%', label: 'OUTRUN HIGHWAY' },
+    tokyo: { file: 'bg_tokyo.jpg', pos: 'center 40%', label: 'NEON TOKYO' },
+    cyber: { file: 'bg_cyber.jpg', pos: 'center 45%', label: 'CYBER CITY' },
+    mountains: { file: 'bg_mountains.jpg', pos: 'center 50%', label: 'NEON MOUNTAINS' },
+    miami: { file: 'bg_miami.jpg', pos: 'center 45%', label: 'MIAMI NIGHT' },
+    midlake: { file: 'bg_midlake.jpg', pos: 'center 50%', label: 'MIDNIGHT LAKE' },
     synth: { file: 'bg_synth.jpg', pos: 'center 45%', label: 'SYNTHWAVE' },
     vapor: { file: 'bg_vapor.jpg', pos: 'center 45%', label: 'VAPORWAVE' },
-    ribbons: { file: null, label: 'NEON RIBBONS' }
+    skull: { file: 'bg_skull.jpg', pos: 'center 30%', label: 'BLUE SKULL' },
+    hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' }
   };
-  var bgName = pref('background') || 'moon';
+  var bgName = BGS[pref('background')] ? pref('background') : 'moon';
   function applyBackground() {
     var b = BGS[bgName] || BGS.moon;
     var ph = $('photo');
@@ -1231,7 +1235,7 @@
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
-    ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🪐', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
+    ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
   ];
   function openVisuals() {
