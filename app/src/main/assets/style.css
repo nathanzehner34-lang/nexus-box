@@ -287,3 +287,14 @@ body.style-sharp .tile .lb { font-family: monospace; }
 .showTitle { font-size: 16vmin; letter-spacing: 3vmin; font-weight: 900; background: linear-gradient(90deg, #fff, #9fd0ff, #ff71ce, #fff); -webkit-background-clip: text; color: transparent; animation: showIn 1.2s ease-out; display: inline-block; }
 @keyframes showIn { from { opacity: 0; transform: scale(1.6); letter-spacing: 6vmin; } to { opacity: 1; transform: scale(1); } }
 .phgrid > p { grid-column: 1 / -1; }
+#xpDrop { position: absolute; inset: 0; pointer-events: none; opacity: 0; z-index: 2; background: radial-gradient(circle, rgba(255,255,255,.9), rgba(255,255,255,0) 60%); }
+
+#intro { position: fixed; inset: 0; z-index: 200; background: #000; transition: opacity .45s; }
+#intro canvas { width: 100%; height: 100%; display: block; }
+#launching { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,6,.82); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 3vmin;
+  font: 700 3.4vmin monospace; letter-spacing: .8vmin; color: #9fd0ff; }
+#launching.on { display: flex; }
+#launching .spin { width: 9vmin; height: 9vmin; border-radius: 50%; border: .8vmin solid rgba(159,208,255,.2); border-top-color: var(--ego, #3dff9a); animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+body.style-gold .tile { background: linear-gradient(145deg, rgba(60,45,10,.75), rgba(20,15,4,.8)); border: 1px solid #d9b45a; box-shadow: inset 0 0 2vmin rgba(255,215,120,.15); }
+body.style-gold .tile .ic, body.style-gold .tile .lb { color: #f6dc94; text-shadow: 0 0 1vmin rgba(255,200,80,.5); }

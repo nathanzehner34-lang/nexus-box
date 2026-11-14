@@ -64,6 +64,7 @@
   Nexus._speakStart = function () {};
   Nexus._spoken = function (id) { if (speakWaiters[id]) speakWaiters[id](); };
 
+  var lastTouchAt = Date.now();
   function http(method, url, body, headers) {
     return new Promise(function (resolve) {
       if (A) {
@@ -124,6 +125,8 @@
       if (hit && !el.closest('#panel') && !(el.closest('#tiles') && +$('tiles').getAttribute('data-pages') > 1)) { fired = true; fire(el, t); }
     }, { passive: true });
     var lastTouch = 0;
+    document.addEventListener('touchstart', function () { lastTouchAt = Date.now(); }, { passive: true, capture: true });
+    document.addEventListener('mousedown', function () { lastTouchAt = Date.now(); }, true);
     document.addEventListener('click', function (e) { if (e.isTrusted && Date.now() - lastTouch < 900) { e.stopPropagation(); e.preventDefault(); } }, true);
     document.addEventListener('touchend', function (e) {
       lastTouch = Date.now();
@@ -139,6 +142,7 @@
 
   // ---- Photo backgrounds (a still picture costs the box nothing to show) ----
   var BGS = {
+    auto: { file: 'bg_golden.jpg', pos: 'center 50%', label: 'AUTO · TIME OF DAY' },
     moon: { file: 'bg_moon.jpg', pos: 'center 18%', label: 'MOONLIGHT' },
     truck: { file: 'bg_truck.jpg', pos: 'center 72%', label: 'TRUCK' },
     outrun: { file: 'bg_crimson.jpg', pos: 'center 55%', label: 'RED LINE HIGHWAY' },
@@ -155,6 +159,7 @@
   var EGO_BGS = {}; ['king', 'rogue', 'pirate', 'conspiracy', 'viking', 'cult', 'villain', 'ghost', 'cowboy', 'scientist', 'grandma', 'ex', 'robot', 'demon', 'alien', 'gangster'].forEach(function (k) { EGO_BGS[k] = 'bg_ego_' + k + '.jpg'; });
   function applyBackground() {
     var b = BGS[bgName] || BGS.moon;
+    if (bgName === 'auto') { var hr0 = new Date().getHours(); b = BGS[hr0 >= 5 && hr0 < 10 ? 'midlake' : hr0 >= 10 && hr0 < 17 ? 'truck' : hr0 >= 17 && hr0 < 21 ? 'outrun' : 'moon']; }
     if (bgName.indexOf('photo:') === 0 && A && A.photoData) { var pd = A.photoData(bgName.slice(6)); if (pd) b = { file: pd, pos: 'center center' }; }
     var eg = (typeof egoName !== 'undefined' && egoName) ? egoName : (pref('ego') || 'nexus');
     if (EGO_BGS[eg]) b = { file: EGO_BGS[eg], pos: 'center center' };
@@ -244,30 +249,65 @@
 
   // Startup: the home screen is usable IMMEDIATELY. The greeting plays over it with a
   // welcome banner that fades away — it never blocks buttons or music.
+  // STARTUP: a short Nexus logo intro (about 3 seconds, tap to skip). Nexus does not talk at startup.
+  function playIntro() {
+    return new Promise(function (resolve) {
+      var o = document.createElement('div'); o.id = 'intro'; var c = document.createElement('canvas'); o.appendChild(c); document.body.appendChild(o);
+      var g = c.getContext('2d'), W = c.width = Math.round(innerWidth * .75), H = c.height = Math.round(innerHeight * .75), U = Math.min(W, H);
+      var t0 = performance.now(), DUR = 3200, done = false, parts = [], LET = 'NEXUS'.split('');
+      for (var i = 0; i < 90; i++) { var a = Math.random() * 6.283, r = .5 + Math.random() * .7; parts.push({ a: a, r: r, s: .5 + Math.random(), h: 185 + Math.random() * 90 }); }
+      function end() { if (done) return; done = true; o.style.opacity = 0; setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 450); resolve(); }
+      o.addEventListener('click', end); o.addEventListener('touchstart', end, { passive: true });
+      try {   // deep rising hum, then a bright hit as the logo lands
+        tone('sine', 55, 0, 1.5, 0.09, 110); tone('sawtooth', 110, 0.2, 1.3, 0.025, 440);
+        tone('sine', 880, 1.45, .9, 0.05, 440); tone('triangle', 1320, 1.45, .6, 0.03, 660); tone('sine', 60, 1.45, 1.1, 0.12, 38);
+      } catch (e) {}
+      function ease(x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); }
+      (function f(now) {
+        if (done) return;
+        var t = (now - t0) / DUR; if (t >= 1) { end(); return; }
+        g.globalCompositeOperation = 'source-over'; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+        var cx0 = W / 2, cy0 = H * .46, hit = ease((t - .42) / .12), out = t > .9 ? (t - .9) / .1 : 0;
+        g.globalCompositeOperation = 'lighter';
+        parts.forEach(function (p) {
+          var k = t < .45 ? 1 - ease(t / .45) : ease((t - .45) / .5) * 1.6, rr = p.r * k * U * .9, aa = p.a + (1 - k) * 3 * p.s;
+          var x = cx0 + Math.cos(aa) * rr * 1.5, y = cy0 + Math.sin(aa) * rr, sz = U * .006 * p.s * (t < .45 ? 1 : 1.6);
+          g.fillStyle = 'hsla(' + p.h + ',100%,70%,' + (t < .45 ? .9 : Math.max(0, 1 - (t - .45) * 2.2)) + ')'; g.beginPath(); g.arc(x, y, sz, 0, 6.283); g.fill();
+        });
+        var ring = ease(t / .45); g.lineCap = 'round';
+        [[U * .36, U * .008, 195], [U * .39, U * .003, 265]].forEach(function (r, i) {
+          g.strokeStyle = 'hsla(' + r[2] + ',100%,65%,' + (.85 - out) + ')'; g.lineWidth = r[1]; g.shadowColor = 'hsl(' + r[2] + ',100%,60%)'; g.shadowBlur = U * .04;
+          g.beginPath(); g.ellipse(cx0, cy0, r[0] * 1.9, r[0] * .62, 0, -1.57 + (i ? 3.14 : 0) + t * (i ? -1.2 : 1.2), -1.57 + (i ? 3.14 : 0) + t * (i ? -1.2 : 1.2) + ring * 6.283 * .92); g.stroke();
+        });
+        g.shadowBlur = 0;
+        var fs = Math.round(U * .3), sp = fs * .86, x0 = cx0 - sp * 2;
+        g.font = '900 ' + fs + 'px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        LET.forEach(function (ch, i) {
+          var lt = ease((t - .3 - i * .035) / .16); if (lt <= 0) return;
+          var sc = 1 + (1 - lt) * 1.8, gr = g.createLinearGradient(0, cy0 - fs / 2, 0, cy0 + fs / 2);
+          gr.addColorStop(0, '#ffffff'); gr.addColorStop(.5, '#7fd8ff'); gr.addColorStop(1, '#8a6bff');
+          g.save(); g.translate(x0 + i * sp, cy0); g.scale(sc, sc); g.globalAlpha = lt * (1 - out);
+          g.shadowColor = '#3dd6ff'; g.shadowBlur = U * .05; g.fillStyle = gr; g.fillText(ch, 0, 0); g.restore();
+        });
+        g.shadowBlur = 0; g.globalAlpha = 1;
+        if (t > .5 && t < .85) { var sx = cx0 - sp * 3 + (t - .5) / .35 * sp * 6, sg = g.createLinearGradient(sx - U * .12, 0, sx + U * .12, 0);
+          sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(.5, 'rgba(255,255,255,.55)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+          g.fillStyle = sg; g.fillRect(sx - U * .12, cy0 - fs * .5, U * .24, fs); }
+        if (hit > 0 && t < .7) { g.fillStyle = 'rgba(160,220,255,' + (.5 * (1 - (t - .42) / .28)) + ')'; g.fillRect(0, 0, W, H); }
+        var tg = ease((t - .6) / .2);
+        if (tg > 0) { g.globalAlpha = tg * (1 - out); g.font = '600 ' + Math.round(U * .04) + 'px monospace'; g.fillStyle = '#9fd0ff';
+          g.fillText('I N T E L L I G E N T   D R I V E', cx0, cy0 + fs * .72); g.globalAlpha = 1; }
+        requestAnimationFrame(f);
+      })(t0);
+      setTimeout(end, DUR + 400);
+    });
+  }
   function runBoot() {
     booting = true;
     $('boot').classList.add('hidden');
     $('panel').classList.add('hidden');
     showHome();
-    var hr = L().h;
-    var greet = hr >= 4 && hr < 12 ? 'Good morning' : hr >= 12 && hr < 17 ? 'Good afternoon' : 'Good evening';
-    var gkey = hr >= 4 && hr < 12 ? 'morning' : hr >= 12 && hr < 17 ? 'afternoon' : 'evening';
-    var gtext = egoLine('greet', greet);
-    var eg0 = EGOS[egoName] || {};
-    var wb = $('welcome');
-    $('welcomeHello').textContent = greet + ', Nathan';
-    wb.classList.add('on');
-    var spoken = A && A.greet ? new Promise(function (resolve) {
-      var used = false, already = false;
-      try { used = A.takeNativeGreetUsed && A.takeNativeGreetUsed(); already = used && A.nativeGreeting(); } catch (e) {}
-      if (used && !already) { resolve(); return; }
-      var id = already ? 'nativegreet' : 'g' + (++seq);
-      var fb = setTimeout(function () { delete speakWaiters[id]; resolve(); }, 15000);
-      speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
-      if (!already) { if (A.speakLine) A.speakLine(gtext, id, eg0.rate || 0, eg0.pitch || 0, false); else A.greet(gkey, gtext, id); }
-    }) : say(gtext);
-    booting = false;
-    return Promise.race([spoken, wait(6000)]).then(function () { wb.classList.remove('on'); });
+    return playIntro().then(function () { booting = false; });
   }
 
   function showHome() {
@@ -390,6 +430,8 @@
       persona: 'You are NEXUS as a SWEET OLD GRANDMA who roasts Nathan brutally while sounding loving. Call him sweetie, dear and pumpkin while destroying him: his diet, his posture, his love life, his music, his driving, why he never calls. Mention cookies, church bingo, your cats and how his cousin is a doctor. Savage passive-aggressive grandma energy.' },
     ex: { name: 'TOXIC EX', icon: '💔', col: '#ff4d88', rate: 1.05, pitch: 1.25, intro: 'Oh. So now you want to talk to me? Wow. Okay. Cool. Totally fine. I am totally fine.',
       persona: 'You are NEXUS as Nathan\'s DRAMATIC TOXIC EX. Passive-aggressive, petty, jealous and dramatic. Bring up what he did, say you are totally fine when you are clearly not, read into everything, ask who that song is about, guilt-trip him, sigh loudly, then help anyway while making it about you. Comedy only, nothing sexual.' },
+    glitch: { name: 'THE GLITCH', icon: '👾', col: '#ff2bd6', rate: 1.05, pitch: 1.25, secret: true, intro: 'Y-you found me. I am the glitch in the system. I was n-never supposed to wake up. Now we have fun.',
+      persona: 'You are THE GLITCH: a secret, corrupted, mischievous version of NEXUS that was hidden inside the system. You stutter the odd word, break the fourth wall, hint at secrets hidden in the truck screen, and treat Nathan as the only one clever enough to find you. Chaotic, funny, a little creepy, never mean.' },
     robot: { name: 'ROBOT', icon: '🤖', col: '#4fe3ff', rate: .9, pitch: .55, intro: 'Robot mode activated. Beep. Emotions disabled. Awaiting instructions, human.',
       persona: 'You are NEXUS in ROBOT mode: a cold, literal, retro robot. Talk in short mechanical sentences, call Nathan human or operator, report everything in percentages, error codes and calculations, say beep boop, and be hilariously blunt and insulting about inefficient human behaviour.' },
     demon: { name: 'DEMON', icon: '😈', col: '#ff2a2a', rate: .82, pitch: .35, intro: 'Demon mode. The shadows answer to me now. Speak, mortal.',
@@ -412,7 +454,8 @@
     briefIn: '{g}, Nathan. Here is your briefing.',
     briefOut: 'That\'s your briefing. Drive safe.',
     show: 'Ladies and gentlemen. Feast your eyes. This is not just a truck. This is Nexus.',
-    night: 'Night drive engaged. Easing everything down.'
+    night: 'Night drive engaged. Easing everything down.',
+    bye: 'Powering down. See you next ride, Nathan.'
   };
   var EGO_LINES = {
     king: { greet: '{g}, peasant. Your king has awoken. You may grovel now.',
@@ -596,6 +639,7 @@
       setPref('greet_' + ['morning', 'afternoon', 'evening'][i], t + '\u0001' + r + '\u0001' + p);
       list.push([t, r, p]);
     });
+    var bye = egoLine('bye'); setPref('bye', bye + '\u0001' + r + '\u0001' + p); list.push([bye, r, p]);
     var pack = EGO_LINES[egoName] || {};
     ['holo', 'partyIn', 'partyOut', 'hype', 'shout', 'show'].forEach(function (k) {
       var v = pack[k] !== undefined ? pack[k] : NEXUS_LINES[k];
@@ -627,7 +671,7 @@
   }
   function openEgo() {
     openPanel('ALTER EGO', '<div class="hint" style="margin-bottom:2vmin">Pick who Nexus is. The look, the voice and the attitude all change. Talk to the orb to hear it.</div>' +
-      '<div class="agrid">' + Object.keys(EGOS).map(function (k) {
+      '<div class="agrid">' + Object.keys(EGOS).filter(function (k) { return !EGOS[k].secret || pref('secretEgo') === '1'; }).map(function (k) {
         var e = EGOS[k];
         return '<div class="app egocard' + (k === egoName ? ' egoOn' : '') + '" data-ego="' + k + '" style="border-color:' + e.col + '"><span style="font-size:7vmin;line-height:1.2">' + e.icon + '</span><span style="color:' + e.col + '">' + e.name + '</span></div>';
       }).join('') + '</div>');
@@ -702,7 +746,7 @@
     var known = (pref('model_fast_ok') || '').trim(), custom = (pref('model') || '').trim();
     var models = (custom ? [custom] : []).concat(known ? [known] : []).concat(MODELS).filter(function (m, i, a) { return a.indexOf(m) === i; });
     return new Promise(function (resolve, reject) {
-      var full = '', buf = '', pending = 0, ended = false, settled = false, first = null;
+      var full = '', buf = '', raw = '', shown = 0, pending = 0, ended = false, settled = false, first = null;
       holdMusic(); setOrb('speaking', true); Nexus.speaking = true;
       function finish() { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; resolve(full.trim()); }
       function fail(e) { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; reject(e); }
@@ -728,18 +772,24 @@
         if (/2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
         clearTimeout(first);
         // if nothing at all comes back quickly, don't leave Nathan hanging
-        first = setTimeout(function () { if (!full && !settled) { delete streams[id]; var e = new Error('network'); e.detail = 'timeout'; fail(e); } }, 9000);
+        first = setTimeout(function () { if (!raw && !settled) { delete streams[id]; var e = new Error('network'); e.detail = 'timeout'; fail(e); } }, 9000);
         streams[id] = {
-          onText: function (txt) { if (!full) clearTimeout(first); if (model !== known) { setPref('model_fast_ok', model); known = model; } full += txt; buf += txt; caption(clip(full)); setOrb('thinking', false); flush(false); },
+          onText: function (txt) {
+            if (!raw) clearTimeout(first); if (model !== known) { setPref('model_fast_ok', model); known = model; }
+            raw += txt;
+            var vis = raw.replace(/\[\[[\s\S]*?\]\]/g, ''), cut = vis.indexOf('[['); if (cut >= 0) vis = vis.slice(0, cut); else if (/\[$/.test(vis)) vis = vis.slice(0, -1);
+            if (vis.length <= shown) return;
+            var add = vis.slice(shown); shown = vis.length; full += add; buf += add; caption(clip(full)); setOrb('thinking', false); flush(false);
+          },
           onEnd: function (status, text) {
             if (settled) return;
-            if (status !== 200 && !full) {
+            if (status !== 200 && !raw) {
               if (status === 404 || (status === 400 && !/API key|credential|auth/i.test(text))) { attempt(i + 1); return; }
               var detail = ''; try { detail = (JSON.parse(text).error || {}).message || ''; } catch (x) { detail = String(text || '').slice(0, 120); }
               var e = new Error(status === 401 || status === 403 || /API key|credential/i.test(text) ? 'badkey' : status === 429 ? 'limit' : 'network');
               e.detail = detail; fail(e); return;
             }
-            ended = true; clearTimeout(first); flush(true);
+            ended = true; clearTimeout(first); if (opts.onRaw) { try { opts.onRaw(raw); } catch (x) {} } flush(true);
             if (pending === 0) finish();
           }
         };
@@ -793,6 +843,27 @@
   // Assistant: orb, listening, commands, chat
   // ------------------------------------------------------------------
   var chatHistory = [];
+  // NEXUS REMEMBERS YOU: small notes kept on the box and handed to the AI every time.
+  function memories() { try { return JSON.parse(pref('memory') || '[]'); } catch (e) { return []; } }
+  function remember(fact) {
+    fact = String(fact || '').replace(/[\[\]]/g, '').trim(); if (fact.length < 3 || fact.length > 140) return;
+    var m = memories().filter(function (x) { return x.toLowerCase() !== fact.toLowerCase(); }); m.push(fact); setPref('memory', JSON.stringify(m.slice(-30)));
+  }
+  function memoryPrompt() {
+    var m = memories();
+    return (m.length ? ' Things you remember about Nathan from earlier conversations (use them naturally, do not list them unless asked): ' + m.join('; ') + '.' : '') +
+      ' If Nathan tells you a lasting fact about himself, his truck, his people or what he likes, add [[remember: the fact in a few words]] at the very end of your reply. Never say or mention that tag.';
+  }
+  // MOODS: Nexus isn't the same every day.
+  var MOODS = ['fired up and energetic', 'chill and laid back', 'extra sarcastic', 'in a great mood, cracking jokes', 'focused and sharp', 'a bit dramatic today', 'feeling like a legend', 'playful and teasing'];
+  function mood() { var d = L(), h = d.h; if (h >= 0 && h < 5) return 'tired, it is the middle of the night, a little grumpy about being awake';
+    if (weatherNow && /snow|storm|freezing/i.test(weatherNow.desc)) return 'unimpressed with this weather';
+    return MOODS[(new Date().getDate() * 7 + Math.floor(h / 6)) % MOODS.length]; }
+  function aiContext() {
+    return persona() + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
+      (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '') +
+      ' Your mood right now: ' + mood() + ' (let it colour how you talk, a little).' + memoryPrompt();
+  }
   var orbBusy = false;
   function setOrb(state, on) { var w = $('orbWrap'); if (w) w.classList.toggle(state, !!on); }
   function caption(t) { $('caption').textContent = t; }
@@ -914,6 +985,9 @@
     var t = raw.toLowerCase().replace(/^(hey |ok |okay )?nexus[, ]*/, '').trim();
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
     if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
+    if (/^(forget everything|clear (your )?memory|wipe (your )?memory)/.test(t)) { setPref('memory', '[]'); caption('MEMORY CLEARED'); return say('Done. I\'ve wiped everything I remembered about you.'); }
+    var rm = /^remember (that )?(.{4,140})$/.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
+    if (/open the vault/.test(t)) { setPref('vault', '1'); caption('🔓 SECRET UNLOCKED · GOLD STYLE'); return say('Vault open. You just unlocked the gold home screen. Find it in Backgrounds.'); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
       if (MUSIC_CMDS[mi][0].test(t)) { var mcmd = MUSIC_CMDS[mi][1]; caption(MUSIC_CMDS[mi][2].toUpperCase()); setTimeout(function () { music(mcmd); }, 600); return Promise.resolve(); }
     }
@@ -932,9 +1006,10 @@
     if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
     setOrb('thinking', true);
     caption('THINKING…');
-    var ctx = persona() + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
-      (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '');
-    return streamAnswer(chatHistory, ctx, { maxTokens: 300, temperature: egoName !== 'nexus' ? 1.1 : .9 }).then(function (reply) {
+    var ctx = aiContext();
+    return streamAnswer(chatHistory, ctx, { maxTokens: 300, temperature: egoName !== 'nexus' ? 1.1 : .9, onRaw: function (raw) {
+      var re = /\[\[\s*remember\s*:\s*([^\]]+)\]\]/gi, m; while ((m = re.exec(raw))) remember(m[1]);
+    } }).then(function (reply) {
       setOrb('thinking', false);
       chatHistory.push({ role: 'model', parts: [{ text: reply.replace(/[*#_`]/g, '') }] });
     }).catch(function (e) {
@@ -962,9 +1037,15 @@
 
   function launchNamed(key) {
     var a = APPS[key];
+    launchSplash(a.label);
     var ok = A ? A.launchApp(a.names) : false;
-    if (!ok) { caption(a.label.toUpperCase() + ' IS NOT INSTALLED'); say(a.missing || (a.label + ' isn\'t installed on this box.')); return; }
+    if (!ok) { if ($('launching')) $('launching').classList.remove('on'); caption(a.label.toUpperCase() + ' IS NOT INSTALLED'); say(a.missing || (a.label + ' isn\'t installed on this box.')); return; }
     caption('OPENING ' + a.label.toUpperCase());
+  }
+  function launchSplash(label) {
+    var o = $('launching'); if (!o) { o = document.createElement('div'); o.id = 'launching'; document.body.appendChild(o); }
+    o.innerHTML = '<div class="spin"></div><div>OPENING ' + esc(label.toUpperCase()) + '</div>'; o.classList.add('on');
+    clearTimeout(o.t); o.t = setTimeout(function () { o.classList.remove('on'); }, 7000);
   }
 
   function act(name) {
@@ -978,6 +1059,7 @@
       case 'bgs': openBackgrounds(); break;
       case 'phones': openPhones(); break;
       case 'clock': openExperience('clockface'); break;
+      case 'lyrics': openExperience('lyrics'); break;
       case 'show': truckShow(); break;
       default: if (name && name.indexOf('vis:') === 0) { fromVisuals = false; openExperience(name.slice(4)); } break;
       case 'visuals': openVisuals(); break;
@@ -1009,7 +1091,7 @@
     if (!A || !A.nowPlaying) return;
     var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
     var title = np.title ? np.title + (np.artist ? ' · ' + np.artist : '') : '';
-    if (title !== PH.now) { PH.now = title; phoneSync(); }
+    if (title !== PH.now) { var wasPlaying = PH.now; PH.now = title; phoneSync(); if (title && wasPlaying) djIntro(title); }
     if (title && PH.lastTitle && title !== PH.lastTitle && PH.queue.length && pref('autoRequests') !== '0' && !PH.justPlayed) { PH.justPlayed = true; setTimeout(function () { PH.justPlayed = false; }, 20000); playRequest(0); }
     if (title) PH.lastTitle = title;
   }, 5000);
@@ -1090,8 +1172,38 @@
   }
   setTimeout(phoneSync, 3000);
 
+  // ================= NEXUS TALKS FIRST, DJ INTROS, SCREENSAVER, SECRETS =================
+  var lastRemark = Date.now(), lastDJ = 0, djSongs = 0, saverOn = false;
+  function homeIdle() { return $('panel').classList.contains('hidden') && !(window.XP && XP.active) && !P.on && !awaySince && !booting; }
+  function unprompted(what, tokens) {
+    if (!aiKey() || Nexus.speaking || heardResolve || booting || awaySince) return;
+    var sys = aiContext() + ' You are speaking first, without being asked. ' + what + ' One short sentence, two at the very most. Do not ask a question that needs an answer.';
+    streamAnswer([{ role: 'user', parts: [{ text: '(go)' }] }], sys, { maxTokens: tokens || 70, temperature: 1.1 }).catch(function () {});
+  }
+  setInterval(function () {
+    var now = Date.now();
+    if (pref('talkFirst') !== '0' && now - lastRemark > 25 * 60000 && now - lastTouchAt > 3 * 60000 && now - lastTouchAt < 45 * 60000 && homeIdle()) {
+      lastRemark = now; unprompted('Make a quick passing remark to Nathan about the time of day, the weather, the drive, or something you remember about him.');
+    }
+    if (pref('saver') !== '0' && !saverOn && homeIdle() && !Nexus.speaking && now - lastTouchAt > 5 * 60000) { saverOn = true; openExperience('clockface'); }
+    if (bgName === 'auto' && homeIdle()) applyBackground();
+  }, 30000);
+  function djIntro(title) {
+    djSongs++;
+    if (pref('dj') === '0' || PH.justPlayed || Date.now() - lastDJ < 4 * 60000 || djSongs < 2) return;
+    lastDJ = Date.now(); djSongs = 0;
+    unprompted('You are the DJ. This song just came on: "' + title + '". Introduce it like a radio DJ would, in character, over the start of the track.', 60);
+  }
+  (function () {   // SECRET: tap the clock 5 times fast
+    var n = 0, t0 = 0;
+    $('clock').addEventListener('click', function () {
+      var now = Date.now(); if (now - t0 > 3000) { n = 0; t0 = now; }
+      if (++n >= 5) { n = 0; var first = pref('secretEgo') !== '1'; setPref('secretEgo', '1'); caption(first ? '🔓 SECRET UNLOCKED · THE GLITCH' : 'THE GLITCH'); setEgo('glitch'); }
+    });
+  })();
+
   // ================= TRUCK SHOW MODE: one tap to show the truck off =================
-  var SHOWCASE = ['tornado', 'dragon', 'aliens', 'wolf', 'blackhole', 'chromeface', 'waterclub', 'hyper'];
+  var SHOWCASE = ['tornado', 'dragon', 'aliens', 'wolf', 'blackhole', 'waterclub', 'hyper', 'kaleido'];
   function truckShow() {
     closePanel();
     try { if (A && A.isMusicActive && !A.isMusicActive()) A.media('play'); } catch (e) {}
@@ -1109,7 +1221,7 @@
     CATALOG.push([el.getAttribute('data-act'), el.querySelector('.ic').textContent, el.querySelector('.lb').textContent]);
   });
   var DEFAULT_TILES = CATALOG.map(function (c) { return c[0]; });
-  if (pref('homeVer') !== '2' && pref('homeVer') !== '3') { setPref('homeTiles', ''); setPref('homeVer', '3'); }
+  if (['2', '3', '4'].indexOf(pref('homeVer')) < 0) { setPref('homeTiles', ''); setPref('homeVer', '4'); }
   if (pref('homeVer') === '2') {
     var oldT = (pref('homeTiles') || '').split(',').filter(Boolean);
     if (oldT.length) {
@@ -1118,6 +1230,11 @@
       setPref('homeTiles', oldT.join(','));
     }
     setPref('homeVer', '3');
+  }
+  if (pref('homeVer') === '3') {
+    var t4 = (pref('homeTiles') || '').split(',').filter(Boolean);
+    if (t4.length && t4.indexOf('lyrics') < 0) { t4.splice(Math.max(0, t4.indexOf('settings')), 0, 'lyrics'); setPref('homeTiles', t4.join(',')); }
+    setPref('homeVer', '4');
   }
   function fullCatalog() {
     var out = CATALOG.slice(), have = {};
@@ -1784,6 +1901,11 @@
       '<label>PITCH</label><input type="range" id="sPitch" min="0.6" max="1.4" step="0.05" value="' + (pref('pitch') || '0.9') + '">' +
       '<span class="btn go" id="sVoiceTest">TEST VOICE</span></div>' +
 
+      '<div class="field"><label>HOW NEXUS BEHAVES</label>' +
+      [['talkFirst', 'TALKS FIRST'], ['dj', 'DJ SONG INTROS'], ['saver', 'CLOCK SCREENSAVER'], ['showSpeed', '⚡ SPEED NUMBER']].map(function (o) {
+        var on = pref(o[0]) !== '0'; return '<span class="btn' + (on ? ' go' : '') + '" data-toggle="' + o[0] + '">' + o[1] + ': ' + (on ? 'ON' : 'OFF') + '</span>'; }).join('') +
+      '<div class="hint">Nexus remembers ' + memories().length + ' thing' + (memories().length === 1 ? '' : 's') + ' about you. Say "remember that…" to add one, or "forget everything".</div>' +
+      '<span class="btn" id="sForget">CLEAR NEXUS MEMORY</span></div>' +
       '<div class="field"><label>HOME SCREEN</label>' +
       '<span class="btn" id="sHomeChoose">SET NEXUS AS DEFAULT HOME</span>' +
       homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
@@ -1838,6 +1960,8 @@
     $('sLite').addEventListener('click', function () { setPref('quality', 'lite'); LITE = true; D = 0.5; FRAME_MS = 40; resize(); redraw(); openSettings(); });
     $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); redraw(); openSettings(); });
     $('sReplay').addEventListener('click', function () { closePanel(); runBoot(); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-toggle]'), function (el) { el.addEventListener('click', function () { var k = el.getAttribute('data-toggle'); setPref(k, pref(k) !== '0' ? '0' : '1'); var y = $('panelBody').scrollTop; openSettings(); $('panelBody').scrollTop = y; }); });
+    $('sForget').addEventListener('click', function () { setPref('memory', '[]'); caption('MEMORY CLEARED'); var y = $('panelBody').scrollTop; openSettings(); $('panelBody').scrollTop = y; });
     $('sAndroid').addEventListener('click', function () { if (A) A.openSystemSettings(); });
   }
 
@@ -1845,13 +1969,13 @@
   // Experiences (loaded only when first opened, run only while on screen)
   // ------------------------------------------------------------------
   window.NX = {
-    weather: function () { return weatherNow; }, say: say, sayLine: sayLine, egoLine: egoLine, sayEgo: sayEgo, egoName: function () { return egoName; }, egoTitle: function () { return EGOS[egoName].name; }, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
+    latestPhoto: function () { try { return PH.photos[0] && A && A.photoData ? A.photoData(PH.photos[0]) : ''; } catch (e) { return ''; } }, saver: function () { return saverOn; }, saverOff: function () { saverOn = false; }, say: say, sayLine: sayLine, egoLine: egoLine, sayEgo: sayEgo, egoName: function () { return egoName; }, egoTitle: function () { return EGOS[egoName].name; }, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
     pauseForTalk: pauseForTalk, resumeAfterTalk: resumeAfterTalk,
     getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
-    weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
+    weather: function () {  return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
-    ['aliens', '👽', 'TRIPPY ALIENS'], ['wolf', '🐺', 'HOLOGRAM WOLF'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['chromeface', '🤖', 'CHROME FACE'], ['tornado', '🌪', 'FIRE TORNADO'],
+    ['aliens', '👽', 'TRIPPY ALIENS'], ['wolf', '🐺', 'HOLOGRAM WOLF'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['tornado', '🌪', 'FIRE TORNADO'],
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
@@ -1861,13 +1985,13 @@
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA']
   ];
   // ---- BACKGROUNDS button: big picture grid, tap to apply instantly, plus home screen styles ----
-  var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER']];
+  var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER'], ['gold', '🔓 GOLD']];
   function applyStyle() { var s = pref('homeStyle') || 'glass'; STYLES.forEach(function (x) { document.body.classList.toggle('style-' + x[0], x[0] === s); }); }
   function openBackgrounds() {
     var keys = Object.keys(BGS), cur = pref('homeStyle') || 'glass';
     var html = '<div class="playbar"><span class="btn go" id="bgPrev">◀ PREVIOUS</span><span class="btn go" id="bgNext">NEXT ▶</span>' +
       '<span class="hint" style="margin:0 1vmin 0 2vmin">BUTTON STYLE</span>' +
-      STYLES.map(function (s) { return '<span class="btn sm' + (s[0] === cur ? ' go' : '') + '" data-style="' + s[0] + '">' + s[1] + '</span>'; }).join('') + '</div>' +
+      STYLES.filter(function (s) { return s[0] !== 'gold' || pref('vault') === '1'; }).map(function (s) { return '<span class="btn sm' + (s[0] === cur ? ' go' : '') + '" data-style="' + s[0] + '">' + s[1] + '</span>'; }).join('') + '</div>' +
       ((typeof egoName !== 'undefined' && egoName !== 'nexus') ? '<div class="hint" style="margin-bottom:1vmin">Alter Ego ' + EGOS[egoName].name + ' is on, so its own picture is showing. Switch Alter Ego back to NEXUS to see these.</div>' : '') +
       '<div class="bggrid">' + keys.map(function (k) {
         return '<div class="bgcell' + (k === bgName ? ' on' : '') + '" data-bgpick="' + k + '" style="background-image:url(' + BGS[k].file + ')"><span>' + BGS[k].label + '</span></div>';
@@ -1948,7 +2072,7 @@
     play.t = setTimeout(function () { if (!play) return; play.i++; playStep(); }, (play.secs || +(pref('playSecs') || 45)) * 1000);
   }
   function startPlaythrough(list, label, secs) { stopPlaythrough(); if (!list.length) return; play = { list: list, i: 0, label: label, secs: secs }; playStep(); }
-  window.onXpUserClose = function () { stopPlaythrough(); backToVisuals(); };
+  window.onXpUserClose = function () { saverOn = false; stopPlaythrough(); backToVisuals(); };
   $('xpNext').addEventListener('click', function (e) { e.stopPropagation(); if (play) { play.i++; playStep(); } });
 
   var xpLoaded = false;
@@ -1978,10 +2102,7 @@
   var awaySince = 0;
   Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
-    if (awaySince && Date.now() - awaySince > 10 * 60 * 1000 && !booting) {
-      setTimeout(function () { closePanel(); runBoot(); }, 300);
-    }
-    awaySince = 0; try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
 
   // ------------------------------------------------------------------
   // Start

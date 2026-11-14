@@ -103,8 +103,9 @@ public class MainActivity extends Activity {
     private volatile boolean spPlaying = false;
     private volatile long spTime = 0;
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { labelCache = null; appsCache = null; }
+        @Override public void onReceive(Context c, Intent i) { labelCache = null; appsCache = null; launchCache.clear(); }
     };
+    private volatile long spPos = -1, spPosAt = 0; private volatile int spLen = 0;
     private final BroadcastReceiver spotifyReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
             String a = i.getAction();
@@ -113,8 +114,11 @@ public class MainActivity extends Activity {
                 spTitle = i.getStringExtra("track");
                 spArtist = i.getStringExtra("artist");
                 if (i.hasExtra("playing")) spPlaying = i.getBooleanExtra("playing", spPlaying);
+                spLen = i.getIntExtra("length", 0);
+                spPos = 0; spPosAt = System.currentTimeMillis();
             } else if (a.endsWith("playbackstatechanged")) {
                 spPlaying = i.getBooleanExtra("playing", false);
+                if (i.hasExtra("playbackPosition")) { spPos = i.getIntExtra("playbackPosition", 0); spPosAt = System.currentTimeMillis(); }
             }
             spTime = System.currentTimeMillis();
         }
@@ -129,7 +133,7 @@ public class MainActivity extends Activity {
 
         // Start the recorded greeting FIRST, before the screen (WebView) is even built,
         // so the voice comes out the moment Nexus starts (in the current Alter Ego's voice and words).
-        if (savedInstanceState == null) playBootGreeting();
+        // (no spoken greeting at startup: the Nexus logo intro plays instead)
 
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -154,7 +158,7 @@ public class MainActivity extends Activity {
         // passengers' phones connect to the box (song requests, photos, shout-outs, remote)
         ui.postDelayed(this::startPhones, 1500);
         // wake Spotify up quietly in the background so tapping it opens fast
-        ui.postDelayed(this::warmSpotify, 8000);
+        ui.postDelayed(this::warmSpotify, 3000);
         try {
             IntentFilter pf = new IntentFilter();
             pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -162,6 +166,14 @@ public class MainActivity extends Activity {
             pf.addAction(Intent.ACTION_PACKAGE_CHANGED);
             pf.addDataScheme("package");
             registerReceiver(packageReceiver, pf);
+            registerReceiver(new BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) {
+                    try {
+                        String[] sp2 = prefs.getString("p_bye", "").split("\u0001");
+                        if (sp2.length >= 3) playFile(lineFile(sp2[0], Float.parseFloat(sp2[1]), Float.parseFloat(sp2[2])), "bye");
+                    } catch (Exception ignored) {}
+                }
+            }, new IntentFilter(Intent.ACTION_SHUTDOWN));
         } catch (Exception ignored) {}
         try {
             IntentFilter f = new IntentFilter();
@@ -499,7 +511,7 @@ public class MainActivity extends Activity {
             spotifyWarm = holder[0];
             spotifyWarm.connect();
         } catch (Throwable ignored) {}
-        ui.removeCallbacks(spotifyRewarm); ui.postDelayed(spotifyRewarm, 20 * 60 * 1000L);
+        ui.removeCallbacks(spotifyRewarm); ui.postDelayed(spotifyRewarm, 8 * 60 * 1000L);
     }
     private final Runnable spotifyRewarm = this::warmSpotify;
 
@@ -527,10 +539,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (pausedAt > 0 && System.currentTimeMillis() - pausedAt > 10 * 60 * 1000L) playBootGreeting();
         pausedAt = 0;
         if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
+        ui.postDelayed(this::warmSpotify, 4000);
     }
 
     @Override
@@ -709,15 +721,17 @@ public class MainActivity extends Activity {
         return out;
     }
 
+    private final java.util.Map<String, String[]> launchCache = new java.util.concurrent.ConcurrentHashMap<>();
     private void startComponent(String pkg, String cls) {
         try {
             Intent i = new Intent(Intent.ACTION_MAIN);
             i.addCategory(Intent.CATEGORY_LAUNCHER);
             i.setComponent(new ComponentName(pkg, cls));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             startActivity(i);
         } catch (Exception e) {
-            Toast.makeText(this, "Could not open that app", Toast.LENGTH_SHORT).show();
+            launchCache.clear();
+            ui.post(() -> Toast.makeText(this, "Could not open that app", Toast.LENGTH_SHORT).show());
         }
     }
 
@@ -1214,6 +1228,8 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean launchApp(String namesCsv) {
+            String[] hit = launchCache.get(namesCsv);
+            if (hit != null) { try { startComponent(hit[0], hit[1]); return true; } catch (Exception e) { launchCache.remove(namesCsv); } }
             List<String[]> list = labels();
             for (String raw : namesCsv.split(",")) {
                 String q = raw.trim().toLowerCase(Locale.ROOT);
@@ -1221,7 +1237,8 @@ public class MainActivity extends Activity {
                 for (String[] a : list) {
                     if (a[0].contains(q) || a[1].toLowerCase(Locale.ROOT).contains(q)) {
                         final String pkg = a[1], cls = a[2];
-                        ui.post(() -> startComponent(pkg, cls));
+                        launchCache.put(namesCsv, new String[]{pkg, cls});
+                        startComponent(pkg, cls);
                         return true;
                     }
                 }
@@ -1378,6 +1395,8 @@ public class MainActivity extends Activity {
                         o.put("playing", spPlaying);
                         if (spTitle != null) o.put("title", spTitle);
                         if (spArtist != null) o.put("artist", spArtist);
+                        if (spPos >= 0) o.put("pos", spPos + (spPlaying ? System.currentTimeMillis() - spPosAt : 0));
+                        if (spLen > 0) o.put("dur", spLen);
                         o.put("app", "com.spotify.music");
                     } else {
                         o.put("access", false);
@@ -1393,7 +1412,13 @@ public class MainActivity extends Activity {
                 MediaMetadata md = c.getMetadata();
                 PlaybackState st = c.getPlaybackState();
                 o.put("playing", st != null && st.getState() == PlaybackState.STATE_PLAYING);
+                if (st != null) {
+                    long pos = st.getPosition();
+                    if (st.getState() == PlaybackState.STATE_PLAYING) pos += (long) ((android.os.SystemClock.elapsedRealtime() - st.getLastPositionUpdateTime()) * st.getPlaybackSpeed());
+                    o.put("pos", pos);
+                }
                 if (md != null) {
+                    o.put("dur", md.getLong(MediaMetadata.METADATA_KEY_DURATION));
                     o.put("title", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_TITLE)));
                     o.put("artist", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_ARTIST)));
                 }

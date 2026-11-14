@@ -109,7 +109,7 @@
       GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, waterclub: waterclub, chromeface: chromeface, dragon: dragon, wolf: wolf, aliens: aliens })[name]();
+      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, wolf: wolf, aliens: aliens })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -415,14 +415,23 @@
         b.k = B.k || 0;
         var fresh = B.kicks !== b.lastKicks; b.lastKicks = B.kicks;
         b.hit = fresh && now - b.lastHit > 230; if (b.hit) b.lastHit = now;
+        // THE DROP: the music was quiet/building, then slams in
+        b.slow = (b.slow === undefined ? b.e : b.slow + (b.e - b.slow) * .012);
+        b.drop = b.hit && b.k > .8 && b.e > .45 && b.e > b.slow * 1.9 && now - (b.lastDrop || 0) > 9000;
+        if (b.drop) { b.lastDrop = now; dropFlash(); }
       } else {
-        b.e *= .9; b.k *= .8; b.hit = false; if (B) b.lastKicks = B.kicks;
+        b.e *= .9; b.k *= .8; b.hit = false; b.drop = false; if (B) b.lastKicks = B.kicks;
       }
       return Math.max(b.e * .8, b.k);
     };
     return b;
   }
 
+  function dropFlash() {
+    var d = $('xpDrop'); if (!d) { d = document.createElement('div'); d.id = 'xpDrop'; layer.appendChild(d); }
+    d.style.transition = 'none'; d.style.opacity = .55; d.style.transform = 'scale(1)';
+    void d.offsetWidth; d.style.transition = 'opacity .9s ease-out, transform .9s ease-out'; d.style.opacity = 0; d.style.transform = 'scale(1.6)';
+  }
   function flash(col, a) { if (a > .02) { cx.fillStyle = col; cx.globalAlpha = Math.min(.6, a); cx.fillRect(0, 0, W, H); cx.globalAlpha = 1; } }
   function rnd(a, b2) { return a + Math.random() * (b2 - a); }
 
@@ -1940,6 +1949,9 @@
     var b = beatTracker(), hue = beatHue(200, 40), parts = [], si = 0, lastSwap = performance.now(), sprite = null;
     var SHAPES = [['text', 'NEXUS'], ['path', 'skull'], ['path', 'wolf'], ['path', 'crown'], ['path', 'heart'], ['path', 'bolt'], ['path', 'star'], ['path', 'moon']];
     var N2 = 1800;
+    // a photo sent from a phone becomes a particle portrait too (your face in the visuals)
+    var faceImg = null;
+    try { var pf = N.latestPhoto ? N.latestPhoto() : ''; if (pf) { var im = new Image(); im.onload = function () { faceImg = im; SHAPES.splice(1, 0, ['photo', '']); }; im.src = pf; } } catch (er) {}
     for (var i = 0; i < N2; i++) parts.push({ x: Math.random(), y: Math.random(), vx: 0, vy: 0, tx: .5, ty: .5, o: Math.random(), edge: 0 });
     var sprites = {};
     function spr(h) { var k = (Math.round(h / 12) * 12 + 360) % 360; if (sprites[k]) return sprites[k];
@@ -1970,6 +1982,17 @@
     function sample(sh) {
       var w = 360, h = 200, c = document.createElement('canvas'); c.width = w; c.height = h; var g2 = c.getContext('2d');
       g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillStyle = '#fff';
+      if (sh[0] === 'photo' && faceImg) {
+        var k = Math.max(w / faceImg.width, h / faceImg.height) * .95, iw = faceImg.width * k, ih = faceImg.height * k;
+        g2.drawImage(faceImg, (w - iw) / 2, (h - ih) / 2, iw, ih);
+        var px = g2.getImageData(0, 0, w, h), dd = px.data, fillP = [], edgeP = [];
+        function lum(x, y) { var o = (y * w + x) * 4; return (dd[o] * .3 + dd[o + 1] * .59 + dd[o + 2] * .11) / 255; }
+        for (var y2 = 2; y2 < h - 2; y2 += 2) for (var x2 = 2; x2 < w - 2; x2 += 2) {
+          var l0 = lum(x2, y2), gx = Math.abs(lum(x2 + 2, y2) - lum(x2 - 2, y2)) + Math.abs(lum(x2, y2 + 2) - lum(x2, y2 - 2));
+          if (gx > .16) edgeP.push([x2 / w, y2 / h]); else if (Math.random() < l0 * l0 * .5) fillP.push([x2 / w, y2 / h]);
+        }
+        return { fill: fillP.length ? fillP : [[.5, .5]], edge: edgeP.length ? edgeP : [[.5, .5]] };
+      }
       if (sh[0] === 'text') { g2.font = '900 112px sans-serif'; g2.fillText(sh[1], w / 2, h / 2 + 6); } else drawShape(g2, sh[1], w, h);
       var d = g2.getImageData(0, 0, w, h).data, fill = [], edge = [];
       function A2(x, y) { return x < 0 || y < 0 || x >= w || y >= h ? 0 : d[(y * w + x) * 4 + 3]; }
@@ -2131,7 +2154,7 @@
     if (!g) return bluefire2d();
     text('xpTop', 'FIRE TORNADO');
     loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now;
+      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now;
       b.tick(now);
       var target = b.live ? b.k * .75 + b.e * .45 : 0;
       grow += (target - grow) * (target > grow ? .22 : .04);
@@ -2204,78 +2227,11 @@
     if (!g) return water();
     text('xpTop', 'UNDERWATER CLUB');
     loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now;
+      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now;
       b.tick(now); var hh = hue.tick(b.hit);
       flashA += ((b.live ? b.k : 0) - flashA) * (b.k > flashA ? .5 : .08);
       spinB += dt * (.25 + (b.live ? .5 + b.e * .8 : 0));
       g.f('spinB', spinB); g.f('flashA', flashA); g.draw(now, b, hh);
-    }, 30);
-  }
-
-  // ---------------- CHROME FACE (liquid metal, lip-syncs to the music and to Nexus talking) ----------------
-  function chromeface() {
-    var b = beatTracker(), hue = beatHue(210, 50), mouth = 0, yaw = 0, nod = 0, wob = 0, lt = performance.now();
-    GLX = .62;
-    var g = glStart('chromeface',
-      'uniform float mouth, yaw, nod, wob;\n' +
-      'float sdE(vec3 p, vec3 r){ float k0 = length(p / r), k1 = length(p / (r * r)); return k0 * (k0 - 1.) / k1; }\n' +
-      'float smin(float a, float b, float k){ float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }\n' +
-      'float smax(float a, float b, float k){ return -smin(-a, -b, k); }\n' +
-      'float sdCap(vec3 p, vec3 a, vec3 b, float r){ vec3 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.); return length(pa - ba * h) - r; }\n' +
-      'mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }\n' +
-      'float map(vec3 p){\n' +
-      ' p.xz = rot(yaw) * p.xz; p.yz = rot(nod) * p.yz;\n' +
-      ' vec3 q = vec3(abs(p.x), p.y, p.z);\n' +
-      ' float jawDrop = mouth * .055; vec3 pj = p; if (p.y < -.17) pj.y += jawDrop * smoothstep(-.17, -.25, p.y);\n' +
-      ' float d = sdE(p - vec3(0., .12, -.03), vec3(.355, .40, .40));\n' +
-      ' d = smin(d, sdE(pj - vec3(0., -.13, .05), vec3(.26, .30, .29)), .12);\n' +
-      ' d = smin(d, sdE(q - vec3(.17, -.02, .18), vec3(.09, .06, .07)), .06);\n' +
-      ' d = smin(d, sdE(q - vec3(.115, .115, .285), vec3(.1, .028, .045)), .045);\n' +
-      ' d = smin(d, sdCap(p, vec3(0., .07, .31), vec3(0., -.085, .375), .03), .045);\n' +
-      ' d = smin(d, sdE(p - vec3(0., -.095, .35), vec3(.05, .032, .04)), .03);\n' +
-      ' d = smin(d, sdE(q - vec3(.345, .02, -.02), vec3(.035, .085, .055)), .03);\n' +
-      ' d = smax(d, -sdE(q - vec3(.115, .05, .30), vec3(.07, .042, .055)), .03);\n' +
-      ' d = min(d, length(q - vec3(.115, .05, .255)) - .052);\n' +
-      ' d = smax(d, -sdE(p - vec3(0., -.205 - jawDrop * .5, .31), vec3(.085, .006 + jawDrop * .55, .09)), .015);\n' +
-      ' d = smin(d, sdE(p - vec3(0., -.183, .318), vec3(.088, .02, .035)), .02);\n' +
-      ' d = smin(d, sdE(p - vec3(0., -.228 - jawDrop, .312), vec3(.082, .022, .035)), .02);\n' +
-      ' d = smin(d, sdCap(p, vec3(0., -.3, -.03), vec3(0., -.9, -.06), .135), .1);\n' +
-      ' d += sin(p.y * 38. + time * 2.6) * sin(p.x * 31. - time * 1.7) * .0025 * wob;\n' +
-      ' return d; }\n' +
-      'vec3 nrm(vec3 p){ vec2 e = vec2(.0015, -.0015); return normalize(e.xyy * map(p + e.xyy) + e.yyx * map(p + e.yyx) + e.yxy * map(p + e.yxy) + e.xxx * map(p + e.xxx)); }\n' +
-      'vec3 env(vec3 r){\n' +
-      ' vec3 c = r.y < 0. ? mix(vec3(.55, .5, .46), vec3(.16, .15, .15), smoothstep(0., -.6, r.y)) : mix(vec3(1.05), vec3(.22, .32, .52), smoothstep(0., .55, r.y));\n' +
-      ' c += pal(hue) * 1.6 * smoothstep(.975, .995, dot(r, normalize(vec3(-.7, .45, .55))));\n' +
-      ' c += pal(hue + .5) * 1.4 * smoothstep(.975, .995, dot(r, normalize(vec3(.75, .25, .6))));\n' +
-      ' c += vec3(1.6) * smoothstep(.985, .998, dot(r, normalize(vec3(.1, 1., .25))));\n' +
-      ' c += vec3(.8) * smoothstep(.0, .02, r.y) * smoothstep(.15, .02, r.y) * .4;\n' +
-      ' return c; }\n' +
-      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
-      ' vec3 ro = vec3(0., -.1, 2.35), rd = normalize(vec3(p, -1.75));\n' +
-      ' vec3 bg = mix(vec3(.0, .0, .01), vec3(.05, .06, .09), smoothstep(-.6, .5, p.y)) + pal(hue) * .06 * exp(-length(p - vec2(0., .1)) * 2.5);\n' +
-      ' float t = 0.; bool hit = false;\n' +
-      ' for (int i = 0; i < 64; i++){ vec3 pos = ro + rd * t; float h = map(pos); if (h < .0015){ hit = true; break; } t += h * .9; if (t > 4.) break; }\n' +
-      ' vec3 col = bg;\n' +
-      ' if (hit){ vec3 pos = ro + rd * t, n = nrm(pos); vec3 r = reflect(rd, n);\n' +
-      '   float fre = pow(1. - max(0., dot(n, -rd)), 3.);\n' +
-      '   col = env(r) * (.75 + .25 * fre) + vec3(.03) + vec3(.12, .13, .15) * max(0., dot(n, normalize(vec3(.3, .6, .8))));\n' +
-      '   col += pal(hue + .25) * pow(fre, 2.) * .35 * (1. + kick);\n' +
-      '   col *= .85 + .15 * smoothstep(-.9, -.2, pos.y); }\n' +
-      ' col = col / (1. + col * .4); col = pow(col, vec3(.92));\n' +
-      ' gl_FragColor = vec4(col, 1.); }');
-    if (!g) return friend();
-    text('xpTop', 'CHROME FACE');
-    loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now; var t = now / 1000;
-      b.tick(now); var hh = hue.tick(b.hit);
-      var talking = window.Nexus && window.Nexus.speaking;
-      var mTarget = talking ? (.35 + .45 * Math.abs(Math.sin(t * 13) * Math.sin(t * 7.3 + 1))) : b.live ? Math.min(1, b.e * .55 + b.k * .75) : 0;
-      mouth += (mTarget - mouth) * (mTarget > mouth ? .45 : .2);
-      var yt = b.live ? Math.sin(t * .55) * .38 : Math.sin(t * .22) * .3;
-      yaw += (yt - yaw) * .05;
-      nod += ((b.live ? b.k * .12 : 0) + Math.sin(t * .3) * .04 - nod) * .2;
-      wob += ((b.live ? .4 + b.k * 1.6 : .25) - wob) * .1;
-      g.f('mouth', mouth); g.f('yaw', yaw); g.f('nod', nod); g.f('wob', wob); g.draw(now, b, hh);
     }, 30);
   }
 
@@ -2297,7 +2253,7 @@
     for (var pre = 1400; pre > 0; pre--) { var hp0 = head(tt - pre * .004); trail.unshift({ x: hp0.x, y: hp0.y }); }
     text('xpTop', 'GALAXY DRAGON');
     loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now;
+      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now;
       var p = b.tick(now), hh = hue.tick(b.hit);
       if (!bg || bgW !== W) makeBg();
       tt += dt * (b.live ? .55 + b.e * .9 + b.k * .6 : .38);
@@ -2403,7 +2359,7 @@
     build();
     text('xpTop', 'HOLOGRAM WOLF');
     loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now; var t = now / 1000;
+      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now; var t = now / 1000;
       var p = b.tick(now), hh = hue.tick(b.hit);
       if (b.live && b.hit && b.k > .9 && now - lastHowl > 6000) { lastHowl = now; howl = 1; for (var r = 0; r < 4; r++) rings.push({ r: r * .08, a: 1 }); }
       howl *= .985;
@@ -2521,7 +2477,7 @@
     }
     text('xpTop', 'TRIPPY ALIENS');
     loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now; var t = now / 1000;
+      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now; var t = now / 1000;
       var p = b.tick(now), hh = hue.tick(b.hit), ph = T.tick(now), amp = T.amp;
       if (b.hit && T.beatN % 16 === 0) move = (move + 1) % 4;
       beamA += ((b.live ? .35 + b.k * .65 : .25) - beamA) * .2;
@@ -2539,7 +2495,7 @@
       cx.globalCompositeOperation = 'lighter';
       if (b.hit) ripples.push({ r: 0, a: .8, h: hh });
       ripples = ripples.filter(function (rp) { rp.r += dt * Math.max(W, H) * .5; rp.a -= dt * .6; return rp.a > 0; });
-      ripples.forEach(function (rp) { cx.globalAlpha = rp.a * .5; cx.strokeStyle = 'hsl(' + rp.h + ',100%,65%)'; cx.lineWidth = Math.max(2, W * .01); cx.beginPath(); cx.arc(sx0, sy0, rp.r, 0, 6.283); cx.stroke(); });
+      ripples.forEach(function (rp) { cx.globalAlpha = rp.a * .5; cx.strokeStyle = 'hsl(' + rp.h + ',100%,65%)'; cx.lineWidth = Math.max(2, W * .01); cx.beginPath(); cx.arc(sx0, sy0, Math.max(0, rp.r), 0, 6.283); cx.stroke(); });
       for (var rr = 0; rr < 7; rr++) { var R0 = ((rr / 7 + swirl * .05) % 1) * Math.max(W, H); cx.globalAlpha = .07; cx.strokeStyle = 'hsl(' + ((hh + rr * 50) % 360) + ',100%,60%)'; cx.lineWidth = W * .03; cx.beginPath(); cx.arc(sx0, sy0, R0, 0, 6.283); cx.stroke(); }
       var vg = cx.createRadialGradient(W / 2, H * .6, H * .2, W / 2, H * .6, Math.max(W, H) * .8); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.65)');
       cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1; cx.fillStyle = vg; cx.fillRect(0, 0, W, H);
@@ -2580,8 +2536,8 @@
     var b = beatTracker(), lt = performance.now(), flipPrev = '', flipAt = 0;
     var DAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'], MON = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
     function save() { try { if (A) A.setPref('clockStyle', STY[si]); else localStorage.setItem('p_clockStyle', STY[si]); } catch (e) {} }
-    layer.onclick = function (e) { if (e.target.closest && e.target.closest('#xpClose,#xpNext')) return; si = (si + 1) % STY.length; save(); text('xpBottom', 'TAP FOR ANOTHER STYLE · ' + STY[si]); };
-    text('xpTop', ''); text('xpBottom', 'TAP FOR ANOTHER STYLE · ' + STY[si]);
+    layer.onclick = function (e) { if (e.target.closest && e.target.closest('#xpClose,#xpNext')) return; if (N.saver && N.saver()) { N.saverOff(); XP.close(); return; } si = (si + 1) % STY.length; save(); text('xpBottom', 'TAP FOR ANOTHER STYLE · ' + STY[si]); };
+    text('xpTop', ''); text('xpBottom', N.saver && N.saver() ? 'TAP TO GO BACK' : 'TAP FOR ANOTHER STYLE · ' + STY[si]);
     function wx() { var w = N.weather ? N.weather() : null; return w ? w.temp + '° · ' + String(w.desc || '').toUpperCase() : ''; }
     function words(h, m) {
       var n = ['TWELVE', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN'], r = Math.round(m / 5) * 5, hh = h % 12;
@@ -2591,7 +2547,7 @@
       return ['IT IS', mins, n[hh], r === 0 ? "O'CLOCK" : ''].filter(Boolean);
     }
     loop(function (now) {
-      var dt = Math.min(.08, (now - lt) / 1000); lt = now;
+      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now;
       b.tick(now);
       var d = new Date(), h = d.getHours(), m = d.getMinutes(), sec = d.getSeconds() + d.getMilliseconds() / 1000;
       var h12 = ((h + 11) % 12) + 1, hm = h12 + ':' + (m < 10 ? '0' : '') + m, ap = h < 12 ? 'AM' : 'PM';
@@ -2660,5 +2616,74 @@
         cx.font = '600 ' + Math.round(U * .035) + 'px monospace'; cx.fillStyle = '#7d8aa8'; cx.fillText(hm + ' ' + ap + '  ·  ' + date + (wx() ? '  ·  ' + wx() : ''), W / 2, H * .88);
       }
     }, 20);
+  }
+
+  // ---------------- LIVE LYRICS: the words of the song that's playing, in time with the music ----------------
+  function lyrics() {
+    var b = beatTracker(), hue = beatHue(260, 40), cur = '', lines = null, plain = null, status = 'Play a song and the words show up here',
+      basePos = 0, posAt = performance.now(), playing = true, dur = 0, title = '', artist = '', hasPos = false;
+    function parse(lrc) { var out = []; String(lrc).split('\n').forEach(function (l) { var m = /^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/.exec(l.trim()); if (m) out.push([(+m[1]) * 60 + parseFloat(m[2]), m[3].trim() || '♪']); }); return out; }
+    function use(j, key) {
+      if (cur !== key) return true;
+      if (j && j.syncedLyrics) { lines = parse(j.syncedLyrics); status = ''; return true; }
+      if (j && j.plainLyrics) { plain = j.plainLyrics.split('\n').filter(function (x) { return x.trim(); }); status = ''; return true; }
+      if (j && j.instrumental) { status = '♪ INSTRUMENTAL ♪'; return true; }
+      return false;
+    }
+    function check() {
+      var np = {}; try { np = JSON.parse(A ? A.nowPlaying() : '{}'); } catch (e) {}
+      if (!A) { status = 'Lyrics work on the box when a song is playing'; return; }
+      if (np.access === false) { status = 'Turn on Settings → ALLOW NEXUS TO SEE WHAT\'S PLAYING'; return; }
+      var t = np.title && np.title !== 'null' ? np.title : '', ar = np.artist && np.artist !== 'null' ? np.artist : '';
+      if (typeof np.pos === 'number' && np.pos >= 0) { basePos = np.pos / 1000; posAt = performance.now(); hasPos = true; }
+      playing = np.playing !== false; if (np.dur > 0) dur = np.dur / 1000;
+      if (!t) { if (!cur) status = 'Play a song and the words show up here'; return; }
+      var key = t + '|' + ar; if (key === cur) return;
+      cur = key; title = t; artist = ar; lines = null; plain = null; status = 'Finding the words…';
+      if (!hasPos) { basePos = 0; posAt = performance.now(); }
+      var clean = t.replace(/\s*[\(\[][^\)\]]*[\)\]]/g, '').replace(/\s+-\s+.*$/, '').trim();
+      N.http('GET', 'https://lrclib.net/api/get?artist_name=' + encodeURIComponent(ar) + '&track_name=' + encodeURIComponent(clean)).then(function (r) {
+        var j = null; try { j = JSON.parse(r.text); } catch (e) {}
+        if (r.status === 200 && use(j, key)) return;
+        return N.http('GET', 'https://lrclib.net/api/search?q=' + encodeURIComponent(ar + ' ' + clean)).then(function (r2) {
+          var arr = []; try { arr = JSON.parse(r2.text) || []; } catch (e) {}
+          var best = null; for (var i = 0; i < arr.length; i++) { if (arr[i].syncedLyrics) { best = arr[i]; break; } if (!best && arr[i].plainLyrics) best = arr[i]; }
+          if (!use(best, key) && cur === key) status = r2.status === 200 ? 'No words found for this one' : 'Can\'t reach the lyrics service right now';
+        });
+      });
+    }
+    function wrap(txt, maxW) { var words = txt.split(' '), out = [], line = ''; words.forEach(function (w) { var t2 = line ? line + ' ' + w : w; if (cx.measureText(t2).width > maxW && line) { out.push(line); line = w; } else line = t2; }); if (line) out.push(line); return out; }
+    check(); every(check, 2000);
+    text('xpTop', 'LIVE LYRICS');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit), U = Math.min(W, H), t = now / 1000;
+      var g = cx.createLinearGradient(0, 0, W, H); g.addColorStop(0, 'hsl(' + hh + ',70%,' + (7 + p * 5) + '%)'); g.addColorStop(1, 'hsl(' + ((hh + 70) % 360) + ',80%,' + (4 + p * 3) + '%)');
+      cx.globalAlpha = 1; cx.globalCompositeOperation = 'source-over'; cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+      cx.globalCompositeOperation = 'lighter';
+      for (var i = 0; i < 3; i++) { var bx = W * (.5 + .4 * Math.sin(t * .13 + i * 2.1)), by = H * (.5 + .35 * Math.cos(t * .17 + i * 1.7)), br = U * (.5 + p * .15);
+        var rg = cx.createRadialGradient(bx, by, 0, bx, by, br); rg.addColorStop(0, 'hsla(' + ((hh + i * 60) % 360) + ',100%,50%,.16)'); rg.addColorStop(1, 'hsla(0,0%,0%,0)'); cx.fillStyle = rg; cx.fillRect(0, 0, W, H); }
+      cx.globalCompositeOperation = 'source-over'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      cx.font = '600 ' + Math.round(U * .035) + 'px monospace'; cx.fillStyle = 'rgba(255,255,255,.55)';
+      if (title) cx.fillText((title + (artist ? '  ·  ' + artist : '')).toUpperCase().slice(0, 60), W / 2, H * .1);
+      var pos = basePos + (playing ? (now - posAt) / 1000 : 0);
+      if (status || (!lines && !plain)) { cx.font = '600 ' + Math.round(U * .06) + 'px sans-serif'; cx.fillStyle = '#cfe0ff'; wrap(status, W * .8).forEach(function (l, k) { cx.fillText(l, W / 2, H / 2 + k * U * .08); }); return; }
+      var list, idx, frac = 0;
+      if (lines) { list = lines.map(function (l) { return l[1]; }); idx = -1; for (var k = 0; k < lines.length; k++) { if (lines[k][0] <= pos + .25) idx = k; else break; }
+        if (idx >= 0) frac = Math.min(1, (pos + .25 - lines[idx][0]) / .35); }
+      else { list = plain; var prog = dur > 0 ? pos / dur : pos / 210; idx = Math.max(0, Math.min(list.length - 1, Math.floor(prog * list.length))); frac = 1; }
+      var big = Math.round(U * .105), small = Math.round(U * .05), y = H * .5;
+      cx.font = '800 ' + big + 'px sans-serif';
+      var curLines = idx >= 0 ? wrap(list[idx], W * .86) : ['♪'], bh = curLines.length * big * 1.15;
+      cx.shadowColor = 'hsl(' + hh + ',100%,60%)'; cx.shadowBlur = U * .04 * (1 + p); cx.fillStyle = '#fff'; cx.globalAlpha = .35 + .65 * frac;
+      curLines.forEach(function (l, k) { cx.fillText(l, W / 2, y - bh / 2 + big * .58 + k * big * 1.15 + (1 - frac) * U * .02); });
+      cx.shadowBlur = 0; cx.font = '600 ' + small + 'px sans-serif';
+      for (var d = 1; d <= 2; d++) {
+        cx.globalAlpha = d === 1 ? .5 : .25;
+        if (idx - d >= 0) cx.fillText(wrap(list[idx - d], W * .86)[0], W / 2, y - bh / 2 - d * small * 1.6);
+        if (idx + d < list.length) cx.fillText(wrap(list[idx + d], W * .86)[0], W / 2, y + bh / 2 + d * small * 1.6);
+      }
+      cx.globalAlpha = 1;
+      if (!lines && plain) { cx.font = '600 ' + Math.round(U * .028) + 'px monospace'; cx.fillStyle = 'rgba(255,255,255,.4)'; cx.fillText('THESE WORDS AREN\'T TIMED TO THE SONG', W / 2, H * .93); }
+    }, 30);
   }
 })();
