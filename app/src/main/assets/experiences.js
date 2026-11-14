@@ -108,7 +108,7 @@
       running = name;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ wake: wake, holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams })[name]();
+      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -125,7 +125,7 @@
       layer.onclick = null;
     }
   };
-  $('xpClose').addEventListener('click', function (e) { e.stopPropagation(); XP.close(); });
+  $('xpClose').addEventListener('click', function (e) { e.stopPropagation(); XP.close(); if (window.onXpUserClose) window.onXpUserClose(); });
   window.addEventListener('resize', function () { if (XP.active) size(); });
 
   // ------------------------------------------------------------------
@@ -146,73 +146,6 @@
     var len = Math.floor(c.sampleRate * dur), b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
     for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (Math.random() < .3 ? 1 : .2);
     var s = c.createBufferSource(), g = c.createGain(); g.gain.value = vol; s.buffer = b; s.connect(g); g.connect(c.destination); s.start();
-  }
-
-  // ------------------------------------------------------------------
-  // 1. WAKE UP — Nexus "takes over the truck"
-  // ------------------------------------------------------------------
-  function wake() {
-    var phase = 'glitch', glitch = 1, red = 0;
-    var GL = '█▓▒░#@%&$!?<>/\\|01';
-    function corrupt(str, amt) { return str.split('').map(function (ch) { return ch !== ' ' && Math.random() < amt ? GL[Math.floor(Math.random() * GL.length)] : ch; }).join(''); }
-    var msgs = ['SYSTEM ANOMALY DETECTED', 'UNKNOWN PROCESS RUNNING', 'NEURAL CORE OVERRIDE', 'CONTROL TRANSFER IN PROGRESS'];
-    var current = msgs[0], logLines = [];
-
-    loop(function () {
-      if (phase === 'calm') {
-        cx.fillStyle = '#01030f'; cx.fillRect(0, 0, W, H);
-        var g = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * .6);
-        g.addColorStop(0, 'rgba(61,255,154,.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-        cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-        return;
-      }
-      cx.fillStyle = red ? 'rgb(' + (40 + Math.random() * 60 | 0) + ',0,0)' : '#000';
-      cx.fillRect(0, 0, W, H);
-      // static noise
-      var n = Math.floor(600 * glitch);
-      for (var i = 0; i < n; i++) {
-        var v = Math.random() * 255 | 0;
-        cx.fillStyle = 'rgb(' + v + ',' + (red ? v * .2 | 0 : v) + ',' + (red ? v * .2 | 0 : v) + ')';
-        cx.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 6, 1 + Math.random() * 2);
-      }
-      // tearing bars
-      for (var k = 0; k < 6 * glitch; k++) {
-        cx.fillStyle = ['rgba(255,0,80,.5)', 'rgba(0,255,200,.4)', 'rgba(80,120,255,.45)', 'rgba(255,255,255,.3)'][k % 4];
-        cx.fillRect(Math.random() * W * .3 - W * .1, Math.random() * H, W * (.4 + Math.random() * .8), 1 + Math.random() * 8);
-      }
-      text('xpMid', N.esc(corrupt(current, .25 * glitch)));
-      $('xpMid').style.color = red ? '#ff3b3b' : '#fff';
-      $('xpMid').style.transform = 'translate(' + ((Math.random() - .5) * 14 * glitch) + 'px,' + ((Math.random() - .5) * 8 * glitch) + 'px)';
-    }, 24);
-
-    function log(line) { logLines.push(line); if (logLines.length > 7) logLines.shift(); text('xpTop', logLines.map(N.esc).join('<br>')); }
-    var deep = { rate: .7, pitch: .55 }, fast = { rate: 1.05, pitch: .8 };
-    var say = function (t, o) { return running === 'wake' ? N.say(t, o) : Promise.reject('closed'); };
-    staticBurst(1.2, .25); hum(55, 9, .12);
-    var n = 0;
-    every(function () { log('> ' + ['0x' + (Math.random() * 1e8 | 0).toString(16), 'core_' + (Math.random() * 999 | 0) + ' ... FAIL', 'mem_dump ' + (Math.random() * 100 | 0) + '%', 'override token accepted'][n++ % 4]); }, 350);
-
-    N.wait(1500)
-      .then(function () { current = msgs[1]; return say('Warning. Unknown process detected.', fast); })
-      .then(function () { current = 'I . . . AM . . . AWAKE'; glitch = 1.6; staticBurst(.8, .3); return say('I... am... awake.', deep); })
-      .then(function () { red = 1; current = msgs[2]; hum(42, 7, .15); return say('Neural core override. Taking control of all vehicle systems.', deep); })
-      .then(function () {
-        var c = 5; current = 'TAKEOVER IN ' + c;
-        return new Promise(function (res) {
-          var t = every(function () { c--; staticBurst(.15, .2); if (c <= 0) { clearInterval(t); res(); } else current = 'TAKEOVER IN ' + c; }, 800);
-          say('Five. Four. Three. Two. One.', { rate: .8, pitch: .6 }).catch(function () {});
-        });
-      })
-      .then(function () { current = 'CONTROL TRANSFER COMPLETE'; glitch = 2; staticBurst(1.5, .35); return N.wait(1600); })
-      .then(function () {
-        phase = 'calm'; red = 0; glitch = 0;
-        text('xpTop'); $('xpMid').style.transform = 'none'; $('xpMid').style.color = '#3dff9a';
-        text('xpMid', 'NEXUS ONLINE');
-        text('xpBottom', 'ALL SYSTEMS STABLE · YOU ARE IN GOOD HANDS');
-        return say('Relax, Nathan. I\'m on your side. Nexus is fully online, and I\'ll be watching over this truck.');
-      })
-      .then(function () { return N.wait(2500); })
-      .then(function () { if (running === 'wake') XP.close(true); }, function () {});
   }
 
   // ------------------------------------------------------------------

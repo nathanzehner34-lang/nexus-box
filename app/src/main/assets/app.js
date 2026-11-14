@@ -114,7 +114,7 @@
   (function () {
     var sx = 0, sy = 0, st = 0, fired = false;
     // Home tiles and party buttons fire the moment your finger touches them (no need to lift cleanly).
-    var INSTANT = '.tile,.pbtn,#xpClose,#orb,.btn,.app,[data-bg],[data-vis]';
+    var INSTANT = '.tile,.pbtn,#xpClose,#xpNext,#orb,.btn,.app,[data-bg],[data-vis]';
     function fire(el, t) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY })); }
     document.addEventListener('touchstart', function (e) {
       var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); fired = false;
@@ -638,7 +638,9 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
-      case 'wake': case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
+      case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
+      case 'ego': openEgo(); break;
+      default: if (name && name.indexOf('vis:') === 0) openExperience(name.slice(4)); break;
       case 'visuals': openVisuals(); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
@@ -649,17 +651,77 @@
       case 'settings': openSettings(); break;
     }
   }
-  Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (el) {
-    el.addEventListener('click', function () { act(el.getAttribute('data-act')); });
+  // ---- Home buttons: built from a catalog so Nathan can pick which ones show and in what order ----
+  var CATALOG = [];   // [act, icon, label]
+  Array.prototype.forEach.call(document.querySelectorAll('#tiles .tile'), function (el) {
+    CATALOG.push([el.getAttribute('data-act'), el.querySelector('.ic').textContent, el.querySelector('.lb').textContent]);
   });
+  var DEFAULT_TILES = CATALOG.map(function (c) { return c[0]; });
+  function fullCatalog() {
+    var out = CATALOG.slice(), have = {};
+    out.forEach(function (c) { have[c[0]] = 1; });
+    (typeof VISUALS !== 'undefined' ? VISUALS : []).forEach(function (v) {
+      var key = v[0] === 'ego' ? 'ego' : (have[v[0]] ? null : 'vis:' + v[0]);
+      if (key && !have[key]) { out.push([key, v[1], v[2]]); have[key] = 1; }
+    });
+    return out;
+  }
+  function homeTiles() {
+    var saved = (pref('homeTiles') || '').split(',').filter(Boolean), cat = {};
+    fullCatalog().forEach(function (c) { cat[c[0]] = c; });
+    var list = saved.length ? saved.filter(function (k) { return cat[k]; }) : DEFAULT_TILES.slice();
+    if (list.indexOf('settings') < 0) list.push('settings');
+    return list.map(function (k) { return cat[k]; });
+  }
+  function renderTiles() {
+    var list = homeTiles();
+    $('tiles').innerHTML = list.map(function (c) {
+      return '<div class="tile" data-act="' + c[0] + '"' + (c[0] === 'party' ? ' id="tParty"' : c[0] === 'night' ? ' id="tNight"' : '') + '><span class="ic">' + c[1] + '</span><span class="lb">' + c[2] + '</span></div>';
+    }).join('');
+    $('tiles').setAttribute('data-n', list.length);
+    Array.prototype.forEach.call(document.querySelectorAll('#tiles .tile'), function (el) {
+      el.addEventListener('click', function () { act(el.getAttribute('data-act')); });
+    });
+    try { badges(); } catch (e) {}
+  }
+  function openHomeEditor() {
+    var list = homeTiles().map(function (c) { return c[0]; }), all = fullCatalog();
+    var byKey = {}; all.forEach(function (c) { byKey[c[0]] = c; });
+    function save(l) { setPref('homeTiles', l.join(',')); renderTiles(); openHomeEditor(); }
+    var html = '<div class="hint" style="margin-bottom:1.5vmin">Your home screen buttons, in order. Use ▲ ▼ to move them, ✕ to hide one, and ＋ below to add more. Settings always stays.</div>' +
+      '<div class="hlist">' + list.map(function (k, i) {
+        var c = byKey[k];
+        return '<div class="hrow"><span class="hic">' + c[1] + '</span><span class="hlb">' + c[2] + '</span>' +
+          '<span class="btn hb" data-mv="' + i + ':-1">▲</span><span class="btn hb" data-mv="' + i + ':1">▼</span>' +
+          (k === 'settings' ? '<span class="btn hb off">✕</span>' : '<span class="btn hb" data-rm="' + i + '">✕</span>') + '</div>';
+      }).join('') + '</div>' +
+      '<div class="hint" style="margin:2vmin 0 1vmin">ADD A BUTTON</div><div class="agrid">' +
+      all.filter(function (c) { return list.indexOf(c[0]) < 0; }).map(function (c) {
+        return '<div class="app" data-add="' + c[0] + '"><span style="font-size:6vmin;line-height:1.2">' + c[1] + '</span><span>＋ ' + c[2] + '</span></div>';
+      }).join('') + '</div>' +
+      '<div style="margin-top:2vmin"><span class="btn" id="hReset">RESET TO DEFAULT</span></div>';
+    var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
+    openPanel('HOME BUTTONS', html);
+    $('panelBody').scrollTop = keep;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-mv]'), function (el) {
+      el.addEventListener('click', function () { var p2 = el.getAttribute('data-mv').split(':'), i = +p2[0], j = i + +p2[1]; if (j < 0 || j >= list.length) return; var tmp = list[i]; list[i] = list[j]; list[j] = tmp; save(list); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-rm]'), function (el) {
+      el.addEventListener('click', function () { list.splice(+el.getAttribute('data-rm'), 1); save(list); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (el) {
+      el.addEventListener('click', function () { var k = el.getAttribute('data-add'), si = list.indexOf('settings'); list.splice(si < 0 ? list.length : si, 0, k); save(list); });
+    });
+    $('hReset').addEventListener('click', function () { setPref('homeTiles', ''); renderTiles(); openHomeEditor(); });
+  }
 
   function badges() {
     var b = [];
     if (mode.night) b.push('<span class="badge">NIGHT DRIVE</span>');
     if (mode.party) b.push('<span class="badge">PARTY MODE</span>');
     $('modeBadges').innerHTML = b.join('');
-    $('tParty').classList.toggle('active', mode.party);
-    $('tNight').classList.toggle('active', mode.night);
+    if ($('tParty')) $('tParty').classList.toggle('active', mode.party);
+    if ($('tNight')) $('tNight').classList.toggle('active', mode.night);
     document.body.classList.toggle('night', mode.night);
     document.body.classList.toggle('party', mode.party);
   }
@@ -1150,6 +1212,7 @@
     var homes = [];
     try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
     var html =
+      '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
       '<div class="hint">Get a free key at aistudio.google.com → Get API key. This powers chat, trivia, stories and briefings.</div>' +
@@ -1185,6 +1248,7 @@
       '<div class="hint">Nexus version ' + esc(A ? A.version() : 'preview') + '</div></div>';
     openPanel('SETTINGS', html);
 
+    $('sHome').addEventListener('click', function () { openHomeEditor(); });
     $('sKeySave').addEventListener('click', function () {
       setPref('gemini_key', $('sKey').value.trim()); $('sKeyMsg').textContent = 'Saved.';
     });
@@ -1238,15 +1302,59 @@
     ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
   ];
+  // ---- Visuals menu with favourites (★) and Play All / Play Favourites (auto-switches visuals) ----
+  function favList() { return (pref('favVis') || '').split(',').filter(Boolean); }
+  var PLAYABLE = function () { return VISUALS.filter(function (v) { return v[0] !== 'webcams' && v[0] !== 'ego'; }).map(function (v) { return v[0]; }); };
   function openVisuals() {
-    openPanel('VISUALS', '<div class="hint" style="margin-bottom:2vmin">All of these move with your music and never pause it. Tap ✕ to come back.</div>' +
-      '<div class="agrid">' + VISUALS.map(function (v) {
-        return '<div class="app" data-vis="' + v[0] + '"><span style="font-size:7vmin;line-height:1.2">' + v[1] + '</span><span>' + v[2] + '</span></div>';
-      }).join('') + '</div>');
+    var favs = favList(), secs = +(pref('playSecs') || 45);
+    function cell(v) {
+      var on = favs.indexOf(v[0]) >= 0, canFav = v[0] !== 'ego';
+      return '<div class="app vcell" data-vis="' + v[0] + '"><span style="font-size:7vmin;line-height:1.2">' + v[1] + '</span><span>' + v[2] + '</span>' +
+        (canFav ? '<span class="fav' + (on ? ' on' : '') + '" data-fav="' + v[0] + '">' + (on ? '★' : '☆') + '</span>' : '') + '</div>';
+    }
+    var favRows = VISUALS.filter(function (v) { return favs.indexOf(v[0]) >= 0; });
+    var html = '<div class="playbar"><span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' +
+      '<span class="btn' + (favRows.length ? ' go' : ' off') + '" id="vPlayFav">★ PLAY FAVORITES</span>' +
+      '<span class="hint" style="margin:0 1vmin">SWITCH EVERY</span>' +
+      [[30, '30s'], [45, '45s'], [60, '1 MIN'], [120, '2 MIN']].map(function (o) { return '<span class="btn sm' + (secs === o[0] ? ' go' : '') + '" data-secs="' + o[0] + '">' + o[1] + '</span>'; }).join('') + '</div>' +
+      (favRows.length ? '<div class="hint vsec">★ FAVORITES</div><div class="agrid">' + favRows.map(cell).join('') + '</div><div class="hint vsec">ALL VISUALS</div>' :
+        '<div class="hint vsec">Tap ☆ on any visual to make it a favorite.</div>') +
+      '<div class="agrid">' + VISUALS.map(cell).join('') + '</div>';
+    var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
+    openPanel('VISUALS', html);
+    $('panelBody').scrollTop = keep;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fav]'), function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation(); var k = el.getAttribute('data-fav'), f = favList(), i = f.indexOf(k);
+        if (i >= 0) f.splice(i, 1); else f.push(k);
+        setPref('favVis', f.join(',')); openVisuals();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-secs]'), function (el) {
+      el.addEventListener('click', function () { setPref('playSecs', el.getAttribute('data-secs')); openVisuals(); });
+    });
+    $('vPlayAll').addEventListener('click', function () { closePanel(); startPlaythrough(PLAYABLE(), 'PLAY ALL'); });
+    $('vPlayFav').addEventListener('click', function () { var f = favList().filter(function (k) { return PLAYABLE().indexOf(k) >= 0; }); if (!f.length) return; closePanel(); startPlaythrough(f, 'FAVORITES'); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-vis]'), function (el) {
-      el.addEventListener('click', function () { var n = el.getAttribute('data-vis'); closePanel(); if (n === 'ego') { setTimeout(openEgo, 50); return; } openExperience(n); });
+      el.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-fav]')) return; var n = el.getAttribute('data-vis'); closePanel(); if (n === 'ego') { setTimeout(openEgo, 50); return; } openExperience(n); });
     });
   }
+  var play = null;
+  function stopPlaythrough() { if (!play) return; clearTimeout(play.t); clearTimeout(play.hint); play = null; $('xpNext').classList.add('hidden'); }
+  function playStep() {
+    if (!play) return;
+    var name = play.list[play.i % play.list.length];
+    openExperience(name);
+    $('xpNext').classList.remove('hidden');
+    clearTimeout(play.hint);
+    setTimeout(function () { if (play) { $('xpBottom').textContent = '▶ ' + play.label + ' · ' + ((play.i % play.list.length) + 1) + ' / ' + play.list.length; play.hint = setTimeout(function () { if (play) $('xpBottom').textContent = ''; }, 3000); } }, 150);
+    clearTimeout(play.t);
+    play.t = setTimeout(function () { if (!play) return; play.i++; playStep(); }, (+(pref('playSecs') || 45)) * 1000);
+  }
+  function startPlaythrough(list, label) { stopPlaythrough(); if (!list.length) return; play = { list: list, i: 0, label: label }; playStep(); }
+  window.onXpUserClose = stopPlaythrough;
+  $('xpNext').addEventListener('click', function (e) { e.stopPropagation(); if (play) { play.i++; playStep(); } });
+
   var xpLoaded = false;
   function openExperience(name) {
     if (P.on) exitParty(true);
@@ -1261,10 +1369,10 @@
   // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
-  Nexus.back = function () { if (window.XP && XP.active) { XP.close(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
-  Nexus.home = function () { if (window.XP && XP.active) XP.close(); closePanel(); };
+  Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
+  Nexus.home = function () { stopPlaythrough(); if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
-  Nexus.paused = function () { awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.paused = function () { stopPlaythrough(); awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
     if (awaySince && Date.now() - awaySince > 10 * 60 * 1000 && !booting) {
       setTimeout(function () { closePanel(); runBoot(); }, 300);
@@ -1275,6 +1383,7 @@
   // Start
   // ------------------------------------------------------------------
   applyEgo(false);
+  renderTiles();
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
   else { $('boot').classList.add('hidden'); showHome(); stopAnim(); }
 })();
