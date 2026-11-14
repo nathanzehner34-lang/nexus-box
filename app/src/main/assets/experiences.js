@@ -475,7 +475,7 @@
     }, 30);
   }
   // 4. BLUE FIRE
-  function bluefire() {
+  function bluefire2d() {
     var b = beatTracker(), parts = [];
     text('xpTop', 'BLUE FIRE');
     loop(function () {
@@ -506,23 +506,23 @@
     loop(function (now) {
       var p = b.tick(now), H0 = H * .55;
       var g = cx.createLinearGradient(0, 0, 0, H0); g.addColorStop(0, '#2b1055'); g.addColorStop(.6, '#ff71ce'); g.addColorStop(1, '#ffb3e6'); cx.fillStyle = g; cx.fillRect(0, 0, W, H0);
-      var sr = H * (.22 + b.k * .05), sx = W * .5, sy = H0 * .95;
+      vapor.sp = (vapor.sp || 0) + ((b.k * .02 + b.e * .01) - (vapor.sp || 0)) * .05;
+      var sr = H * (.22 + vapor.sp + Math.sin(now * .0008) * .006), sx = W * .5, sy = H0 * .95;
       var sg = cx.createLinearGradient(0, sy - sr, 0, sy); sg.addColorStop(0, '#fffb96'); sg.addColorStop(1, '#ff71ce');
       cx.save(); cx.beginPath(); cx.arc(sx, sy, sr, Math.PI, 0); cx.clip(); cx.fillStyle = sg; cx.fillRect(sx - sr, sy - sr, sr * 2, sr);
       cx.fillStyle = '#ffb3e6'; for (var k = 0; k < 5; k++) cx.fillRect(sx - sr, sy - sr * .5 + k * sr * .1, sr * 2, 1 + k * 2); cx.restore();
       cx.fillStyle = '#01cdfe'; cx.fillRect(0, H0, W, H - H0);
       cx.fillStyle = '#05ffa1'; cx.globalAlpha = .15; cx.fillRect(0, H0, W, H - H0); cx.globalAlpha = 1;
       cx.strokeStyle = 'rgba(255,113,206,' + (.6 + p * .4) + ')'; cx.lineWidth = Math.max(1, 1.5 * S * 2);
-      vapor.off = ((vapor.off || 0) + .004 + b.e * .01 + b.k * .02) % 1; var off = vapor.off;
+      vapor.off = ((vapor.off || 0) + .011 + b.e * .006) % 1; var off = vapor.off;
       for (var r = 0; r < 12; r++) { var z = (r + 1 - off) / 12, y = H0 + (H - H0) * z * z; cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
       for (var c2 = -10; c2 <= 10; c2++) { cx.beginPath(); cx.moveTo(W / 2 + c2 * W * .02, H0); cx.lineTo(W / 2 + c2 * W * .14, H); cx.stroke(); }
-      $('xpMid').style.transform = 'translateY(' + (Math.sin(now * .001) * 6 - 40) + 'px) scale(' + (1 + b.k * .12) + ')';
-      flash('#ff71ce', b.k * .15);
+      $('xpMid').style.transform = 'translateY(' + (Math.sin(now * .001) * 6 - 40) + 'px) scale(' + (1 + vapor.sp * 1.5) + ')';
     }, 30);
   }
 
   // 7. KALEIDOSCOPE
-  function kaleido() {
+  function kaleido2d() {
     var b = beatTracker(), SEG = 12, hue = 0;
     text('xpTop', 'KALEIDOSCOPE');
     loop(function (now) {
@@ -895,135 +895,298 @@
     }, 30);
   }
 
-  // 13. HOLOGRAM FRIEND — human wireframe head. Changes colour with the music,
-  //     eyes look around, and it pulls random crazy moves. Tap it for a new trick.
+  // 13. HOLO HEAD — realistic wireframe human head. Changes colour with the music, eyes look around,
+  //     and the face constantly stretches, waves, twists, bulges and melts — harder on the beat.
   function friend() {
     var b = beatTracker(), hue = beatHue(190, 55);
-    // head cross-sections from neck to crown: [height, half-width, half-depth, forward shift]
-    var T = [[-1.05, .36, .40, -.15], [-.70, .34, .38, -.12], [-.62, .28, .36, .06], [-.50, .40, .50, .04], [-.35, .56, .64, .02],
-             [-.15, .70, .78, 0], [.05, .74, .84, 0], [.25, .76, .88, -.02], [.50, .74, .88, -.05], [.75, .62, .75, -.07], [.92, .40, .48, -.08], [1, .05, .05, -.08]];
+    // cross-sections from neck to crown: [height, half-width, half-depth, forward shift]
+    var T = [[-1.08, .33, .37, -.16], [-.74, .32, .36, -.13], [-.66, .2, .3, .04], [-.6, .3, .38, .06], [-.5, .42, .5, .05], [-.36, .56, .64, .03],
+             [-.18, .66, .74, .01], [-.02, .7, .8, 0], [.1, .72, .84, -.01], [.28, .74, .87, -.03], [.5, .72, .87, -.06], [.72, .6, .76, -.08], [.9, .4, .52, -.09], [1, .06, .06, -.09]];
     function sect(h) {
-      for (var i = 1; i < T.length; i++) if (h <= T[i][0]) { var A2 = T[i - 1], B2 = T[i], f = (h - A2[0]) / (B2[0] - A2[0]); return [A2[1] + (B2[1] - A2[1]) * f, A2[2] + (B2[2] - A2[2]) * f, A2[3] + (B2[3] - A2[3]) * f]; }
-      return [.05, .05, -.08];
+      for (var i = 1; i < T.length; i++) if (h <= T[i][0]) { var A2 = T[i - 1], B2 = T[i], f = (h - A2[0]) / (B2[0] - A2[0]); f = f * f * (3 - 2 * f); return [A2[1] + (B2[1] - A2[1]) * f, A2[2] + (B2[2] - A2[2]) * f, A2[3] + (B2[3] - A2[3]) * f]; }
+      return [.06, .06, -.09];
     }
     function G(v, c, w) { return Math.exp(-Math.pow((v - c) / w, 2)); }
     function surf(h, u) {
-      var sc = sect(h), x = sc[0] * Math.sin(u), z = sc[2] + sc[1] * Math.cos(u), fr = Math.max(0, Math.cos(u)); fr *= fr;
-      if (h > -.64) {
-        var ax = Math.abs(x), nose = h > -.17 && h < .15 ? (.15 - h) / .32 : 0;
-        z += fr * (.3 * nose * G(x, 0, .075) + .08 * G(h, .24, .05) - .1 * G(h, .1, .07) * G(ax, .27, .12)
-              + .03 * G(h, -.05, .1) * G(ax, .45, .12) + .05 * G(h, -.32, .05) * G(x, 0, .22) + .05 * G(h, -.55, .05) * G(x, 0, .2));
+      var sc = sect(h), x = sc[0] * Math.sin(u), z = sc[2] + sc[1] * Math.cos(u), fr = Math.max(0, Math.cos(u)); fr = fr * fr;
+      if (h > -.66) {
+        var ax = Math.abs(x);
+        var nose = (h > -.2 && h < .16 ? Math.pow((.16 - h) / .36, 1.3) : 0) * .26 * G(x, 0, .06 + (.16 - h) * .1);
+        var nostrils = .06 * G(h, -.19, .04) * G(ax, .09, .05);
+        var brow = .09 * G(h, .25, .05) * (1 - .5 * G(x, 0, .08));
+        var socket = -.13 * G(h, .1, .075) * G(ax, .26, .1);
+        var cheek = .06 * G(h, -.08, .1) * G(ax, .44, .1);
+        var hollow = -.04 * G(h, -.28, .08) * G(ax, .42, .08);
+        var lipU = .07 * G(h, -.33, .035) * G(x, 0, .2), lipL = .065 * G(h, -.42, .035) * G(x, 0, .17), mouthLine = -.035 * G(h, -.375, .015) * G(x, 0, .2);
+        var chin = .08 * G(h, -.56, .05) * G(x, 0, .15);
+        z += fr * (nose + nostrils + brow + socket + cheek + hollow + lipU + lipL + mouthLine + chin);
+        if (h < -.3 && h > -.62) x *= 1 + .05 * G(h, -.45, .1) * (ax > .3 ? 1 : 0); // jaw angle
       }
-      if (Math.abs(Math.abs(u) - 1.571) < .35 && h > -.12 && h < .2) x += (x > 0 ? 1 : -1) * .07 * G(h, .04, .09); // ears
-      return [x, -h * 1.12, z];
+      if (Math.abs(Math.abs(u) - 1.571) < .4 && h > -.15 && h < .22) x += (x > 0 ? 1 : -1) * .08 * G(h, .04, .1); // ears
+      return [x, -h * 1.15, z];
     }
-    var RINGS = 24, LONS = 26, mesh = [], jit = [];
-    for (var r = 0; r <= RINGS; r++) { var row = [], jr = []; var h = -1.05 + r / RINGS * 2.04;
+    var RINGS = 30, LONS = 34, mesh = [], jit = [];
+    for (var r = 0; r <= RINGS; r++) { var row = [], jr = [], h = -1.08 + r / RINGS * 2.08;
       for (var o = 0; o <= LONS; o++) { row.push(surf(h, o / LONS * 6.2832 - Math.PI)); jr.push([Math.random() - .5, Math.random() - .5, Math.random() - .5]); }
       mesh.push(row); jit.push(jr); }
-    var eyes = [-1, 1].map(function (sd) { return { x: .27 * sd, h: .1 }; });
-    function eyePt(e, dx, dh) { var sc = sect(e.h + dh), xx = e.x + dx, u = Math.asin(Math.max(-1, Math.min(1, xx / sc[0]))); var p = surf(e.h + dh, u); p[2] += .02; return p; }
+    var eyes = [-1, 1].map(function (sd) { return { x: .26 * sd, h: .1 }; });
+    function onFace(xx, hh2, dz) { var sc = sect(hh2), u = Math.asin(Math.max(-1, Math.min(1, xx / sc[0]))); var p2 = surf(hh2, u); p2[2] += dz || .015; return p2; }
 
     var gaze = [0, 0], gazeT = [0, 0], nextGaze = 0, blink = 0, nextBlink = 0;
-    var move = null, moveT = 0, nextMove = performance.now() + 2500, spin = 0, nod = 0, beats = 0;
-    var MOVES = ['spin', 'glitch', 'explode', 'laugh', 'stare', 'scan', 'rainbow', 'shake', 'tilt'];
-    function startMove(m, now) { move = m || MOVES[Math.random() * MOVES.length | 0]; moveT = now; }
+    var move = null, moveT = 0, nextMove = performance.now() + 2000, nod = 0, beats = 0;
+    var MOVES = ['spin', 'glitch', 'explode', 'laugh', 'stare', 'scan', 'rainbow', 'shake', 'tilt', 'melt', 'stretch', 'wave', 'twist', 'bulge'];
+    var DUR = { spin: 1.6, glitch: .8, explode: 1.6, laugh: 1.8, stare: 2.2, scan: 2, rainbow: 4, shake: 1.2, tilt: 2, melt: 3, stretch: 2, wave: 2.5, twist: 2.4, bulge: 1.8 };
+    var M = { stretch: 0, wave: 0, twist: 0, bulge: 0, melt: 0, pinch: 0, by: 0 };
+    function startMove(m, now) { move = m || MOVES[Math.random() * MOVES.length | 0]; moveT = now; M.by = Math.random() * 1.4 - .7; }
     function rot(p, yaw, pitch, roll) {
       var x = p[0] * Math.cos(yaw) + p[2] * Math.sin(yaw), z = -p[0] * Math.sin(yaw) + p[2] * Math.cos(yaw), y = p[1];
       var y2 = y * Math.cos(pitch) - z * Math.sin(pitch), z2 = y * Math.sin(pitch) + z * Math.cos(pitch);
-      var x3 = x * Math.cos(roll) - y2 * Math.sin(roll), y3 = x * Math.sin(roll) + y2 * Math.cos(roll);
-      return [x3, y3, z2];
+      return [x * Math.cos(roll) - y2 * Math.sin(roll), x * Math.sin(roll) + y2 * Math.cos(roll), z2];
+    }
+    function morph(p, t) {            // bend the head: stretch, wave, twist, bulge, melt, pinch
+      var x = p[0], y = p[1], z = p[2];
+      var sy = 1 + M.stretch * .35; y *= sy; x /= Math.sqrt(sy); z /= Math.sqrt(sy);
+      x += M.wave * Math.sin(y * 5 + t * 5) * .14;
+      var tw = M.twist * y * 1.4, c = Math.cos(tw), s2 = Math.sin(tw); var nx = x * c + z * s2; z = -x * s2 + z * c; x = nx;
+      var bg = 1 + M.bulge * .35 * Math.exp(-Math.pow(y - M.by, 2) / .06); x *= bg; z *= bg;
+      if (M.melt > 0 && y > -.3) { var dr = Math.pow(y + .3, 2); y += M.melt * dr * (.6 + .4 * Math.sin(x * 9 + t)); x *= 1 + M.melt * dr * .3; }
+      x *= 1 - M.pinch * .25 * Math.exp(-y * y / .1);
+      return [x, y, z];
     }
     loop(function (now) {
-      var p = b.tick(now), hh = hue.tick(b.hit);
-      if (b.hit) { beats++; nod = 1; if (beats % 24 === 0) startMove('explode', now); }
+      var p = b.tick(now), hh = hue.tick(b.hit), t = now / 1000;
+      if (b.hit) { beats++; nod = 1; if (beats % 24 === 0) startMove('explode', now); else if (b.k > .6 && Math.random() < .25) startMove(['stretch', 'bulge', 'wave', 'twist'][Math.random() * 4 | 0], now); }
       nod *= .85;
-      if (!move && now > nextMove) { startMove(null, now); }
-      var mt = move ? (now - moveT) / 1000 : 0, DUR = { spin: 1.6, glitch: .8, explode: 1.6, laugh: 1.8, stare: 2.2, scan: 2, rainbow: 4, shake: 1.2, tilt: 2 };
-      if (move && mt > DUR[move]) { move = null; nextMove = now + 2500 + Math.random() * 3500; }
+      if (!move && now > nextMove) startMove(null, now);
+      var mt = move ? (now - moveT) / 1000 : 0;
+      if (move && mt > DUR[move]) { move = null; nextMove = now + 1800 + Math.random() * 2600; }
       var ease = move ? Math.sin(Math.min(1, mt / DUR[move]) * Math.PI) : 0;
-
-      if (now > nextGaze) { gazeT = [(Math.random() - .5) * 2, (Math.random() - .5) * 1.4]; nextGaze = now + 600 + Math.random() * 2200; }
+      // constant gentle morphing + big morphs from moves and bass
+      function to(k, v) { M[k] += (v - M[k]) * .12; }
+      to('stretch', .12 * Math.sin(t * .7) + (move === 'stretch' ? .9 * ease * Math.sin(mt * 6) : 0) + b.k * .25);
+      to('wave', .15 * Math.sin(t * .5) + (move === 'wave' ? 1 : 0) * ease);
+      to('twist', .1 * Math.sin(t * .37) + (move === 'twist' ? 1.1 * ease * Math.sin(mt * 3) : 0));
+      to('bulge', .15 * (.5 + .5 * Math.sin(t * .9)) + (move === 'bulge' ? 1.6 * ease : 0) + b.k * .3);
+      to('melt', move === 'melt' ? ease * 1.2 : 0);
+      to('pinch', .2 * Math.max(0, Math.sin(t * .23)) + (move === 'laugh' ? .3 * ease : 0));
+      if (now > nextGaze) { gazeT = [(Math.random() - .5) * 2, (Math.random() - .5) * 1.4]; nextGaze = now + 500 + Math.random() * 2000; }
       if (move === 'stare') gazeT = [0, 0];
       gaze[0] += (gazeT[0] - gaze[0]) * .25; gaze[1] += (gazeT[1] - gaze[1]) * .25;
       if (now > nextBlink) { blink = 1; nextBlink = now + 1800 + Math.random() * 4000; }
       blink = Math.max(0, blink - .18);
-
       var yaw = gaze[0] * .25 + Math.sin(now * .0004) * .1, pitch = -.06 + gaze[1] * .1 - nod * .05, roll = Math.sin(now * .0003) * .04;
       if (move === 'spin') yaw += 6.2832 * (1 - Math.pow(1 - Math.min(1, mt / DUR.spin), 3));
       if (move === 'shake') yaw += Math.sin(mt * 40) * .25 * ease;
       if (move === 'tilt') { roll += .35 * ease; pitch += .12 * ease; }
       var scale = 1 + b.k * .03 + (move === 'stare' ? .25 * ease : 0);
       var ex = move === 'explode' ? Math.max(0, Math.sin(Math.min(1, mt / DUR.explode) * Math.PI)) : 0;
-      var gl = move === 'glitch' ? 1 : (Math.random() < .015 ? .5 : 0);
+      var gl2 = move === 'glitch' ? 1 : (Math.random() < .015 ? .5 : 0);
 
       cx.fillStyle = '#000308'; cx.fillRect(0, 0, W, H);
-      var cxp = W / 2, cyp = H * .44, R = Math.min(W, H) * .34 * scale;
-      var g = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * 2);
-      g.addColorStop(0, 'hsla(' + hh + ',100%,55%,' + (.14 + p * .14) + ')'); g.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
-      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-
+      var cxp = W / 2, cyp = H * .44, R = Math.min(W, H) * .32 * scale;
+      var gg = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * 2);
+      gg.addColorStop(0, 'hsla(' + hh + ',100%,55%,' + (.14 + p * .14) + ')'); gg.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
+      cx.fillStyle = gg; cx.fillRect(0, 0, W, H);
       function P(pt, jj) {
-        var q = pt;
-        if (ex > 0 || gl > 0) q = [pt[0] * (1 + ex * 1.2) + jj[0] * (ex * 1.4 + gl * .06), pt[1] * (1 + ex * 1.2) + jj[1] * (ex * 1.4), pt[2] * (1 + ex * 1.2) + jj[2] * ex * 1.4];
+        var q = morph(pt, t);
+        if (ex > 0 || gl2 > 0) q = [q[0] * (1 + ex * 1.2) + jj[0] * (ex * 1.4 + gl2 * .06), q[1] * (1 + ex * 1.2) + jj[1] * ex * 1.4, q[2] * (1 + ex * 1.2) + jj[2] * ex * 1.4];
         var rq = rot(q, yaw, pitch, roll), f = 3.4 / (3.4 - rq[2]);
         return [cxp + rq[0] * R * f, cyp + rq[1] * R * f, rq[2]];
       }
       var PP = mesh.map(function (row, ri) { return row.map(function (pt, oi) { return P(pt, jit[ri][oi]); }); });
-      var lw = Math.max(1, S * 2.2), rainbow = move === 'rainbow';
-      var scanY = move === 'scan' ? cyp - R * 1.2 + (mt / DUR.scan) * R * 2.6 : -1e9;
-      cx.lineWidth = lw;
-      function seg(a2, b2, ring) {
-        var dep = (a2[2] + b2[2]) / 2, al = dep > 0 ? .25 + dep * .75 : .07;
-        var near = Math.abs((a2[1] + b2[1]) / 2 - scanY) < R * .08;
-        var hu = rainbow ? (hh + ring * 15) % 360 : hh;
-        cx.strokeStyle = near ? 'rgba(255,255,255,.95)' : 'hsla(' + hu + ',100%,' + (60 + p * 15) + '%,' + al + ')';
-        var o2 = gl ? (Math.random() - .5) * R * .08 * gl : 0;
-        cx.beginPath(); cx.moveTo(a2[0] + o2, a2[1]); cx.lineTo(b2[0] + o2, b2[1]); cx.stroke();
-      }
+      var rainbow = move === 'rainbow', scanY = move === 'scan' ? cyp - R * 1.3 + (mt / DUR.scan) * R * 2.8 : -1e9;
+      // batch the wireframe into a few depth layers (fast: one stroke per layer)
+      var BINS = 4, paths = [], i2;
+      for (i2 = 0; i2 < BINS; i2++) paths.push([]);
+      function seg(a2, b2, ring) { var dep = (a2[2] + b2[2]) / 2, bin = dep <= 0 ? 0 : Math.min(BINS - 1, 1 + (dep * 3 | 0)); paths[bin].push(a2, b2, ring); }
       for (var ri = 0; ri <= RINGS; ri++) for (var oi = 0; oi < LONS; oi++) seg(PP[ri][oi], PP[ri][oi + 1], ri);
       for (var oj = 0; oj < LONS; oj++) for (var rj = 0; rj < RINGS; rj++) seg(PP[rj][oj], PP[rj + 1][oj], rj);
-      if (gl) { cx.globalCompositeOperation = 'lighter'; cx.drawImage(cv, R * .03 * gl, 0); cx.globalCompositeOperation = 'source-over'; }
-
+      cx.lineWidth = Math.max(1, S * 2.1);
+      var AL = [.06, .35, .65, .95];
+      for (var bi = 0; bi < BINS; bi++) {
+        var L = paths[bi];
+        if (rainbow) {
+          for (var k3 = 0; k3 < L.length; k3 += 3) { cx.strokeStyle = 'hsla(' + ((hh + L[k3 + 2] * 12) % 360) + ',100%,62%,' + AL[bi] + ')'; cx.beginPath(); cx.moveTo(L[k3][0], L[k3][1]); cx.lineTo(L[k3 + 1][0], L[k3 + 1][1]); cx.stroke(); }
+        } else {
+          cx.strokeStyle = 'hsla(' + hh + ',100%,' + (60 + p * 15) + '%,' + AL[bi] + ')';
+          var jx = gl2 ? R * .05 * gl2 : 0;
+          cx.beginPath();
+          for (var k4 = 0; k4 < L.length; k4 += 3) { var o2 = jx ? (Math.random() - .5) * jx : 0; cx.moveTo(L[k4][0] + o2, L[k4][1]); cx.lineTo(L[k4 + 1][0] + o2, L[k4 + 1][1]); }
+          cx.stroke();
+        }
+      }
+      if (scanY > -1e8) { cx.fillStyle = 'hsla(' + hh + ',100%,85%,.25)'; cx.fillRect(0, scanY - R * .02, W, R * .04); }
+      if (gl2) { cx.globalCompositeOperation = 'lighter'; cx.drawImage(cv, R * .03 * gl2, 0); cx.globalCompositeOperation = 'source-over'; }
       if (ex < .3) {
-        var acc = 'hsl(' + ((hh + 180) % 360) + ',100%,' + (70 + p * 15) + '%)', wide = move === 'stare' ? 1.6 * ease + 1 : 1;
-        var Z = [0, 0, 0];
+        var acc = 'hsl(' + ((hh + 180) % 360) + ',100%,' + (70 + p * 15) + '%)', wide = move === 'stare' ? 1.6 * ease + 1 : 1, Z = [0, 0, 0];
         eyes.forEach(function (e) {
-          var open = (.035 * wide) * (1 - blink);
-          var L2 = P(eyePt(e, -.09, 0), Z), R2 = P(eyePt(e, .09, 0), Z), T2 = P(eyePt(e, 0, open + .004), Z), B2 = P(eyePt(e, 0, -open - .004), Z), C2 = P(eyePt(e, 0, 0), Z);
+          var open = (.034 * wide) * (1 - blink);
+          var L2 = P(onFace(e.x - .095, e.h), Z), R2 = P(onFace(e.x + .095, e.h), Z), T2 = P(onFace(e.x, e.h + open + .006), Z), B2 = P(onFace(e.x, e.h - open - .006), Z), C2 = P(onFace(e.x, e.h), Z);
           if (C2[2] < 0) return;
           cx.strokeStyle = acc; cx.lineWidth = Math.max(1, S * 2.4);
           cx.beginPath(); cx.moveTo(L2[0], L2[1]); cx.quadraticCurveTo(T2[0] * 2 - (L2[0] + R2[0]) / 2, T2[1] * 2 - (L2[1] + R2[1]) / 2, R2[0], R2[1]);
           cx.quadraticCurveTo(B2[0] * 2 - (L2[0] + R2[0]) / 2, B2[1] * 2 - (L2[1] + R2[1]) / 2, L2[0], L2[1]); cx.stroke();
           if (blink < .5) {
-            var I2 = P(eyePt(e, gaze[0] * .045, gaze[1] * .012), Z), ir = R * .034 * (move === 'stare' ? .7 : 1);
-            cx.shadowColor = acc; cx.shadowBlur = R * .12; cx.fillStyle = acc;
-            cx.beginPath(); cx.arc(I2[0], I2[1], ir, 0, 6.283); cx.fill(); cx.shadowBlur = 0;
-            cx.fillStyle = '#000'; cx.beginPath(); cx.arc(I2[0], I2[1], ir * .45, 0, 6.283); cx.fill();
+            var I2 = P(onFace(e.x + gaze[0] * .045, e.h + gaze[1] * .012), Z), ir = R * .036 * (move === 'stare' ? .7 : 1);
+            cx.save(); cx.beginPath(); cx.moveTo(L2[0], L2[1]); cx.quadraticCurveTo(T2[0] * 2 - (L2[0] + R2[0]) / 2, T2[1] * 2 - (L2[1] + R2[1]) / 2, R2[0], R2[1]);
+            cx.quadraticCurveTo(B2[0] * 2 - (L2[0] + R2[0]) / 2, B2[1] * 2 - (L2[1] + R2[1]) / 2, L2[0], L2[1]); cx.clip();
+            var ig = cx.createRadialGradient(I2[0], I2[1], 0, I2[0], I2[1], ir);
+            ig.addColorStop(0, '#000'); ig.addColorStop(.4, '#000'); ig.addColorStop(.45, acc); ig.addColorStop(1, 'hsla(' + ((hh + 200) % 360) + ',100%,40%,1)');
+            cx.fillStyle = ig; cx.beginPath(); cx.arc(I2[0], I2[1], ir, 0, 6.283); cx.fill();
+            cx.fillStyle = 'rgba(255,255,255,.9)'; cx.beginPath(); cx.arc(I2[0] - ir * .3, I2[1] - ir * .3, ir * .18, 0, 6.283); cx.fill();
+            cx.restore();
           }
+          var BR = P(onFace(e.x, e.h + .1), Z), BL = P(onFace(e.x - .12, e.h + .08), Z), BRR = P(onFace(e.x + .11, e.h + .085), Z);
+          cx.strokeStyle = acc; cx.lineWidth = Math.max(1, S * 2.8); cx.beginPath(); cx.moveTo(BL[0], BL[1]); cx.quadraticCurveTo(BR[0], BR[1] - R * .02, BRR[0], BRR[1]); cx.stroke();
         });
-        // lips: move a little with the bass, wide open when laughing
-        var mo = (move === 'laugh' ? .05 + .04 * Math.abs(Math.sin(mt * 14)) : b.k * .025) + .004;
-        var ml = P(surf(-.33, -.3), Z), mr = P(surf(-.33, .3), Z), up = P(surf(-.33 + mo * .3, 0), Z), dn = P(surf(-.33 - mo, 0), Z);
+        var mo = (move === 'laugh' ? .05 + .04 * Math.abs(Math.sin(mt * 14)) : b.k * .03) + .004;
+        var ml = P(onFace(-.17, -.375), Z), mr = P(onFace(.17, -.375), Z), up = P(onFace(0, -.375 + mo * .3 + .012, .06), Z), dn = P(onFace(0, -.375 - mo - .012, .05), Z), mid = P(onFace(0, -.375, .04), Z);
         if (up[2] > 0) {
           cx.strokeStyle = acc; cx.lineWidth = Math.max(1, S * 2.6);
           cx.beginPath(); cx.moveTo(ml[0], ml[1]); cx.quadraticCurveTo(up[0] * 2 - (ml[0] + mr[0]) / 2, up[1] * 2 - (ml[1] + mr[1]) / 2, mr[0], mr[1]);
           cx.quadraticCurveTo(dn[0] * 2 - (ml[0] + mr[0]) / 2, dn[1] * 2 - (ml[1] + mr[1]) / 2, ml[0], ml[1]); cx.stroke();
+          cx.beginPath(); cx.moveTo(ml[0], ml[1]); cx.quadraticCurveTo(mid[0], mid[1] + mo * R * .5, mr[0], mr[1]); cx.stroke();
         }
       }
-      // hologram base, scan beam, scanlines
-      var by = cyp + R * 1.25;
+      var by = cyp + R * 1.35;
       var bg2 = cx.createRadialGradient(cxp, by, 0, cxp, by, R);
       bg2.addColorStop(0, 'hsla(' + hh + ',100%,60%,' + (.35 + p * .3) + ')'); bg2.addColorStop(1, 'hsla(' + hh + ',100%,50%,0)');
       cx.fillStyle = bg2; cx.beginPath(); cx.ellipse(cxp, by, R, R * .14, 0, 0, 6.283); cx.fill();
-      if (move === 'scan') { cx.fillStyle = 'hsla(' + hh + ',100%,80%,.15)'; cx.fillRect(0, scanY - R * .03, W, R * .06); }
       cx.fillStyle = 'rgba(0,0,0,.2)';
       for (var s2 = (now / 40 | 0) % 4; s2 < H; s2 += 4) cx.fillRect(0, s2, W, 1);
     }, 30);
-    text('xpTop', 'NEXUS · HOLOGRAM');
+    text('xpTop', 'NEXUS · HOLO HEAD');
     layer.onclick = function () { startMove(null, performance.now()); };
   }
 
+  // ==================================================================
+  // GPU VERSIONS: Blue Fire, Kaleidoscope, Planet Builder (fall back to the old ones without WebGL)
+  // ==================================================================
+  var FBM = 'float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= .5; } return v; }\n';
+
+  // 4. BLUE FIRE — wall of living blue flame; surges on the bass, white-hot core, sparks
+  function bluefire() {
+    var b = beatTracker(), hue = beatHue(200, 25), surge = 0;
+    var g = glStart('bluefire', FBM +
+      'uniform float surge;\n' +
+      'void main(){ vec2 uv = gl_FragCoord.xy / res; vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
+      ' float t = time;\n' +
+      ' vec2 q = vec2(p.x * 2.4, uv.y * 2.2 - t * (1.3 + surge * 1.4));\n' +
+      ' float n = fbm(q + vec2(fbm(q * 1.4 + t * .25), fbm(q * 1.1 - t * .2)) * 1.3);\n' +
+      ' float flame = n * 1.6 - uv.y * (1.2 - surge * .5) - abs(p.x) * .2 * (1. - uv.y * .5) - .1;\n' +
+      ' flame = clamp(flame * 1.9, 0., 1.);\n' +
+      ' vec3 base = mix(vec3(.05, .35, 1.), pal(hue), .3);\n' +
+      ' vec3 col = vec3(.0, .01, .05) + base * pow(flame, 1.5) * 1.05 + vec3(.7, .88, 1.) * pow(flame, 9.) * (.35 + surge * .5);\n' +
+      ' vec2 sc = vec2(p.x * 40., uv.y * 22. - t * 9.); vec2 id = floor(sc); float h = hash(id);\n' +
+      ' float spark = step(.985 - surge * .02, h) * smoothstep(.35, .0, length(fract(sc) - .5)) * (1. - uv.y);\n' +
+      ' col += mix(base, vec3(1.), .5) * spark * 2.;\n' +
+      ' float ring = exp(-abs(length(vec2(p.x, (uv.y + .1) * 1.6)) - surge * 1.3) * 18.) * surge;\n' +
+      ' col += base * ring * .8;\n' +
+      ' col *= 1. - smoothstep(.75, 1.6, abs(p.x));\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return bluefire2d();
+    text('xpTop', 'BLUE FIRE');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      surge += ((b.k * .9 + b.e * .4) - surge) * (b.k > surge ? .5 : .08);
+      g.f('surge', surge); g.draw(now, b, hh);
+    }, 30);
+  }
+
+  // 7. KALEIDOSCOPE — razor-sharp fractal mandala; spins, zooms and recolours on the beat
+  function kaleido() {
+    var b = beatTracker(), hue = beatHue(300, 70), spin = 0, zoom = 1, seg = 10;
+    var g = glStart('kaleido',
+      'uniform float spin, zoom, seg;\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; p *= zoom;\n' +
+      ' float r = length(p), a = atan(p.y, p.x) + spin;\n' +
+      ' float sa = 6.28318 / seg; a = mod(a, sa); a = abs(a - sa * .5);\n' +
+      ' vec2 z = vec2(cos(a), sin(a)) * r * 1.6;\n' +
+      ' vec3 col = vec3(0.);\n' +
+      ' for (int i = 0; i < 9; i++) { z = abs(z) / dot(z, z) - vec2(.86 + .07 * sin(time * .21), .58 + .08 * cos(time * .17));\n' +
+      '  float d = length(z); col += pal(hue + float(i) * .09 + d * .05) * exp(-d * 2.6) * .55; }\n' +
+      ' float rings = smoothstep(.012, .0, abs(fract(r * 5. - time * .4) - .5) - .485);\n' +
+      ' float spokes = smoothstep(.015, .0, abs(a - sa * .25) * r - .002);\n' +
+      ' col += pal(hue + .5) * (rings * .18 + spokes * .2);\n' +
+      ' col = pow(col, vec3(1.7)) * (1.5 + kick * .9);\n' +
+      ' col *= smoothstep(1.9, .3, r);\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return kaleido2d();
+    text('xpTop', 'KALEIDOSCOPE');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      spin += .004 + b.e * .02 + (b.hit ? .25 : 0);
+      zoom += ((1.25 - b.k * .35) - zoom) * .15;
+      if (b.hit && Math.random() < .15) seg = [6, 8, 10, 12, 16][Math.random() * 5 | 0];
+      g.f('spin', spin); g.f('zoom', zoom); g.f('seg', seg); g.draw(now, b, hh);
+    }, 30);
+  }
+
+  // 18. PLANET BUILDER — dust swirls into a lit, cloudy world; rings and moons arrive; supernova on a drop
+  function planet() {
+    var b = beatTracker(), hue = beatHue(Math.random() * 360, 20), t0 = performance.now(), phase = 'form', rot = 0, seed = Math.random() * 50, novaT = 0, ma = [0, 2];
+    var g = glStart('planet', FBM +
+      'uniform float build, nova, rot, seed, ringOn, moonsOn; uniform vec4 m1, m2;\n' +
+      'vec3 lightDir = normalize(vec3(-.6, .45, .65));\n' +
+      'vec3 sphereCol(vec3 n, float R){ float c = cos(rot), s = sin(rot); vec3 m = vec3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z);\n' +
+      ' float u = atan(m.z, m.x), v = asin(clamp(m.y, -1., 1.));\n' +
+      ' float bands = sin(v * 14. + fbm(vec2(u * 2., v * 6.) + seed) * 4.);\n' +
+      ' float land = fbm(vec2(u * 1.6, v * 3.2) + seed * 1.3);\n' +
+      ' vec3 c1 = pal(hue), c2 = pal(hue + .12), c3 = pal(hue + .5) * .6;\n' +
+      ' vec3 col = mix(c1, c2, .5 + .5 * bands) * (.55 + .45 * land);\n' +
+      ' col = mix(col, c3, smoothstep(.55, .62, land) * .5);\n' +
+      ' float cu = u + time * .05; float cl = smoothstep(.5, .75, fbm(vec2(cu * 2.2, v * 5.) + seed + 7.));\n' +
+      ' col = mix(col, vec3(1.), cl * .7);\n' +
+      ' float diff = max(dot(n, lightDir), 0.); float amb = .06;\n' +
+      ' col *= amb + diff * 1.2;\n' +
+      ' col += pal(hue + .55) * pow(1. - n.z, 3.) * .9 * (.3 + diff);\n' +
+      ' col += vec3(1.) * pow(max(dot(reflect(-lightDir, n), vec3(0., 0., 1.)), 0.), 30.) * .25;\n' +
+      ' return col; }\n' +
+      'vec3 moon(vec2 p, vec4 m, vec3 col, float R, bool front){ if ((m.w > 0.) != front) return col; float r = R * m.z; float d = length(p - m.xy); if (d > r) return col;\n' +
+      ' vec3 n = vec3((p - m.xy) / r, 0.); n.z = sqrt(max(0., 1. - dot(n.xy, n.xy)));\n' +
+      ' float cr = fbm(n.xy * 4. + m.z * 30.); return (vec3(.55, .53, .5) * (.6 + .5 * cr)) * (.05 + max(dot(n, lightDir), 0.) * 1.1); }\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
+      ' vec3 col = vec3(.004, .004, .02);\n' +
+      ' col += pal(hue + .6) * pow(fbm(p * 2.5 + seed), 3.) * .35 + pal(hue + .25) * pow(fbm(p * 4. - seed), 4.) * .25;\n' +
+      ' vec2 sc = gl_FragCoord.xy / 2.; float st = hash(floor(sc)); col += vec3(1.) * step(.996, st) * (.5 + .5 * sin(time * 3. + st * 60.));\n' +
+      ' float R = .27 * smoothstep(0., 1., build) * (1. + kick * .02) * (1. - nova);\n' +
+      ' float d = length(p);\n' +
+      ' float ca = cos(-.32), sa = sin(-.32); vec2 pr = vec2(ca * p.x - sa * p.y, sa * p.x + ca * p.y);\n' +
+      ' float e = length(vec2(pr.x, pr.y / .26)); float ringMask = smoothstep(1.4, 1.43, e / max(R, .001)) * smoothstep(2.25, 2.2, e / max(R, .001)) * ringOn;\n' +
+      ' vec3 ringCol = pal(hue + .08 + e * .4) * (.35 + .65 * (.5 + .5 * sin(e / max(R, .001) * 38.))) * (.5 + .5 * smoothstep(1.5, 2.2, e / max(R, .001)));\n' +
+      ' float ringShadow = (pr.y > 0. && abs(pr.x) < R) ? .35 : 1.;\n' +
+      ' col = moon(p, m1, col, R, false); col = moon(p, m2, col, R, false);\n' +
+      ' if (pr.y < 0.) col = mix(col, ringCol, ringMask * .8);\n' +
+      ' if (d < R) { vec3 n = vec3(p / R, 0.); n.z = sqrt(max(0., 1. - dot(n.xy, n.xy))); col = sphereCol(n, R); }\n' +
+      ' else col += pal(hue + .55) * exp(-(d - R) * 28.) * .6 * step(.001, R);\n' +
+      ' if (pr.y >= 0.) col = mix(col, ringCol * ringShadow, ringMask * .85);\n' +
+      ' col = moon(p, m1, col, R, true); col = moon(p, m2, col, R, true);\n' +
+      ' float a = atan(p.y, p.x);\n' +
+      ' float disk = fbm(vec2(a * 3. + log(d + .01) * 6. - time * 1.5, d * 8.)) * exp(-d * 2.5) * smoothstep(.0, .12, d);\n' +
+      ' col += pal(hue + d) * pow(disk, 2.) * 2.2 * (1. - smoothstep(.6, 1., build));\n' +
+      ' if (nova > 0.) { float sr = nova * 1.7; col += pal(hue + .1) * exp(-abs(d - sr) * 25.) * (1. - nova) * 2.5;\n' +
+      '  col += pal(hue + .3) * exp(-abs(d - sr * .7) * 35.) * (1. - nova) * 1.5;\n' +
+      '  col += vec3(1., .95, .85) * exp(-d * (4. + nova * 20.)) * (1. - nova) * 3.;\n' +
+      '  col += pal(hue + a * .1) * fbm(vec2(a * 6., d * 10. - nova * 8.)) * exp(-abs(d - sr * .85) * 6.) * (1. - nova) * 1.5; }\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return planet2d();
+    text('xpTop', 'PLANET BUILDER');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit), t = (now - t0) / 1000, nova = 0;
+      var build = Math.min(1, t / 6), ringOn = Math.min(1, Math.max(0, (t - 7) / 2.5)), moonsOn = t > 11 ? 1 : 0;
+      if (phase === 'form' && t > 24 && ((b.hit && b.k > .45) || t > 40)) { phase = 'nova'; novaT = now; }
+      if (phase === 'nova') { nova = Math.min(1, (now - novaT) / 3500); if (nova >= 1) { phase = 'form'; t0 = now; seed = Math.random() * 50; hue = beatHue(Math.random() * 360, 20); } }
+      rot += .003 + b.e * .004;
+      ma[0] += .006 * (1 + b.e); ma[1] += .0035 * (1 + b.e);
+      var R = .27 * build, asp = 1;
+      function mp(a, dist, size, on) { return [Math.cos(a) * R * dist, Math.sin(a) * R * dist * .3 - .02, on ? size : 0, Math.sin(a)]; }
+      var M1 = mp(ma[0], 2.4, .14, moonsOn), M2 = mp(ma[1], 3.1, .09, t > 15);
+      g.v4a('m1', M1); g.v4a('m2', M2);
+      g.f('build', build); g.f('nova', nova); g.f('rot', rot); g.f('seed', seed); g.f('ringOn', ringOn); g.f('moonsOn', moonsOn);
+      if (nova > 0 && nova < .08) flash('#fff', .5);
+      g.draw(now, b, hh);
+    }, 30);
+  }
 
   // ==================================================================
   // GRAPHICS-CHIP VISUALS (sharp, smooth, music-synced)
@@ -1184,7 +1347,7 @@
   }
 
   // 18. PLANET BUILDER — dust forms a planet, rings and moons appear, then it goes supernova on a drop
-  function planet() {
+  function planet2d() {
     var b = beatTracker(), hue = beatHue(30, 35), bg = null, bgW = 0, phase = 'form', t0 = performance.now(), dust = [], blast = [], moons = [], novaAt = 0, spinX = 0;
     function makeBg() {
       bg = document.createElement('canvas'); bg.width = W; bg.height = H; bgW = W; var c = bg.getContext('2d');
@@ -1287,57 +1450,92 @@
     }, 30);
   }
 
-  // 19. NEON SKULL — glowing line skull; jaw moves to the bass, fire pours from the eyes
+  // 19. NEON SKULL — anatomically shaped human skull in neon lines (sharp orbits, cheekbones, real teeth),
+  //     jaw moves to the bass, roaring flames pour out of the eye sockets.
   function skull() {
-    var b = beatTracker(), hue = beatHue(140, 70), fire = [], jaw = 0;
-    var HEAD = [[0, -.62], [-.22, -.6], [-.37, -.5], [-.46, -.32], [-.48, -.12], [-.45, .04], [-.43, .14], [-.45, .2], [-.38, .27], [-.3, .3], [-.24, .33], [-.18, .33]];
-    var JAWP = [[-.32, .3], [-.31, .4], [-.27, .5], [-.17, .58], [0, .6]];
-    function mirrorPath(pts, closeMid) { var out = pts.slice(); for (var i = pts.length - 1; i >= 0; i--) if (pts[i][0] !== 0) out.push([-pts[i][0], pts[i][1]]); return out; }
-    var head = mirrorPath(HEAD), jawp = mirrorPath(JAWP);
-    function smooth(pts, X, Y, R, close) {
-      cx.beginPath(); cx.moveTo(X + pts[0][0] * R, Y + pts[0][1] * R);
-      for (var i = 1; i < pts.length - 1; i++) { var mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; cx.quadraticCurveTo(X + pts[i][0] * R, Y + pts[i][1] * R, X + mx * R, Y + my * R); }
-      var l = pts[pts.length - 1]; cx.lineTo(X + l[0] * R, Y + l[1] * R); if (close) cx.closePath();
+    var b = beatTracker(), hue = beatHue(140, 70), fire = [], jaw = 0, sprites = {};
+    function mirror(pts) { var out = pts.slice(); for (var i = pts.length - 1; i >= 0; i--) if (pts[i][0] !== 0) out.push([-pts[i][0], pts[i][1]]); return out; }
+    var CRANIUM = mirror([[-.455, .08], [-.47, .02], [-.49, -.1], [-.49, -.24], [-.46, -.39], [-.4, -.52], [-.3, -.61], [-.17, -.665], [0, -.68]]);
+    var ZYGO = [[-.455, .08], [-.475, .14], [-.46, .2], [-.4, .245], [-.33, .265], [-.3, .33], [-.27, .4], [-.235, .44]];
+    var ORBIT = [[-.4, .0], [-.36, -.075], [-.27, -.1], [-.15, -.085], [-.075, -.04], [-.065, .05], [-.09, .13], [-.17, .17], [-.29, .165], [-.37, .1]];
+    var NASAL = [[0, .1], [-.035, .14], [-.065, .215], [-.06, .27], [-.03, .3], [0, .285], [.03, .3], [.06, .27], [.065, .215], [.035, .14]];
+    var TEMPORAL = [[-.42, -.3], [-.38, -.15], [-.38, -.03], [-.41, .05]];
+    var MAND = [[-.42, .22], [-.415, .35], [-.4, .47], [-.37, .56], [-.3, .62], [-.17, .68], [-.07, .71], [0, .715]];
+    MAND = mirror(MAND);
+    function line(pts, X, Y, R, close) { cx.moveTo(X + pts[0][0] * R, Y + pts[0][1] * R); for (var i = 1; i < pts.length; i++) cx.lineTo(X + pts[i][0] * R, Y + pts[i][1] * R); if (close) cx.lineTo(X + pts[0][0] * R, Y + pts[0][1] * R); }
+    function flip(pts) { return pts.map(function (q) { return [-q[0], q[1]]; }); }
+    function sprite(h) {             // pre-rendered flame blob for each colour (fast)
+      var k = Math.round(h / 15) * 15 % 360; if (sprites[k]) return sprites[k];
+      var c = document.createElement('canvas'); c.width = c.height = 64; var g2 = c.getContext('2d');
+      var gr = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'hsla(' + k + ',100%,88%,.75)'); gr.addColorStop(.3, 'hsla(' + k + ',100%,62%,.5)'); gr.addColorStop(.65, 'hsla(' + ((k + 20) % 360) + ',100%,42%,.18)'); gr.addColorStop(1, 'hsla(' + k + ',100%,30%,0)');
+      g2.fillStyle = gr; g2.fillRect(0, 0, 64, 64); sprites[k] = c; return c;
     }
-    function glowStroke(col, R, drawFn) {
-      [[R * .06, .1], [R * .028, .3], [R * .011, 1]].forEach(function (pass, i) {
-        cx.strokeStyle = i === 2 ? 'hsla(' + col + ',100%,88%,1)' : 'hsla(' + col + ',100%,60%,' + pass[1] + ')'; cx.lineWidth = Math.max(1, pass[0]);
-        drawFn(); cx.stroke();
+    function strokeGlow(col, R, draw) {
+      cx.lineJoin = 'miter'; cx.lineCap = 'round';
+      [[R * .05, .09], [R * .022, .3], [R * .009, 1]].forEach(function (pass, i) {
+        cx.strokeStyle = i === 2 ? 'hsla(' + col + ',100%,90%,1)' : 'hsla(' + col + ',100%,58%,' + pass[1] + ')'; cx.lineWidth = Math.max(1, pass[0]);
+        cx.beginPath(); draw(); cx.stroke();
       });
+    }
+    function teeth(X, Y, R, top, y0, y1, count) {
+      for (var i = 0; i < count; i++) {
+        var u = (i + .5) / count - .5, x = X + u * R * .4, w = R * .4 / count * .82, curve = Math.abs(u) * R * .05;
+        var tall = (Math.abs(u) < .12 ? 1 : .85);
+        var a = Y + (top ? y0 : y0) * R + curve, d = (y1 - y0) * R * tall;
+        cx.moveTo(x - w / 2, a); cx.lineTo(x - w / 2, a + (top ? d : -d) * .85); cx.quadraticCurveTo(x, a + (top ? d : -d) * 1.05, x + w / 2, a + (top ? d : -d) * .85); cx.lineTo(x + w / 2, a);
+      }
     }
     text('xpTop', 'NEON SKULL');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      jaw += ((b.k * .09 + b.e * .02) - jaw) * .45;
-      cx.fillStyle = 'rgba(0,0,6,.5)'; cx.fillRect(0, 0, W, H);
-      var R = H * .62 * (1 + b.k * .04), X = W / 2 + Math.sin(now * .0007) * W * .02, Y = H * .47;
-      cx.save(); cx.translate(X, Y); cx.rotate(Math.sin(now * .0009) * .05); cx.translate(-X, -Y);
+      jaw += ((b.k * .1 + b.e * .02) - jaw) * .45;
+      cx.fillStyle = 'rgba(0,0,6,.55)'; cx.fillRect(0, 0, W, H);
+      var R = H * .6 * (1 + b.k * .035), X = W / 2 + Math.sin(now * .0007) * W * .015, Y = H * .45;
+      cx.save(); cx.translate(X, Y); cx.rotate(Math.sin(now * .0009) * .04); cx.translate(-X, -Y);
+      // solid dark bone so it reads as a real skull
+      var bone = cx.createRadialGradient(X - R * .1, Y - R * .3, R * .05, X, Y, R * .8);
+      bone.addColorStop(0, 'hsla(' + hh + ',40%,14%,.95)'); bone.addColorStop(1, 'hsla(' + hh + ',50%,4%,.95)');
+      cx.fillStyle = bone; cx.beginPath(); line(CRANIUM.concat([[.455, .08], [.46, .2], [.33, .265], [.235, .44], [-.235, .44], [-.33, .265], [-.46, .2]]), X, Y, R, true); cx.fill();
+      cx.beginPath(); line(MAND, X, Y + jaw * R, R, true); cx.fill();
+      cx.fillStyle = '#000';
+      [ORBIT, flip(ORBIT)].forEach(function (o) { cx.beginPath(); line(o, X, Y, R, true); cx.fill(); });
+      cx.beginPath(); line(NASAL, X, Y, R, true); cx.fill();
       cx.globalCompositeOperation = 'lighter';
-      // eye sockets glow + fire
+      // eye fire
       [-1, 1].forEach(function (sd) {
-        var ex = X + sd * .19 * R, ey = Y + .02 * R;
-        var gg = cx.createRadialGradient(ex, ey, 0, ex, ey, R * .16);
-        gg.addColorStop(0, 'hsla(' + ((hh + 180) % 360) + ',100%,60%,' + (.5 + p * .5) + ')'); gg.addColorStop(1, 'hsla(' + ((hh + 180) % 360) + ',100%,50%,0)');
-        cx.fillStyle = gg; cx.fillRect(ex - R * .2, ey - R * .2, R * .4, R * .4);
-        for (var f = 0; f < 3 + (b.hit ? 10 : 0); f++) fire.push({ x: ex + (Math.random() - .5) * R * .14, y: ey + (Math.random() - .3) * R * .06, vy: -(.004 + Math.random() * .01 + b.k * .01) * R, vx: (Math.random() - .5) * .003 * R, life: 1, h: (hh + 180 + Math.random() * 50) % 360 });
+        var ex = X + sd * .22 * R, ey = Y + .04 * R;
+        var gl3 = cx.createRadialGradient(ex, ey, 0, ex, ey, R * .14);
+        gl3.addColorStop(0, 'hsla(' + ((hh + 180) % 360) + ',100%,75%,' + (.6 + p * .4) + ')'); gl3.addColorStop(1, 'hsla(' + ((hh + 180) % 360) + ',100%,50%,0)');
+        cx.fillStyle = gl3; cx.fillRect(ex - R * .16, ey - R * .16, R * .32, R * .32);
+        var n = 3 + (b.e * 4 | 0) + (b.hit ? 9 : 0);
+        for (var f = 0; f < n; f++) fire.push({ x: ex + (Math.random() - .5) * R * .16, y: ey + (Math.random() - .2) * R * .08, vx: (Math.random() - .5) * R * .004, vy: -(R * (.006 + Math.random() * .01) * (1 + b.k * 1.4)), life: 1, s: R * (.03 + Math.random() * .035), h: (hh + 180 + (Math.random() - .5) * 50 + 360) % 360, ph: Math.random() * 6 });
       });
-      fire = fire.filter(function (f2) { f2.x += f2.vx + Math.sin(now * .01 + f2.y) * .3; f2.y += f2.vy; f2.life -= .03; return f2.life > 0; });
-      if (fire.length > 300) fire.splice(0, fire.length - 300);
-      fire.forEach(function (f2) { cx.fillStyle = 'hsla(' + f2.h + ',100%,' + (50 + f2.life * 30) + '%,' + f2.life * .55 + ')'; var sz = R * .03 * (.4 + f2.life); cx.fillRect(f2.x - sz / 2, f2.y - sz / 2, sz, sz); });
-      // skull lines
-      glowStroke(hh, R, function () { smooth(head, X, Y, R, false); });
-      [-1, 1].forEach(function (sd) { glowStroke(hh, R, function () { cx.beginPath(); cx.ellipse(X + sd * .19 * R, Y + .03 * R, .13 * R, .11 * R, sd * .25, 0, 6.283); }); });
-      glowStroke(hh, R, function () { cx.beginPath(); cx.moveTo(X, Y + .1 * R); cx.quadraticCurveTo(X - .07 * R, Y + .2 * R, X - .03 * R, Y + .23 * R); cx.lineTo(X, Y + .2 * R); cx.lineTo(X + .03 * R, Y + .23 * R); cx.quadraticCurveTo(X + .07 * R, Y + .2 * R, X, Y + .1 * R); });
-      glowStroke((hh + 30) % 360, R, function () { cx.beginPath(); cx.moveTo(X - .44 * R, Y + .15 * R); cx.quadraticCurveTo(X - .32 * R, Y + .1 * R, X - .24 * R, Y + .2 * R); cx.moveTo(X + .44 * R, Y + .15 * R); cx.quadraticCurveTo(X + .32 * R, Y + .1 * R, X + .24 * R, Y + .2 * R); cx.moveTo(X, Y - .6 * R); cx.quadraticCurveTo(X + .05 * R, Y - .4 * R, X - .02 * R, Y - .25 * R); });
-      glowStroke(hh, R, function () { cx.beginPath(); for (var t2 = 0; t2 <= 8; t2++) { var tx = X + (-.18 + t2 * .045) * R; cx.moveTo(tx, Y + .3 * R); cx.lineTo(tx, Y + .38 * R); } cx.moveTo(X - .18 * R, Y + .38 * R); cx.lineTo(X + .18 * R, Y + .38 * R); });
+      fire = fire.filter(function (q) { q.x += q.vx + Math.sin(now * .008 + q.ph) * R * .0025; q.y += q.vy; q.vy *= .985; q.life -= .028; q.s *= .975; return q.life > 0; });
+      if (fire.length > 420) fire.splice(0, fire.length - 420);
+      fire.forEach(function (q) { cx.globalAlpha = Math.min(1, q.life) * .55; var sz = q.s * (1.3 - q.life * .5); cx.drawImage(sprite(q.life > .7 ? q.h : (q.h + 25) % 360), q.x - sz, q.y - sz * 1.3, sz * 2, sz * 2.6); });
+      cx.globalAlpha = 1;
+      // skull linework
+      strokeGlow(hh, R, function () { line(CRANIUM, X, Y, R, false); line(ZYGO, X, Y, R, false); line(flip(ZYGO), X, Y, R, false); });
+      strokeGlow(hh, R, function () { line(ORBIT, X, Y, R, true); line(flip(ORBIT), X, Y, R, true); line(NASAL, X, Y, R, true); });
+      strokeGlow((hh + 25) % 360, R, function () {
+        line(TEMPORAL, X, Y, R, false); line(flip(TEMPORAL), X, Y, R, false);
+        line([[-.36, -.11], [-.2, -.135], [-.07, -.1]], X, Y, R, false); line([[.36, -.11], [.2, -.135], [.07, -.1]], X, Y, R, false);   // brow ridges
+        line([[-.3, .2], [-.2, .235], [-.08, .3]], X, Y, R, false); line([[.3, .2], [.2, .235], [.08, .3]], X, Y, R, false);            // cheek lines
+        line([[0, -.68], [.03, -.5], [-.02, -.36], [.04, -.24]], X, Y, R, false);                                                     // crack
+        line([[0, .285], [0, .34]], X, Y, R, false);
+      });
+      strokeGlow(hh, R, function () { line([[-.235, .44], [.235, .44]], X, Y, R, false); teeth(X, Y, R, true, .44, .53, 10); });
       var JY = Y + jaw * R;
-      glowStroke((hh + 20) % 360, R, function () { smooth(jawp, X, JY, R, false); cx.moveTo(X - .18 * R, JY + .4 * R); cx.lineTo(X + .18 * R, JY + .4 * R); for (var t3 = 0; t3 <= 8; t3++) { var tx3 = X + (-.18 + t3 * .045) * R; cx.moveTo(tx3, JY + .4 * R); cx.lineTo(tx3, JY + .47 * R); } });
+      strokeGlow((hh + 15) % 360, R, function () {
+        line(MAND, X, JY, R, false); line([[-.22, .58], [.22, .58]], X, JY, R, false); teeth(X, JY, R, false, .58, .5, 10);
+        line([[-.33, .44], [-.25, .58]], X, JY, R, false); line([[.33, .44], [.25, .58]], X, JY, R, false);
+      });
       cx.restore();
       cx.globalCompositeOperation = 'source-over';
-      if (b.hit && b.k > .5) flash('hsl(' + hh + ',100%,60%)', .12);
+      if (b.hit && b.k > .55) flash('hsl(' + hh + ',100%,55%)', .1);
     }, 30);
   }
-
 
   // ==================================================================
   // WEBCAM WALL — nine live cameras from around the world, security-room style
