@@ -272,6 +272,62 @@ public class MainActivity extends Activity {
         else doSpeak(text, id);
     }
 
+    // ---------- UPDATE NEXUS: download the newest build and open the install screen ----------
+    private static final String UPDATE_URL = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk";
+    private long updateId = -1;
+    private BroadcastReceiver updateReceiver;
+
+    private void startUpdate() {
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
+                s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(s);
+                js("Nexus._update && Nexus._update('allow')");
+                return;
+            }
+            android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            File f = new File(getExternalFilesDir(null), "nexus-update.apk");
+            if (f.exists()) f.delete();
+            android.app.DownloadManager.Request r = new android.app.DownloadManager.Request(android.net.Uri.parse(UPDATE_URL));
+            r.setDestinationUri(android.net.Uri.fromFile(f));
+            r.setTitle("Nexus update");
+            r.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE);
+            if (updateReceiver == null) {
+                updateReceiver = new BroadcastReceiver() {
+                    @Override public void onReceive(Context c, Intent i) {
+                        long id = i.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                        if (id != updateId) return;
+                        installDownloaded(id);
+                    }
+                };
+                registerReceiver(updateReceiver, new IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+            }
+            updateId = dm.enqueue(r);
+            js("Nexus._update && Nexus._update('downloading')");
+        } catch (Exception e) {
+            js("Nexus._update && Nexus._update('failed')");
+        }
+    }
+
+    private void installDownloaded(long id) {
+        try {
+            android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            android.database.Cursor cur = dm.query(new android.app.DownloadManager.Query().setFilterById(id));
+            boolean ok = false;
+            if (cur != null) { if (cur.moveToFirst()) ok = cur.getInt(cur.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS)) == android.app.DownloadManager.STATUS_SUCCESSFUL; cur.close(); }
+            if (!ok) { js("Nexus._update && Nexus._update('failed')"); return; }
+            android.net.Uri u = dm.getUriForDownloadedFile(id);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(u, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            js("Nexus._update && Nexus._update('ready')");
+        } catch (Exception e) {
+            js("Nexus._update && Nexus._update('failed')");
+        }
+    }
+
     private void hideSystemUi() {
         web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -929,6 +985,14 @@ public class MainActivity extends Activity {
         public void http(String id, String method, String url, String body, String headersJson) {
             MainActivity.this.http(id, method, url, body, headersJson);
         }
+
+        @JavascriptInterface
+        public void openLiveCam() {
+            ui.post(() -> { try { startActivity(new Intent(MainActivity.this, LiveCamActivity.class)); } catch (Exception e) { js("Nexus._update && 0"); } });
+        }
+
+        @JavascriptInterface
+        public void updateNexus() { ui.post(MainActivity.this::startUpdate); }
 
         // Download a picture (webcam snapshot) natively and hand it to the page as a data URL.
         @JavascriptInterface

@@ -652,7 +652,7 @@
       case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
       case 'ego': openEgo(); break;
       case 'bgs': openBackgrounds(); break;
-      case 'livecam': openExperience('livecam'); break;
+      case 'livecam': if (A && A.openLiveCam) { caption('LOCATING A LIVE SIGNAL…'); A.openLiveCam(); } else openExperience('webcams'); break;
       default: if (name && name.indexOf('vis:') === 0) { fromVisuals = false; openExperience(name.slice(4)); } break;
       case 'visuals': openVisuals(); break;
       case 'night': toggleNight(); break;
@@ -1260,6 +1260,7 @@
     var homes = [];
     try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
     var html =
+      '<div class="field"><label>UPDATE NEXUS</label><div class="hint">After you run a new build on GitHub, tap this. It downloads the newest Nexus and opens the install screen. Just press Install.</div><span class="btn go" id="sUpdate">UPDATE NEXUS</span><div id="sUpdateMsg" class="hint"></div></div>' +
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
@@ -1297,6 +1298,7 @@
     openPanel('SETTINGS', html);
 
     $('sHome').addEventListener('click', function () { openHomeEditor(); });
+    $('sUpdate').addEventListener('click', function () { if (A && A.updateNexus) { $('sUpdateMsg').textContent = 'Starting…'; A.updateNexus(); } else $('sUpdateMsg').textContent = 'Only works on the box.'; });
     $('sKeySave').addEventListener('click', function () {
       setPref('gemini_key', $('sKey').value.trim()); $('sKeyMsg').textContent = 'Saved.';
     });
@@ -1442,6 +1444,13 @@
   // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
+  Nexus._update = function (st) {
+    var m = { allow: 'Turn ON "Allow from this source" for Nexus on the screen that just opened, then come back and tap UPDATE NEXUS again.',
+      downloading: 'Downloading the newest Nexus… this can take a minute. The install screen will pop up by itself.',
+      ready: 'Press INSTALL on the screen that popped up.', failed: 'Download failed. Check the internet and try again.' }[st] || st;
+    caption(st === 'downloading' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
+    var el = $('sUpdateMsg'); if (el) el.textContent = m;
+  };
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
@@ -1455,6 +1464,7 @@
   // ------------------------------------------------------------------
   // Start
   // ------------------------------------------------------------------
+  try { if (!pref('gemini_key') && window.NEXUS_DEFAULT_KEY) setPref('gemini_key', window.NEXUS_DEFAULT_KEY); } catch (e) {}
   applyEgo(false);
   applyStyle();
   renderTiles();
