@@ -26,6 +26,8 @@ import android.media.AudioRecord;
 import android.media.MediaMetadata;
 import android.media.MediaPlayer;
 import java.io.File;
+import java.io.FileOutputStream;
+import android.net.Uri;
 import android.media.audiofx.Visualizer;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
@@ -83,6 +85,8 @@ public class MainActivity extends Activity {
     private SpeechRecognizer recognizer;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
+    // The AI gets its own lines to Google, so news/weather/camera downloads can never make it wait in line.
+    private final ExecutorService aiPool = Executors.newCachedThreadPool();
     private SharedPreferences prefs;
     private String appsCache = null;
     private volatile boolean meterOn = false;
@@ -147,8 +151,8 @@ public class MainActivity extends Activity {
 
         startTts();
         pool.execute(this::labels);
-        // keep a list of cameras that are live right now, so LIVE CAM opens straight onto video
-        ui.postDelayed(() -> { if (LiveCamActivity.stale(this)) pool.execute(() -> LiveCamActivity.harvest(this, 3)); }, 20000);
+        // passengers' phones connect to the box (song requests, photos, shout-outs, remote)
+        ui.postDelayed(this::startPhones, 1500);
         // wake Spotify up quietly in the background so tapping it opens fast
         ui.postDelayed(this::warmSpotify, 8000);
         try {
@@ -397,6 +401,88 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- PHONES: passengers join from their phones ----------
+    private PhoneServer phones = null;
+    private volatile String phoneStateJson = "{}";
+    private String phonePin() {
+        String p = prefs.getString("phonePin", "");
+        if (p.isEmpty()) { p = String.valueOf(1000 + new java.util.Random().nextInt(9000)); prefs.edit().putString("phonePin", p).apply(); }
+        return p;
+    }
+    private void startPhones() {
+        if (phones != null) return;
+        byte[] page;
+        try (InputStream is = getAssets().open("phone.html")) { ByteArrayOutputStream bo = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n; while ((n = is.read(b)) > 0) bo.write(b, 0, n); page = bo.toByteArray(); }
+        catch (Exception e) { return; }
+        phones = new PhoneServer(page, this::phoneRequest);
+        pool.execute(phones::start);
+    }
+    private String phoneRequest(String method, String path, String query, byte[] body) {
+        try {
+            if (path.equals("state")) return phoneStateJson;
+            if (!method.equals("POST")) return null;
+            JSONObject o = new JSONObject(new String(body, StandardCharsets.UTF_8));
+            if (!phonePin().equals(o.optString("pin"))) return "{\"ok\":false,\"error\":\"pin\"}";
+            String name = o.optString("name", "Someone").trim();
+            if (name.length() > 24) name = name.substring(0, 24);
+            JSONObject ev = new JSONObject();
+            ev.put("type", path); ev.put("name", name);
+            if (path.equals("photo")) {
+                String data = o.optString("data", "");
+                int comma = data.indexOf(',');
+                if (comma < 0 || data.length() > 12 * 1024 * 1024) return "{\"ok\":false}";
+                byte[] jpg = android.util.Base64.decode(data.substring(comma + 1), android.util.Base64.DEFAULT);
+                File dir = new File(getFilesDir(), "photos"); if (!dir.exists()) dir.mkdirs();
+                File[] old = dir.listFiles();
+                if (old != null && old.length > 40) { java.util.Arrays.sort(old, (x, y) -> Long.compare(x.lastModified(), y.lastModified())); for (int i = 0; i < old.length - 40; i++) old[i].delete(); }
+                String fn = "p" + System.currentTimeMillis() + ".jpg";
+                try (FileOutputStream fo = new FileOutputStream(new File(dir, fn))) { fo.write(jpg); }
+                ev.put("file", fn);
+                ev.put("data", data);
+            } else if (path.equals("song") || path.equals("msg")) {
+                String t = o.optString("text", "").trim(); if (t.isEmpty()) return "{\"ok\":false}";
+                if (t.length() > 160) t = t.substring(0, 160);
+                ev.put("text", t);
+            } else if (path.equals("remote")) {
+                ev.put("cmd", o.optString("cmd", ""));
+            } else if (!path.equals("join")) return null;
+            js("Nexus._phone && Nexus._phone(" + JSONObject.quote(ev.toString()) + ")");
+            return "{\"ok\":true}";
+        } catch (Exception e) { return "{\"ok\":false}"; }
+    }
+    private String qrDataUrl(String text) {
+        try {
+            java.util.Map<com.google.zxing.EncodeHintType, Object> hints = new java.util.HashMap<>();
+            hints.put(com.google.zxing.EncodeHintType.MARGIN, 2);
+            com.google.zxing.common.BitMatrix m = new com.google.zxing.qrcode.QRCodeWriter().encode(text, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0, hints);
+            int w = m.getWidth(), h = m.getHeight(), sc = 10;
+            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(w * sc, h * sc, android.graphics.Bitmap.Config.ARGB_8888);
+            int[] row = new int[w * sc];
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) { int c = m.get(x, y) ? 0xFF000000 : 0xFFFFFFFF; for (int k = 0; k < sc; k++) row[x * sc + k] = c; }
+                for (int k = 0; k < sc; k++) bmp.setPixels(row, 0, w * sc, 0, y * sc + k, w * sc, 1);
+            }
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bo);
+            return "data:image/png;base64," + android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP);
+        } catch (Throwable e) { return ""; }
+    }
+    // Plays a song by name in Spotify straight away (no searching by hand), then brings Nexus back.
+    private void playSearch(String query) {
+        try {
+            Intent i = new Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH);
+            i.putExtra(android.app.SearchManager.QUERY, query);
+            i.putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            boolean spotify = true;
+            try { getPackageManager().getPackageInfo("com.spotify.music", 0); i.setPackage("com.spotify.music"); } catch (Exception e) { spotify = false; }
+            if (i.resolveActivity(getPackageManager()) == null) {
+                Intent v = new Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:" + Uri.encode(query))); v.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(v);
+            } else startActivity(i);
+            ui.postDelayed(() -> { Intent back = new Intent(this, MainActivity.class); back.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK); try { startActivity(back); } catch (Exception ignored) {} }, spotify ? 3500 : 4500);
+        } catch (Exception e) { js("Nexus._toast && Nexus._toast('Could not start that song')"); }
+    }
+
     // Starts Spotify's background service (no screen) so the app is already loaded when you tap it.
     private android.media.browse.MediaBrowser spotifyWarm = null;
     private void warmSpotify() {
@@ -475,6 +561,8 @@ public class MainActivity extends Activity {
         if (recognizer != null) recognizer.destroy();
         try { if (spotifyWarm != null) spotifyWarm.disconnect(); } catch (Exception ignored) {}
         pool.shutdownNow();
+        aiPool.shutdownNow();
+        if (phones != null) phones.stop();
         super.onDestroy();
     }
 
@@ -665,7 +753,7 @@ public class MainActivity extends Activity {
     // ---------- HTTP ----------
 
     private void http(String id, String method, String url, String body, String headersJson) {
-        pool.execute(() -> {
+        (url != null && url.contains("generativelanguage") ? aiPool : pool).execute(() -> {
             int code = 0;
             String text = "";
             HttpURLConnection c = null;
@@ -705,7 +793,7 @@ public class MainActivity extends Activity {
 
     // Streaming request: hands each piece of the AI answer to the page the moment it arrives.
     private void httpStream(String id, String url, String body, String headersJson) {
-        pool.execute(() -> {
+        aiPool.execute(() -> {
             int code = 0; HttpURLConnection c = null;
             try {
                 c = (HttpURLConnection) new URL(url).openConnection();
@@ -1008,6 +1096,34 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String phoneInfo() {
+            try {
+                if (phones == null || phones.port == 0) return "{\"ok\":false}";
+                JSONObject o = new JSONObject(); JSONArray urls = new JSONArray();
+                for (String ip : PhoneServer.addresses()) urls.put("http://" + ip + ":" + phones.port + "/");
+                o.put("ok", true); o.put("pin", phonePin()); o.put("urls", urls);
+                if (urls.length() > 0) o.put("qr", qrDataUrl(urls.getString(0) + "?p=" + phonePin()));
+                return o.toString();
+            } catch (Exception e) { return "{\"ok\":false}"; }
+        }
+        @JavascriptInterface
+        public void phoneState(String json) { phoneStateJson = json == null ? "{}" : json; }
+        @JavascriptInterface
+        public void newPhonePin() { prefs.edit().putString("phonePin", "").apply(); phonePin(); }
+        @JavascriptInterface
+        public void playSearch(String q) { ui.post(() -> MainActivity.this.playSearch(q)); }
+        @JavascriptInterface
+        public String photoData(String fn) {
+            try {
+                File f = new File(new File(getFilesDir(), "photos"), new File(fn).getName());
+                if (!f.exists()) return "";
+                byte[] b = new byte[(int) f.length()];
+                try (java.io.FileInputStream fi = new java.io.FileInputStream(f)) { int got = 0; while (got < b.length) { int n = fi.read(b, got, b.length - got); if (n < 0) break; got += n; } }
+                return "data:image/jpeg;base64," + android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP);
+            } catch (Exception e) { return ""; }
+        }
+
+        @JavascriptInterface
         public void finishListening() { ui.post(() -> { try { if (recognizer != null) recognizer.stopListening(); } catch (Exception ignored) {} }); }
 
         @JavascriptInterface
@@ -1185,11 +1301,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void http(String id, String method, String url, String body, String headersJson) {
             MainActivity.this.http(id, method, url, body, headersJson);
-        }
-
-        @JavascriptInterface
-        public void openLiveCam() {
-            ui.post(() -> { try { startActivity(new Intent(MainActivity.this, LiveCamActivity.class)); } catch (Exception e) { js("Nexus._update && 0"); } });
         }
 
         @JavascriptInterface

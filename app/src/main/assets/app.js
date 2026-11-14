@@ -121,7 +121,7 @@
       var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); fired = false;
       var el = e.target, hit = el.closest && el.closest(INSTANT);
       // inside a scrolling list, wait for the lift so scrolling still works
-      if (hit && !el.closest('#panel')) { fired = true; fire(el, t); }
+      if (hit && !el.closest('#panel') && !(el.closest('#tiles') && +$('tiles').getAttribute('data-pages') > 1)) { fired = true; fire(el, t); }
     }, { passive: true });
     var lastTouch = 0;
     document.addEventListener('click', function (e) { if (e.isTrusted && Date.now() - lastTouch < 900) { e.stopPropagation(); e.preventDefault(); } }, true);
@@ -129,7 +129,8 @@
       lastTouch = Date.now();
       var t = e.changedTouches[0], el = e.target;
       if (fired) { e.preventDefault(); fired = false; return; }
-      if (!t || Math.abs(t.clientX - sx) > 30 || Math.abs(t.clientY - sy) > 30 || Date.now() - st > 900) return;
+      var tol = el.closest && el.closest('#tiles') ? 14 : 30;
+      if (!t || Math.abs(t.clientX - sx) > tol || Math.abs(t.clientY - sy) > 30 || Date.now() - st > 900) return;
       if (el.closest && el.closest('input,textarea,select,a,label')) return;
       e.preventDefault();
       fire(el, t);
@@ -150,16 +151,17 @@
     skull: { file: 'bg_skull.jpg', pos: 'center 30%', label: 'BLUE SKULL' },
     hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' }
   };
-  var bgName = BGS[pref('background')] ? pref('background') : 'moon';
+  var bgName = BGS[pref('background')] || (pref('background') || '').indexOf('photo:') === 0 ? pref('background') : 'moon';
   var EGO_BGS = {}; ['king', 'rogue', 'pirate', 'conspiracy', 'viking', 'cult', 'villain', 'ghost', 'cowboy', 'scientist', 'grandma', 'ex', 'robot', 'demon', 'alien', 'gangster'].forEach(function (k) { EGO_BGS[k] = 'bg_ego_' + k + '.jpg'; });
   function applyBackground() {
     var b = BGS[bgName] || BGS.moon;
+    if (bgName.indexOf('photo:') === 0 && A && A.photoData) { var pd = A.photoData(bgName.slice(6)); if (pd) b = { file: pd, pos: 'center center' }; }
     var eg = (typeof egoName !== 'undefined' && egoName) ? egoName : (pref('ego') || 'nexus');
     if (EGO_BGS[eg]) b = { file: EGO_BGS[eg], pos: 'center center' };
     var ph = $('photo');
     document.body.classList.toggle('photo', !!b.file);
     if (b.file) {
-      ph.style.backgroundImage = 'url(' + b.file + ')';
+      ph.style.backgroundImage = 'url("' + b.file + '")';
       ph.style.backgroundPosition = b.pos;
       ph.style.display = 'block';
       cv.style.display = 'none';
@@ -686,6 +688,12 @@
   Nexus._streamChunk = function (id, data) { var s = streams[id]; if (!s) return; try { var j = JSON.parse(data); var parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || []; parts.forEach(function (p) { if (p.text && !p.thought) s.onText(p.text); }); } catch (e) {} };
   Nexus._streamEnd = function (id, status, text) { var s = streams[id]; if (!s) return; delete streams[id]; s.onEnd(status, text); };
   Nexus._voiceFixed = function () { caption('SWITCHED TO A WORKING VOICE'); };
+  function showSpeed(ms) {
+    if (pref('showSpeed') === '0') return;
+    var el = $('aiSpeed'); if (!el) { el = document.createElement('div'); el.id = 'aiSpeed'; document.body.appendChild(el); }
+    el.textContent = '⚡ ' + (ms / 1000).toFixed(1) + 's'; el.className = ms < 1500 ? 'fast' : ms < 3000 ? 'ok' : 'slow';
+    el.style.opacity = 1; clearTimeout(el.t); el.t = setTimeout(function () { el.style.opacity = 0; }, 3500);
+  }
   function streamAnswer(contents, system, opts) {
     opts = opts || {};
     var key = aiKey();
@@ -700,6 +708,7 @@
       function fail(e) { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; reject(e); }
       function speakPart(txt) {
         txt = txt.replace(/[*#_`]/g, '').trim(); if (!txt) return;
+        if (aiClock.start) { showSpeed(performance.now() - aiClock.start); aiClock.start = 0; }
         pending++;
         say(txt).then(function () { pending--; if (ended && pending === 0) finish(); });
       }
@@ -708,7 +717,7 @@
         var m, re = /^([\s\S]*?[.!?…]+["')\]]*)(\s+|$)/;
         while ((m = re.exec(buf)) && (m[1].length > 4 || force)) { speakPart(m[1]); buf = buf.slice(m[0].length); }
         if (!full.length || pending) { /* keep waiting */ }
-        if (!force && pending === 0 && buf.length > 70) { var c = buf.search(/[,;:—]\s/); if (c > 25) { speakPart(buf.slice(0, c + 1)); buf = buf.slice(c + 2); } }
+        if (!force && pending === 0 && buf.length > 38) { var c = buf.search(/[,;:—]\s/); if (c > 16) { speakPart(buf.slice(0, c + 1)); buf = buf.slice(c + 2); } }
         if (force && buf.trim()) { speakPart(buf); buf = ''; }
       }
       function attempt(i) {
@@ -743,7 +752,8 @@
   function clip(s) { s = String(s || ''); return s.length > 140 ? s.slice(0, 137) + '…' : s; }
 
   // Warm up the line to Google right after start so the first answer isn't slow.
-  function warmAI() { var k = aiKey(); if (!k || !online()) return; http('GET', 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', null, { 'x-goog-api-key': k }).catch(function () {}); }
+  var aiClock = { start: 0 };
+  function warmAI() { var k = aiKey(); if (!k) return; http('GET', 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', null, { 'x-goog-api-key': k }).catch(function () {}); }
   setTimeout(warmAI, 2500); setInterval(warmAI, 4 * 60 * 1000);
 
   function aiErrorLine(e) {
@@ -803,15 +813,15 @@
   var LS = null;
   function lsClear() { if (!LS) return; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); clearTimeout(LS.still); clearTimeout(LS.grace); LS = null; }
   function lsFinish() { if (!LS || LS.finishing) return; LS.finishing = true; try { if (A && A.finishListening) A.finishListening(); } catch (e) {}
-    var last = LS.partial; LS.grace = setTimeout(function () { if (heardResolve) { if (last) Nexus._heard(last); else Nexus._heardError('6'); } }, 1500); }
+    var last = LS.partial; LS.grace = setTimeout(function () { if (heardResolve) { if (last) Nexus._heard(last); else Nexus._heardError('6'); } }, 700); }
   Nexus._speechBegan = function () { if (!LS) return; LS.began = true; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); LS.cap = setTimeout(lsFinish, 8000); };
   Nexus._partial = function (t) {
     caption('“' + t + '”');
     if (!LS) return; LS.partial = t; if (!LS.began) Nexus._speechBegan();
-    clearTimeout(LS.still); LS.still = setTimeout(lsFinish, 1300);
+    clearTimeout(LS.still); LS.still = setTimeout(lsFinish, 850);
   };
   var heardResolve = null;
-  Nexus._heard = function (t) { lsClear(); setOrb('listening', false); $('orb').style.transform = ''; if (heardResolve) { var r = heardResolve; heardResolve = null; r(t); } };
+  Nexus._heard = function (t) { aiClock.start = performance.now(); lsClear(); setOrb('listening', false); $('orb').style.transform = ''; if (heardResolve) { var r = heardResolve; heardResolve = null; r(t); } };
   Nexus._heardError = function (code) {
     if (LS && LS.partial && heardResolve) { var p = LS.partial; lsClear(); Nexus._heard(p); return; }
     lsClear();
@@ -827,6 +837,8 @@
       heardResolve = resolve;
       lsClear();
       LS = { began: false, partial: '', finishing: false };
+      warmAI();   // open the line to Google while you're still talking
+      aiClock.start = 0;
       LS.noSpeech = setTimeout(function () { if (LS && !LS.began) { try { if (A) A.stopListening(); } catch (e) {} Nexus._heardError('6'); } }, 5000);
       LS.cap = setTimeout(lsFinish, 10000);
       if (A) { A.listen(); return; }
@@ -964,7 +976,9 @@
       case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
       case 'ego': openEgo(); break;
       case 'bgs': openBackgrounds(); break;
-      case 'livecam': if (A && A.openLiveCam) { caption('LOCATING A LIVE SIGNAL…'); A.openLiveCam(); } else openExperience('webcams'); break;
+      case 'phones': openPhones(); break;
+      case 'clock': openExperience('clockface'); break;
+      case 'show': truckShow(); break;
       default: if (name && name.indexOf('vis:') === 0) { fromVisuals = false; openExperience(name.slice(4)); } break;
       case 'visuals': openVisuals(); break;
       case 'night': toggleNight(); break;
@@ -976,13 +990,135 @@
       case 'settings': openSettings(); break;
     }
   }
+
+  // ================= PHONES: passengers join from their phones =================
+  var PH = { people: {}, queue: (function () { try { return JSON.parse(pref('songQueue') || '[]'); } catch (e) { return []; } })(), photos: (pref('phonePhotos') || '').split(',').filter(Boolean), now: '', lastTitle: '' };
+  function phoneSync() {
+    setPref('songQueue', JSON.stringify(PH.queue.slice(0, 30)));
+    try { if (A && A.phoneState) A.phoneState(JSON.stringify({ now: PH.now, queue: PH.queue, ego: EGOS[egoName].name })); } catch (e) {}
+    if ($('phQueue')) renderPhoneLists();
+  }
+  function playRequest(i) {
+    var r = PH.queue.splice(i || 0, 1)[0]; if (!r) return;
+    phoneSync();
+    caption('▶ ' + r.text.toUpperCase() + ' · FOR ' + r.name.toUpperCase());
+    say(r.name + ' wants ' + r.text + '. Here it comes.').then(function () { if (A && A.playSearch) A.playSearch(r.text); });
+  }
+  // when the current song changes by itself, the next request plays (if auto-play is on)
+  setInterval(function () {
+    if (!A || !A.nowPlaying) return;
+    var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
+    var title = np.title ? np.title + (np.artist ? ' · ' + np.artist : '') : '';
+    if (title !== PH.now) { PH.now = title; phoneSync(); }
+    if (title && PH.lastTitle && title !== PH.lastTitle && PH.queue.length && pref('autoRequests') !== '0' && !PH.justPlayed) { PH.justPlayed = true; setTimeout(function () { PH.justPlayed = false; }, 20000); playRequest(0); }
+    if (title) PH.lastTitle = title;
+  }, 5000);
+  function showPhoto(data, name) {
+    var o = $('photoShow'); if (!o) { o = document.createElement('div'); o.id = 'photoShow'; o.innerHTML = '<img><div class="by"></div>'; document.body.appendChild(o); o.addEventListener('click', function () { o.classList.remove('on'); }); }
+    o.querySelector('img').src = data; o.querySelector('.by').textContent = name ? '📸 FROM ' + name.toUpperCase() : '';
+    o.classList.add('on'); clearTimeout(o.t); o.t = setTimeout(function () { o.classList.remove('on'); }, 10000);
+  }
+  function showShout(name, text) {
+    var o = $('shoutShow'); if (!o) { o = document.createElement('div'); o.id = 'shoutShow'; document.body.appendChild(o); }
+    o.innerHTML = '<div class="from">💬 ' + esc(name.toUpperCase()) + '</div><div class="txt">' + esc(text) + '</div>';
+    o.classList.add('on'); clearTimeout(o.t); o.t = setTimeout(function () { o.classList.remove('on'); }, 8000);
+  }
+  Nexus._phone = function (json) {
+    var ev = {}; try { ev = JSON.parse(json); } catch (e) { return; }
+    var name = ev.name || 'Someone';
+    if (ev.type === 'join') {
+      var seen = PH.people[name]; PH.people[name] = Date.now();
+      if (!seen || Date.now() - seen > 10 * 60 * 1000) { caption('📱 ' + name.toUpperCase() + ' JOINED THE RIDE'); say(name + ' just joined the ride.'); }
+      if ($('phPeople')) renderPhoneLists();
+    } else if (ev.type === 'song') {
+      PH.people[name] = Date.now();
+      PH.queue.push({ name: name, text: ev.text, at: Date.now() }); phoneSync();
+      caption('🎵 ' + name.toUpperCase() + ' REQUESTED ' + ev.text.toUpperCase());
+      var nothingOn = !PH.now || (A && A.isMusicActive && !A.isMusicActive());
+      if (pref('autoRequests') !== '0' && nothingOn && PH.queue.length === 1) playRequest(0);
+      else say(name + ' requested ' + ev.text + '. It\'s in the queue.');
+    } else if (ev.type === 'photo') {
+      PH.photos.unshift(ev.file); PH.photos = PH.photos.slice(0, 40); setPref('phonePhotos', PH.photos.join(','));
+      showPhoto(ev.data, name); say('New photo from ' + name + '.');
+      if ($('phPhotos')) renderPhoneLists();
+    } else if (ev.type === 'msg') {
+      showShout(name, ev.text); stopTalking(); say('Shout out from ' + name + '. ' + ev.text);
+    } else if (ev.type === 'remote') {
+      var c = ev.cmd;
+      if (c === 'play') A && A.media('toggle'); else if (c === 'next') A && A.media('next'); else if (c === 'prev') A && A.media('prev');
+      else if (c === 'volup') A && A.volume(2); else if (c === 'voldown') A && A.volume(-2);
+      else if (c === 'party') toggleParty();
+      else if (c === 'hype' || c === 'airhorn' || c === 'lasers') { if (!P.on) toggleParty(); setTimeout(function () { var b = document.querySelector('.pbtn[data-fx=' + c + ']'); if (b) b.click(); }, P.on ? 0 : 900); }
+    }
+  };
+  function renderPhoneLists() {
+    var now = Date.now(), ppl = Object.keys(PH.people).filter(function (n) { return now - PH.people[n] < 3 * 60 * 60 * 1000; });
+    if ($('phPeople')) $('phPeople').innerHTML = ppl.length ? ppl.map(function (n) { return '<span class="chip">📱 ' + esc(n) + '</span>'; }).join('') : '<span class="muted">Nobody yet. Scan the code with a phone camera.</span>';
+    if ($('phQueue')) $('phQueue').innerHTML = (PH.now ? '<p class="green" style="margin:.5vmin 0">▶ NOW · ' + esc(PH.now) + '</p>' : '') + (PH.queue.length ? PH.queue.map(function (r, i) {
+      return '<div class="hrow"><span class="hic">' + (i + 1) + '</span><span class="hlb">' + esc(r.text) + ' <span class="muted">· ' + esc(r.name) + '</span></span><span class="btn sm go" data-qplay="' + i + '">▶ PLAY</span><span class="btn sm" data-qdel="' + i + '">✕</span></div>';
+    }).join('') : '<p class="muted">No song requests yet.</p>');
+    if ($('phPhotos')) $('phPhotos').innerHTML = PH.photos.length ? PH.photos.slice(0, 12).map(function (f) { return '<div class="phimg" data-photo="' + esc(f) + '"></div>'; }).join('') : '<p class="muted">Photos people send show up here.</p>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-qplay]'), function (b) { b.addEventListener('click', function () { playRequest(+b.getAttribute('data-qplay')); }); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-qdel]'), function (b) { b.addEventListener('click', function () { PH.queue.splice(+b.getAttribute('data-qdel'), 1); phoneSync(); }); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-photo]'), function (el) {
+      var f = el.getAttribute('data-photo'), d = A && A.photoData ? A.photoData(f) : '';
+      if (d) el.style.backgroundImage = 'url("' + d + '")';
+      el.addEventListener('click', function () {
+        openPanel('PHOTO', '<img src="' + d + '" style="max-width:100%;max-height:55vh;border-radius:1vmin;display:block;margin:0 auto">' +
+          '<div style="text-align:center;margin-top:1.5vmin"><span class="btn go" id="phShow">SHOW FULL SCREEN</span><span class="btn go" id="phBg">USE AS BACKGROUND</span><span class="btn" id="phBack">BACK</span></div>');
+        $('phShow').addEventListener('click', function () { closePanel(); showPhoto(d, ''); });
+        $('phBg').addEventListener('click', function () { bgName = 'photo:' + f; setPref('background', bgName); applyBackground(); caption('BACKGROUND SET'); openPhones(); });
+        $('phBack').addEventListener('click', openPhones);
+      });
+    });
+  }
+  function openPhones() {
+    var info = {}; try { info = JSON.parse(A && A.phoneInfo ? A.phoneInfo() : '{}'); } catch (e) {}
+    var urls = info.urls || [];
+    var connect = info.ok && urls.length ?
+      '<div class="phwrap"><img class="qr" src="' + (info.qr || '') + '"><div class="phtext"><div class="big">SCAN TO JOIN</div>' +
+      '<p>Open the phone camera and point it at the code. Phones must be on the <b>same Wi-Fi or hotspot</b> as the truck.</p>' +
+      '<p class="muted">Or type: <b class="green">' + esc(urls[0]) + '</b></p><p>CODE: <b class="green" style="font-size:4vmin;letter-spacing:1vmin">' + esc(info.pin) + '</b></p>' +
+      '<span class="btn sm" id="phNewPin">NEW CODE</span><span class="btn sm' + (pref('autoRequests') !== '0' ? ' go' : '') + '" id="phAuto">AUTO-PLAY REQUESTS: ' + (pref('autoRequests') !== '0' ? 'ON' : 'OFF') + '</span></div></div>'
+      : '<p class="muted">' + (A ? 'The box isn\'t on a Wi-Fi network yet. Connect it to Wi-Fi or a phone hotspot, then open this again.' : 'Phones connect when Nexus runs on the box.') + '</p>';
+    openPanel('PHONES', connect + '<p class="muted" style="margin-top:2vmin">WHO\'S CONNECTED</p><div id="phPeople"></div>' +
+      '<p class="muted" style="margin-top:2vmin">SONG REQUESTS</p><div id="phQueue"></div>' +
+      '<p class="muted" style="margin-top:2vmin">PHOTOS</p><div id="phPhotos" class="phgrid"></div>');
+    if ($('phNewPin')) $('phNewPin').addEventListener('click', function () { A.newPhonePin(); openPhones(); });
+    if ($('phAuto')) $('phAuto').addEventListener('click', function () { setPref('autoRequests', pref('autoRequests') !== '0' ? '0' : '1'); openPhones(); });
+    renderPhoneLists();
+  }
+  setTimeout(phoneSync, 3000);
+
+  // ================= TRUCK SHOW MODE: one tap to show the truck off =================
+  var SHOWCASE = ['tornado', 'dragon', 'aliens', 'wolf', 'blackhole', 'chromeface', 'waterclub', 'hyper'];
+  function truckShow() {
+    closePanel();
+    try { if (A && A.isMusicActive && !A.isMusicActive()) A.media('play'); } catch (e) {}
+    var list = SHOWCASE.slice().sort(function () { return Math.random() - .5; });
+    startPlaythrough(list, 'TRUCK SHOW', 15);
+    setTimeout(function () {
+      $('xpMid').innerHTML = '<span class="showTitle">NEXUS</span>';
+      sayLine(egoLine('show'), true);
+      setTimeout(function () { if ($('xpMid')) $('xpMid').innerHTML = ''; }, 6000);
+    }, 500);
+  }
   // ---- Home buttons: built from a catalog so Nathan can pick which ones show and in what order ----
   var CATALOG = [];   // [act, icon, label]
   Array.prototype.forEach.call(document.querySelectorAll('#tiles .tile'), function (el) {
     CATALOG.push([el.getAttribute('data-act'), el.querySelector('.ic').textContent, el.querySelector('.lb').textContent]);
   });
   var DEFAULT_TILES = CATALOG.map(function (c) { return c[0]; });
-  if (pref('homeVer') !== '2') { setPref('homeTiles', ''); setPref('homeVer', '2'); }
+  if (pref('homeVer') !== '2' && pref('homeVer') !== '3') { setPref('homeTiles', ''); setPref('homeVer', '3'); }
+  if (pref('homeVer') === '2') {
+    var oldT = (pref('homeTiles') || '').split(',').filter(Boolean);
+    if (oldT.length) {
+      oldT = oldT.map(function (k) { return k === 'livecam' ? 'phones' : k; });
+      ['phones', 'show', 'clock'].forEach(function (k) { if (oldT.indexOf(k) < 0) oldT.splice(Math.max(0, oldT.indexOf('settings')), 0, k); });
+      setPref('homeTiles', oldT.join(','));
+    }
+    setPref('homeVer', '3');
+  }
   function fullCatalog() {
     var out = CATALOG.slice(), have = {};
     out.forEach(function (c) { have[c[0]] = 1; });
@@ -999,12 +1135,21 @@
     if (list.indexOf('settings') < 0) list.push('settings');
     return list.map(function (k) { return cat[k]; });
   }
+  function perPage() { return (innerWidth / innerHeight >= 2) ? 12 : 8; }
   function renderTiles() {
-    var list = homeTiles();
-    $('tiles').innerHTML = list.map(function (c) {
-      return '<div class="tile" data-act="' + c[0] + '"' + (c[0] === 'party' ? ' id="tParty"' : c[0] === 'night' ? ' id="tNight"' : '') + '><span class="ic">' + c[1] + '</span><span class="lb">' + c[2] + '</span></div>';
+    var list = homeTiles(), per = perPage(), pages = [];
+    for (var i = 0; i < list.length; i += per) pages.push(list.slice(i, i + per));
+    $('tiles').innerHTML = pages.map(function (pg) {
+      return '<div class="tpage">' + pg.map(function (c) {
+        return '<div class="tile" data-act="' + c[0] + '"' + (c[0] === 'party' ? ' id="tParty"' : c[0] === 'night' ? ' id="tNight"' : '') + '><span class="ic">' + c[1] + '</span><span class="lb">' + c[2] + '</span></div>';
+      }).join('') + '</div>';
     }).join('');
-    $('tiles').setAttribute('data-n', list.length);
+    $('tiles').setAttribute('data-pages', pages.length);
+    var dots = $('tdots'); if (!dots) { dots = document.createElement('div'); dots.id = 'tdots'; $('tiles').parentNode.insertBefore(dots, $('tiles').nextSibling); }
+    dots.innerHTML = pages.length > 1 ? pages.map(function (p, i) { return '<span data-page="' + i + '"></span>'; }).join('') : '';
+    Array.prototype.forEach.call(dots.children, function (d) { d.addEventListener('click', function () { var t = $('tiles'); t.scrollTo({ left: t.clientWidth * +d.getAttribute('data-page'), behavior: 'smooth' }); }); });
+    function markDot() { var t = $('tiles'), n = Math.round(t.scrollLeft / Math.max(1, t.clientWidth)); Array.prototype.forEach.call(dots.children, function (d, i) { d.classList.toggle('on', i === n); }); }
+    $('tiles').onscroll = markDot; markDot();
     Array.prototype.forEach.call(document.querySelectorAll('#tiles .tile'), function (el) {
       el.addEventListener('click', function () { act(el.getAttribute('data-act')); });
     });
@@ -1017,7 +1162,8 @@
     var html = '<div class="hint" style="margin-bottom:1.5vmin">Your home screen buttons, in order. Use ▲ ▼ to move them, ✕ to hide one, and ＋ below to add more. Settings always stays.</div>' +
       '<div class="hlist">' + list.map(function (k, i) {
         var c = byKey[k];
-        return '<div class="hrow"><span class="hic">' + c[1] + '</span><span class="hlb">' + c[2] + '</span>' +
+        return (i % perPage() === 0 ? '<div class="hint" style="margin:1.2vmin 0 .4vmin">PAGE ' + (i / perPage() + 1) + (i === 0 ? ' · the first screen you see' : ' · swipe left to get here') + '</div>' : '') +
+          '<div class="hrow"><span class="hic">' + c[1] + '</span><span class="hlb">' + c[2] + '</span>' +
           '<span class="btn hb" data-mv="' + i + ':-1">▲</span><span class="btn hb" data-mv="' + i + ':1">▼</span>' +
           (k === 'settings' ? '<span class="btn hb off">✕</span>' : '<span class="btn hb" data-rm="' + i + '">✕</span>') + '</div>';
       }).join('') + '</div>' +
@@ -1699,12 +1845,13 @@
   // Experiences (loaded only when first opened, run only while on screen)
   // ------------------------------------------------------------------
   window.NX = {
-    say: say, sayLine: sayLine, egoLine: egoLine, sayEgo: sayEgo, egoName: function () { return egoName; }, egoTitle: function () { return EGOS[egoName].name; }, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
+    weather: function () { return weatherNow; }, say: say, sayLine: sayLine, egoLine: egoLine, sayEgo: sayEgo, egoName: function () { return egoName; }, egoTitle: function () { return EGOS[egoName].name; }, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
     pauseForTalk: pauseForTalk, resumeAfterTalk: resumeAfterTalk,
     getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
+    ['aliens', '👽', 'TRIPPY ALIENS'], ['wolf', '🐺', 'HOLOGRAM WOLF'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['chromeface', '🤖', 'CHROME FACE'], ['tornado', '🌪', 'FIRE TORNADO'],
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
@@ -1776,30 +1923,36 @@
   }
   var play = null;
   function stopPlaythrough() { if (!play) return; clearTimeout(play.t); clearTimeout(play.hint); play = null; $('xpNext').classList.add('hidden'); }
-  function xpFade(on) { var f = $('xpFade'); if (!f) { f = document.createElement('div'); f.id = 'xpFade'; $('xp').appendChild(f); } f.style.opacity = on ? 1 : 0; }
+  // Smooth hand-off with NO black: freeze the last picture of the old visual on top, start the new one
+  // underneath, then dissolve the old picture away.
+  function xpSnapshot() {
+    var cs = Array.prototype.filter.call(document.querySelectorAll('#xp canvas'), function (c) { return c.id !== 'xpSnap' && c.style.display !== 'none' && c.style.visibility !== 'hidden'; });
+    var src = cs[cs.length - 1]; if (!src) return;
+    var snap = $('xpSnap'); if (!snap) { snap = document.createElement('canvas'); snap.id = 'xpSnap'; $('xp').appendChild(snap); }
+    snap.style.transition = 'none'; snap.style.opacity = 1;
+    snap.width = Math.max(1, src.width); snap.height = Math.max(1, src.height);
+    try { snap.getContext('2d').drawImage(src, 0, 0); } catch (e) {}
+    void snap.offsetWidth;
+    requestAnimationFrame(function () { requestAnimationFrame(function () { snap.style.transition = 'opacity .7s ease'; snap.style.opacity = 0; }); });
+  }
   function playStep() {
     if (!play) return;
     var name = play.list[play.i % play.list.length];
-    if (play.started && window.XP && XP.active) {
-      // smooth hand-off: fade to black, swap visuals, fade back in
-      xpFade(true);
-      var me = play;
-      setTimeout(function () { if (play !== me) { xpFade(false); return; } play.started = false; playStep(); setTimeout(function () { xpFade(false); }, 120); }, 330);
-      return;
-    }
+    if (play.started && window.XP && XP.active) xpSnapshot();
     play.started = true;
     openExperience(name);
     $('xpNext').classList.remove('hidden');
     clearTimeout(play.hint);
     setTimeout(function () { if (play) { $('xpBottom').textContent = '▶ ' + play.label + ' · ' + ((play.i % play.list.length) + 1) + ' / ' + play.list.length; play.hint = setTimeout(function () { if (play) $('xpBottom').textContent = ''; }, 3000); } }, 150);
     clearTimeout(play.t);
-    play.t = setTimeout(function () { if (!play) return; play.i++; playStep(); }, (+(pref('playSecs') || 45)) * 1000);
+    play.t = setTimeout(function () { if (!play) return; play.i++; playStep(); }, (play.secs || +(pref('playSecs') || 45)) * 1000);
   }
-  function startPlaythrough(list, label) { stopPlaythrough(); if (!list.length) return; play = { list: list, i: 0, label: label }; playStep(); }
+  function startPlaythrough(list, label, secs) { stopPlaythrough(); if (!list.length) return; play = { list: list, i: 0, label: label, secs: secs }; playStep(); }
   window.onXpUserClose = function () { stopPlaythrough(); backToVisuals(); };
   $('xpNext').addEventListener('click', function (e) { e.stopPropagation(); if (play) { play.i++; playStep(); } });
 
   var xpLoaded = false;
+  Nexus.openExperience = function (n) { openExperience(n); };
   function openExperience(name) {
     if (P.on) exitParty(true);
     function go() { if (window.XP) XP.open(name); }
@@ -1836,6 +1989,7 @@
   try { if (!pref('gemini_key') && window.NEXUS_DEFAULT_KEY) setPref('gemini_key', window.NEXUS_DEFAULT_KEY); } catch (e) {}
   applyEgo(false);
   setTimeout(precacheEgo, 6000);
+  var lastPer = 0; window.addEventListener('resize', function () { if (perPage() !== lastPer) { lastPer = perPage(); renderTiles(); } });
   applyStyle();
   renderTiles();
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
