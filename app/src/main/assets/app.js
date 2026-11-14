@@ -1347,7 +1347,9 @@
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
     ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
-    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
+    ['worlds', '🏔', 'ALIEN WORLDS'], ['gold', '🥇', 'LIQUID METAL'], ['neural', '🧠', 'NEURAL NETWORK'], ['auroratunnel', '🌌', 'AURORA TUNNEL'], ['ink', '🎨', 'INK IN WATER'],
+    ['crystal', '💎', 'CRYSTALS'], ['datastorm', '💻', 'DATA STORM'], ['blackhole', '⚫', 'BLACK HOLE'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
+    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA']
   ];
   // ---- BACKGROUNDS button: big picture grid, tap to apply instantly, plus home screen styles ----
   var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER']];

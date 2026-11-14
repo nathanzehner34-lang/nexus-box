@@ -108,7 +108,7 @@
       running = name;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams })[name]();
+      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -1629,6 +1629,307 @@
     every(function () { if (wrap.bigCam) { if (wrap.bigTimer) wrap.bigTimer(); } }, 6000);
     every(function () { if (!wrap.bigCam) refreshWall(); }, 45000);
     every(tickTimes, 15000);
+  }
+
+
+  // ==================================================================
+  // HIGH-END PACK: 7 graphics-chip visuals + 3 particle visuals
+  // ==================================================================
+  var FBM3 = 'float fbm3(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 3; i++) { v += a * noise(p); p = p * 2.07 + vec2(3.1, 1.7); a *= .5; } return v; }\n';
+
+  // 20. ALIEN WORLDS — fly low over glowing alien mountains with neon contour lines
+  function worlds() {
+    var b = beatTracker(), hue = beatHue(280, 40), fly = 0;
+    var g = glStart('worlds', FBM3 +
+      'uniform float fly;\n' +
+      'float ht(vec2 p){ float m = fbm3(p * .22); return m * m * 9. + fbm3(p * 1.1 + 4.) * .5; }\n' +
+      'void main(){ vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
+      ' vec3 ro = vec3(sin(fly * .05) * 3., 4.4, fly); vec3 rd = normalize(vec3(uv.x, uv.y - .28, 1.1));\n' +
+      ' float c = cos(sin(fly * .05) * .25), s = sin(sin(fly * .05) * .25); rd.xz = mat2(c, -s, s, c) * rd.xz;\n' +
+      ' vec3 sunD = normalize(vec3(0., .18, 1.));\n' +
+      ' vec3 sky = mix(pal(hue + .55) * .28, vec3(.01, .0, .03), smoothstep(-.02, .45, rd.y));\n' +
+      ' sky += pal(hue) * pow(max(dot(rd, sunD), 0.), 30.) * 1.6 + pal(hue + .1) * pow(max(dot(rd, sunD), 0.), 4.) * .3;\n' +
+      ' vec2 sp = rd.xy / max(rd.z, .1) * 120.; sky += vec3(1.) * step(.995, hash(floor(sp))) * smoothstep(.0, .3, rd.y);\n' +
+      ' float t = .5; bool hit = false; vec3 p;\n' +
+      ' for (int i = 0; i < 60; i++) { p = ro + rd * t; float d = p.y - ht(p.xz); if (d < .004 * t) { hit = true; break; } t += max(d * .65, .03); if (t > 60.) break; }\n' +
+      ' if (!hit && rd.y < .02) hit = true;\n' +
+      ' vec3 col = sky;\n' +
+      ' if (hit) { vec2 e = vec2(.08, 0.); vec3 n = normalize(vec3(ht(p.xz - e.xy) - ht(p.xz + e.xy), 2. * e.x, ht(p.xz - e.yx) - ht(p.xz + e.yx)));\n' +
+      '  float dif = max(dot(n, sunD), 0.);\n' +
+      '  col = vec3(.02, .01, .04) + pal(hue + .6) * .08 * dif;\n' +
+      '  float cl = smoothstep(.06, .0, .5 - abs(fract(p.y * 2.2 - fly * .02) - .5)) + .35 * smoothstep(.03, .0, .5 - abs(fract(p.x * .8) - .5));\n' +
+      '  col += pal(hue + p.y * .08) * cl * (1. + kick * 1.4);\n' +
+      '  col = mix(pal(hue + .55) * .1, col, exp(-t * .035)); }\n' +
+      ' col = pow(col, vec3(.9)); gl_FragColor = vec4(col, 1.); }');
+    if (!g) return synth();
+    text('xpTop', 'ALIEN WORLDS');
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); fly += .08 + b.e * .1 + b.k * .08; g.f('fly', fly); g.draw(now, b, hh); }, 30);
+  }
+
+  // 21. LIQUID GOLD — molten metal rippling in slow motion; bass sends waves through it
+  function gold() {
+    var b = beatTracker(), hue = beatHue(40, 45), waves = [], next = 0, start = performance.now(), mode = 0;
+    for (var i = 0; i < 6; i++) waves.push([0, 0, -99, 0]);
+    var g = glStart('gold', FBM3 +
+      'uniform vec4 Wv[6]; uniform float metal;\n' +
+      'float hgt(vec2 p){ float h = fbm3(p * 1.6 + vec2(time * .05, -time * .04) + fbm3(p * 1.2 - time * .03) * 1.4) * .35;\n' +
+      ' for (int i = 0; i < 6; i++) { float age = time - Wv[i].z; if (age < 0. || age > 5.) continue; float d = length(p - Wv[i].xy);\n' +
+      '  h += sin((d - age * .5) * 26.) * exp(-abs(d - age * .5) * 6.) * exp(-age * .7) * Wv[i].w * .05; } return h; }\n' +
+      'vec3 env(vec3 r){ float b1 = pow(.5 + .5 * sin(r.y * 7. + r.x * 2.5), 10.), b2 = pow(.5 + .5 * sin(r.x * 5. - r.y * 3. + 1.), 14.);\n' +
+      ' return vec3(.04) + vec3(1.) * (b1 * 1.2 + b2 * .7) + vec3(.25) * smoothstep(-.2, 1., r.y); }\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; vec2 e = vec2(.004, 0.);\n' +
+      ' float hx = hgt(p + e.xy) - hgt(p - e.xy), hy = hgt(p + e.yx) - hgt(p - e.yx);\n' +
+      ' vec3 n = normalize(vec3(-hx, -hy, e.x * 2.)); vec3 r = reflect(vec3(0., 0., -1.), n);\n' +
+      ' vec3 tint = metal < .5 ? vec3(1., .74, .32) : (metal < 1.5 ? vec3(.92, .95, 1.) : pal(hue) * 1.2);\n' +
+      ' vec3 col = tint * env(r) * 1.1;\n' +
+      ' col += tint * pow(max(dot(r, normalize(vec3(-.3, .5, .8))), 0.), 50.) * 1.5;\n' +
+      ' col *= .85 + kick * .25; col *= 1. - dot(p, p) * .35;\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return water();
+    text('xpTop', 'LIQUID METAL');
+    layer.onclick = function () { mode = (mode + 1) % 3; text('xpTop', ['LIQUID GOLD', 'LIQUID CHROME', 'LIQUID NEON'][mode]); };
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      if (b.hit && b.k > .2) { var asp = glc.width / glc.height; waves[next] = [(Math.random() - .5) * asp * .8, (Math.random() - .5) * .7, (now - start) / 1000, .6 + b.k]; next = (next + 1) % 6; }
+      var Wv = []; waves.forEach(function (w) { Wv.push(w[0], w[1], w[2], w[3]); });
+      g.v4a('Wv', Wv); g.f('metal', mode); g.draw(now - start, b, hh);
+    }, 30);
+  }
+
+  // 22. AURORA TUNNEL — drift forward through silky curtains of light
+  function auroratunnel() {
+    var b = beatTracker(), hue = beatHue(150, 50), z = 0;
+    var g = glStart('auroratunnel', FBM3 +
+      'uniform float travel;\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; float r = length(p), a = atan(p.y, p.x);\n' +
+      ' float d = .45 / max(r, .02) + travel;\n' +
+      ' vec3 col = vec3(.0, .005, .02);\n' +
+      ' for (int L = 0; L < 3; L++) { float fl = float(L);\n' +
+      '  float cur = fbm3(vec2(a * 2.2 + fl * 1.7 + sin(d * .3 + fl) * .6, d * .45 - time * .05));\n' +
+      '  float sheet = pow(smoothstep(.22, .72, cur), 1.6) * (.55 + .45 * sin(a * 9. + d * 2. + fl));\n' +
+      '  col += pal(hue + fl * .14 + d * .02) * sheet * 1.25; }\n' +
+      ' col *= smoothstep(.02, .3, r) * (1. + kick * .5);\n' +
+      ' col += pal(hue + .3) * exp(-r * 9.) * .4;\n' +
+      ' vec2 sp = vec2(a * 70., d * 14.); col += vec3(.8) * step(.997, hash(floor(sp))) * smoothstep(.15, .5, r) * smoothstep(.45, .2, length(fract(sp) - .5));\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return hyper();
+    text('xpTop', 'AURORA TUNNEL');
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); z += .012 + b.e * .02; g.f('travel', z); g.draw(now, b, hh); }, 30);
+  }
+
+  // 23. INK IN WATER — clouds of coloured ink burst and swirl; every drop lands on a beat
+  function ink() {
+    var b = beatTracker(), hue = beatHue(330, 80), slots = [], next = 0, start = performance.now(), last = 0;
+    for (var i = 0; i < 8; i++) slots.push([0, 0, -99, 0, 0, 0, 0]);
+    var g = glStart('ink', FBM3 +
+      'uniform vec4 R[8]; uniform vec3 RC[8];\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
+      ' vec3 col = mix(vec3(.01, .02, .04), vec3(.03, .05, .09), gl_FragCoord.y / res.y);\n' +
+      ' vec3 ink = vec3(0.); float dens = 0.;\n' +
+      ' for (int i = 0; i < 8; i++) { float age = time - R[i].z; if (age < 0. || age > 14.) continue;\n' +
+      '  vec2 q = p - R[i].xy; q.y += age * .03;\n' +
+      '  vec2 w = vec2(fbm3(q * 3. + vec2(age * .15, float(i))), fbm3(q * 3. - vec2(float(i), age * .12))) - .5;\n' +
+      '  q += w * (.15 + age * .06);\n' +
+      '  float spread = .07 + age * .07; float k = exp(-dot(q, q) / (spread * spread)) * exp(-age * .13) * R[i].w * 1.6;\n' +
+      '  float fil = .6 + .8 * fbm3(q * 14. + age * .2);\n' +
+      '  ink += RC[i] * k * fil; dens += k * fil; }\n' +
+      ' col = mix(col, ink / max(dens, .001) * 1.15, clamp(dens * 1.4, 0., 1.) * .95) + ink * .2;\n' +
+      ' col *= 1. - dot(p, p) * .3; gl_FragColor = vec4(col, 1.); }');
+    if (!g) return mirror();
+    function hsl(h) { var f = function (n) { var k = (n + h / 30) % 12; return .5 - .5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; }
+    function drop(now, s2, h) { var asp = glc.width / glc.height, c = hsl(h); slots[next] = [(Math.random() - .5) * asp * .75, (Math.random() - .5) * .6 + .1, (now - start) / 1000, s2, c[0], c[1], c[2]]; next = (next + 1) % 8; last = now; }
+    text('xpTop', 'INK IN WATER');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      if (b.hit && b.k > .3 && now - last > 450) drop(now, 1, hh); else if (now - last > 1600) drop(now, .9, hh);
+      var Rr = [], C = []; slots.forEach(function (s3) { Rr.push(s3[0], s3[1], s3[2], s3[3]); C.push(s3[4], s3[5], s3[6]); });
+      g.v4a('R', Rr); g.v3a('RC', C); g.draw(now - start, b, hh);
+    }, 30);
+  }
+
+  // 24. CRYSTAL GEOMETRY — rotating diamonds refract rainbow light; they split apart on the drop
+  function crystal() {
+    var b = beatTracker(), hue = beatHue(200, 60), spin = 0, split = 0;
+    var g = glStart('crystal',
+      'uniform float spin, split;\n' +
+      'mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }\n' +
+      'float octa(vec3 p, float s){ p = abs(p); return (p.x + p.y + p.z - s) * .577; }\n' +
+      'float sdf(vec3 p){ vec3 q = p; q.xz = rot(spin) * q.xz; q.xy = rot(spin * .7) * q.xy;\n' +
+      ' float d = octa(q, .55);\n' +
+      ' for (int i = 0; i < 4; i++) { float a = float(i) * 1.5708 + spin * .5; vec3 o = vec3(cos(a), sin(a * 1.3) * .4, sin(a)) * (.95 + split * .9);\n' +
+      '  vec3 r = p - o; r.xy = rot(spin * 1.3 + float(i)) * r.xy; d = min(d, octa(r, .22)); }\n' +
+      ' return d; }\n' +
+      'void main(){ vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y; vec3 ro = vec3(0., 0., -3.2), rd = normalize(vec3(uv, 1.6));\n' +
+      ' vec3 col = vec3(.005, .005, .02) + pal(hue + .6) * .06 * (1. - length(uv));\n' +
+      ' float t = 0.; bool hit = false;\n' +
+      ' for (int i = 0; i < 56; i++) { float d = sdf(ro + rd * t); if (d < .001) { hit = true; break; } t += d; if (t > 8.) break; }\n' +
+      ' if (hit) { vec3 p = ro + rd * t; vec2 e = vec2(.002, 0.);\n' +
+      '  vec3 n = normalize(vec3(sdf(p + e.xyy) - sdf(p - e.xyy), sdf(p + e.yxy) - sdf(p - e.yxy), sdf(p + e.yyx) - sdf(p - e.yyx)));\n' +
+      '  float fr = pow(1. - abs(dot(n, rd)), 2.);\n' +
+      '  vec3 rf = refract(rd, n, .7);\n' +
+      '  col = pal(hue + rf.x * .6 + rf.y * .4 + dot(n, vec3(.3, .5, .2))) * (.25 + .75 * fr) * 1.3;\n' +
+      '  col += vec3(1.) * pow(max(dot(reflect(rd, n), normalize(vec3(.4, .6, -.6))), 0.), 40.) * 1.5;\n' +
+      '  col += pal(hue + .5) * kick * .4; }\n' +
+      ' col += pal(hue) * .15 / (1. + length(uv) * 6.) * (1. + kick);\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return kaleido();
+    text('xpTop', 'CRYSTAL GEOMETRY');
+    loop(function (now) {
+      b.tick(now); var hh = hue.tick(b.hit);
+      spin += .008 + b.e * .02; split += ((b.k > .55 ? 1 : 0) - split) * (b.k > .55 ? .3 : .04);
+      g.f('spin', spin); g.f('split', split); g.draw(now, b, hh);
+    }, 30);
+  }
+
+  // 25. BLACK HOLE — light bends around it, a glowing disk spins, stars get pulled in
+  function blackhole() {
+    var b = beatTracker(), hue = beatHue(25, 30);
+    var g = glStart('blackhole', FBM3 +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; float r = length(p); vec2 dir = p / max(r, .0001);\n' +
+      ' float rs = .1 * (1. + kick * .06);\n' +
+      ' vec2 q = p - dir * (rs * rs * 2.2) / max(r, rs * .9);\n' +
+      ' float ang = atan(q.y, q.x) + time * .02;\n' +
+      ' vec3 col = pal(hue + .6) * pow(fbm3(q * 3. + 2.), 3.) * .5 + pal(hue + .2) * pow(fbm3(q * 6. - 1.), 4.) * .3;\n' +
+      ' vec2 sq = q * 140.; col += vec3(1.) * step(.993, hash(floor(sq))) * (1. + 2. * smoothstep(.5, .1, r));\n' +
+      ' vec2 dk = vec2(p.x, p.y / .22); float dr = length(dk) / rs; float da = atan(dk.y, dk.x);\n' +
+      ' float diskMask = smoothstep(1.6, 2., dr) * smoothstep(5.5, 3.2, dr);\n' +
+      ' float swirl = fbm3(vec2(da * 3. - time * 1.6 + 6. / dr, dr * 1.6));\n' +
+      ' float dop = 1. + .75 * (p.x / max(length(dk), .001)) * sign(1.);\n' +
+      ' vec3 disk = mix(pal(hue), vec3(1., .9, .7), smoothstep(3.5, 1.8, dr)) * (.4 + 1.4 * swirl) * dop * (1. + kick * .8);\n' +
+      ' float front = step(0., -p.y);\n' +
+      ' float arcR = r / rs; float arc = exp(-abs(arcR - 1.55) * 9.) * smoothstep(-.02, .06, p.y) * (.6 + .6 * fbm3(vec2(atan(p.y, p.x) * 4. - time, 1.)));\n' +
+      ' vec3 arcCol = mix(pal(hue), vec3(1., .85, .6), .5) * arc * 1.6;\n' +
+      ' if (r < rs) col = vec3(0.);\n' +
+      ' col += arcCol * step(rs, r);\n' +
+      ' col = mix(col, disk, diskMask * (front + (1. - front) * step(rs * 1.05, r)) * .95);\n' +
+      ' col += vec3(1., .85, .6) * exp(-abs(r - rs * 1.02) * 160.) * 1.2;\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return zoom();
+    text('xpTop', 'BLACK HOLE');
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); g.draw(now, b, hh); }, 30);
+  }
+
+  // 26. LAVA LAMP 3D — big glossy blobs rise, merge and split
+  function lava() {
+    var b = beatTracker(), hue = beatHue(10, 35), pulse = 0;
+    var g = glStart('lava',
+      'uniform float pulse;\n' +
+      'float field(vec2 p){ float f = 0.;\n' +
+      ' for (int i = 0; i < 8; i++) { float fi = float(i);\n' +
+      '  vec2 c = vec2(sin(time * (.13 + fi * .021) + fi * 2.1) * .65, sin(time * (.09 + fi * .017) + fi * 1.3) * .42);\n' +
+      '  float rr = .11 + .05 * sin(fi * 1.7) + pulse * .03; f += rr * rr / max(dot(p - c, p - c), .0001); }\n' +
+      ' return f; }\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; float f = field(p);\n' +
+      ' vec3 col = mix(vec3(.02, .0, .03), pal(hue + .5) * .12, gl_FragCoord.y / res.y);\n' +
+      ' if (f > 1.) { vec2 e = vec2(.003, 0.);\n' +
+      '  vec3 n = normalize(vec3(field(p - e.xy) - field(p + e.xy), field(p - e.yx) - field(p + e.yx), .25 * f));\n' +
+      '  vec3 L = normalize(vec3(-.5, .6, .8));\n' +
+      '  vec3 base = pal(hue + p.y * .25);\n' +
+      '  col = base * (.25 + .9 * max(dot(n, L), 0.)) + vec3(1.) * pow(max(dot(reflect(-L, n), vec3(0., 0., 1.)), 0.), 40.) * .9;\n' +
+      '  col += pal(hue + .1) * pow(1. - n.z, 2.) * .6; }\n' +
+      ' else col += pal(hue) * .5 * smoothstep(.55, 1., f);\n' +
+      ' col += vec3(1.) * .05 * smoothstep(.9, 1., 1. - abs(p.x + .55)) ;\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
+    if (!g) return water();
+    text('xpTop', 'LAVA LAMP');
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); pulse += (b.k - pulse) * .2; g.f('pulse', pulse); g.draw(now, b, hh); }, 30);
+  }
+
+  // 27. NEURAL NETWORK — a giant web of light nodes; thoughts fire through it to the music
+  function neural() {
+    var b = beatTracker(), hue = beatHue(190, 50), nodes = [], edges = [], pulses = [], rotA = 0;
+    for (var i = 0; i < 140; i++) { var u = Math.random() * 6.283, v = Math.acos(2 * Math.random() - 1), rr = .6 + Math.random() * .45;
+      nodes.push([Math.sin(v) * Math.cos(u) * rr, Math.cos(v) * rr * .8, Math.sin(v) * Math.sin(u) * rr, Math.random()]); }
+    nodes.forEach(function (a2, i) { var ds = nodes.map(function (b2, j) { return [Math.hypot(a2[0] - b2[0], a2[1] - b2[1], a2[2] - b2[2]), j]; }).sort(function (x, y) { return x[0] - y[0]; });
+      for (var k = 1; k <= 3; k++) if (ds[k][1] > i) edges.push([i, ds[k][1]]); });
+    var adj = nodes.map(function () { return []; }); edges.forEach(function (e, k) { adj[e[0]].push([e[1], k]); adj[e[1]].push([e[0], k]); });
+    function fireFrom(n, depth) { adj[n].forEach(function (x) { if (Math.random() < .8) pulses.push({ a: n, b: x[0], t: 0, sp: .03 + Math.random() * .03, depth: depth }); }); }
+    text('xpTop', 'NEURAL NETWORK');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      rotA += .002 + b.e * .006;
+      if (b.hit) for (var f = 0; f < 3; f++) fireFrom(Math.random() * nodes.length | 0, 4);
+      if (Math.random() < .08) fireFrom(Math.random() * nodes.length | 0, 2);
+      cx.fillStyle = 'rgba(0,1,8,.45)'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H / 2, R = Math.min(W, H) * .55, c = Math.cos(rotA), s2 = Math.sin(rotA);
+      var P = nodes.map(function (n) { var x = n[0] * c + n[2] * s2, z = -n[0] * s2 + n[2] * c, f2 = 2.6 / (2.6 + z); return [cxp + x * R * f2 * 1.3, cyp + n[1] * R * f2, z]; });
+      cx.globalCompositeOperation = 'lighter';
+      cx.strokeStyle = 'hsla(' + hh + ',80%,55%,.14)'; cx.lineWidth = Math.max(1, S * 1.2); cx.beginPath();
+      edges.forEach(function (e) { cx.moveTo(P[e[0]][0], P[e[0]][1]); cx.lineTo(P[e[1]][0], P[e[1]][1]); }); cx.stroke();
+      pulses = pulses.filter(function (q) { q.t += q.sp * (1 + b.e); if (q.t >= 1) { if (q.depth > 0 && pulses.length < 400) fireFrom(q.b, q.depth - 1); return false; } return true; });
+      pulses.forEach(function (q) { var A2 = P[q.a], B2 = P[q.b], x = A2[0] + (B2[0] - A2[0]) * q.t, y = A2[1] + (B2[1] - A2[1]) * q.t, x0 = A2[0] + (B2[0] - A2[0]) * Math.max(0, q.t - .25), y0 = A2[1] + (B2[1] - A2[1]) * Math.max(0, q.t - .25);
+        cx.strokeStyle = 'hsla(' + ((hh + 40) % 360) + ',100%,70%,.9)'; cx.lineWidth = Math.max(1, S * 3); cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(x, y); cx.stroke(); });
+      P.forEach(function (q, i) { var z = (q[2] + 1.2) / 2.4, sz = (1.5 + z * 3) * S * 2 * (1 + p * .5); cx.fillStyle = 'hsla(' + ((hh + nodes[i][3] * 60) % 360) + ',100%,' + (55 + z * 25) + '%,' + (.3 + z * .7) + ')'; cx.fillRect(q[0] - sz / 2, q[1] - sz / 2, sz, sz); });
+      cx.globalCompositeOperation = 'source-over';
+    }, 30);
+  }
+
+  // 28. DATA STORM — streams of glowing code fly past; they lock into NEXUS on the drop
+  function datastorm() {
+    var b = beatTracker(), hue = beatHue(140, 40), glyphs = [], form = 0, formT = 0, targets = [];
+    var CH = 'ｱｲｳｴｵｶｷｸｹｺ0123456789ABCDEFNEXUS$#@%&*';
+    for (var i = 0; i < 260; i++) glyphs.push({ x: (Math.random() - .5) * 3, y: (Math.random() - .5) * 2, z: Math.random() * 3 + .2, c: CH[Math.random() * CH.length | 0], tx: 0, ty: 0 });
+    (function () { var c = document.createElement('canvas'); c.width = 160; c.height = 40; var g2 = c.getContext('2d'); g2.fillStyle = '#fff'; g2.font = '900 34px sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('NEXUS', 80, 21);
+      var d = g2.getImageData(0, 0, 160, 40).data; for (var y = 0; y < 40; y += 2) for (var x = 0; x < 160; x += 2) if (d[(y * 160 + x) * 4 + 3] > 128) targets.push([(x - 80) / 80, (y - 20) / 80]); })();
+    text('xpTop', 'DATA STORM');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      if (b.hit && b.k > .6 && form === 0 && now - formT > 6000) { form = 1; formT = now; }
+      if (form === 1 && now - formT > 3500) { form = 0; formT = now; }
+      cx.fillStyle = 'rgba(0,4,2,.35)'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H / 2, F = Math.min(W, H) * .5;
+      cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      glyphs.forEach(function (g3, i) {
+        var sx2, sy2, sz;
+        if (form) { var tg = targets[i % targets.length]; g3.tx += (tg[0] * W * .42 + cxp - g3.tx) * .12; g3.ty += (tg[1] * W * .42 + cyp - g3.ty) * .12; sx2 = g3.tx; sy2 = g3.ty; sz = W * .016; }
+        else { g3.z -= .02 + b.e * .05 + b.k * .05; if (g3.z < .15) { g3.z = 3.2; g3.x = (Math.random() - .5) * 3; g3.y = (Math.random() - .5) * 2; g3.c = CH[Math.random() * CH.length | 0]; }
+          sx2 = cxp + g3.x / g3.z * F; sy2 = cyp + g3.y / g3.z * F; sz = Math.max(4, F * .06 / g3.z); g3.tx = sx2; g3.ty = sy2; }
+        if (Math.random() < .03) g3.c = CH[Math.random() * CH.length | 0];
+        var near = form ? 1 : Math.min(1, 1.2 / g3.z);
+        cx.font = '700 ' + (sz | 0) + 'px monospace';
+        cx.fillStyle = 'hsla(' + hh + ',100%,' + (50 + near * 40) + '%,' + (.25 + near * .75) + ')';
+        cx.fillText(g3.c, sx2, sy2);
+      });
+    }, 30);
+  }
+
+  // 29. PARTICLE PORTRAIT — thousands of glowing particles form a shape, explode on the drop, reform as the next
+  function portrait() {
+    var b = beatTracker(), hue = beatHue(200, 50), parts = [], SHAPES = ['NEXUS', '💀', '🐺', '❤️', '👽', '🔥', '🦅', '⚡'], si = 0, lastSwap = performance.now(), boom = 0;
+    var N2 = 1400;
+    for (var i = 0; i < N2; i++) parts.push({ x: Math.random(), y: Math.random(), vx: 0, vy: 0, tx: .5, ty: .5, o: Math.random() });
+    function sample(sh) {
+      var c = document.createElement('canvas'), w = 200, h = 110; c.width = w; c.height = h; var g2 = c.getContext('2d');
+      g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillStyle = '#fff';
+      g2.font = (sh.length > 2 ? '900 58px sans-serif' : '96px sans-serif'); g2.fillText(sh, w / 2, h / 2 + 4);
+      var d = g2.getImageData(0, 0, w, h).data, pts = [];
+      for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 120) pts.push([x / w, y / h]);
+      if (!pts.length) pts.push([.5, .5]);
+      return pts;
+    }
+    function assign() { var pts = sample(SHAPES[si]); parts.forEach(function (q, k) { var t = pts[(k * 7919) % pts.length]; q.tx = .2 + t[0] * .6; q.ty = .12 + t[1] * .76; }); }
+    assign();
+    text('xpTop', 'PARTICLE PORTRAIT');
+    loop(function (now) {
+      var p = b.tick(now), hh = hue.tick(b.hit);
+      if ((b.hit && b.k > .6 && now - lastSwap > 5000) || now - lastSwap > 12000) {
+        boom = 1; lastSwap = now;
+        parts.forEach(function (q) { var a = Math.random() * 6.283, sp = .01 + Math.random() * .03; q.vx += Math.cos(a) * sp; q.vy += Math.sin(a) * sp; });
+        setTimeout(function () { si = (si + 1) % SHAPES.length; assign(); }, 350);
+      }
+      boom *= .95;
+      cx.fillStyle = 'rgba(0,0,8,.32)'; cx.fillRect(0, 0, W, H);
+      cx.globalCompositeOperation = 'lighter';
+      var sz = Math.max(1.5, S * 3.2);
+      parts.forEach(function (q) {
+        q.vx += (q.tx - q.x) * .02; q.vy += (q.ty - q.y) * .02; q.vx *= .86; q.vy *= .86;
+        q.x += q.vx + Math.sin(now * .002 + q.o * 20) * .0006 * (1 + p * 4); q.y += q.vy + Math.cos(now * .0023 + q.o * 20) * .0006 * (1 + p * 4);
+        cx.fillStyle = 'hsla(' + ((hh + q.o * 70) % 360) + ',100%,' + (55 + p * 25) + '%,.85)';
+        cx.fillRect(q.x * W - sz / 2, q.y * H - sz / 2, sz, sz);
+      });
+      cx.globalCompositeOperation = 'source-over';
+      if (boom > .9) flash('#fff', .25);
+    }, 30);
   }
 
   // ------------------------------------------------------------------
