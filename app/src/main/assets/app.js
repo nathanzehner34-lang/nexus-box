@@ -1203,17 +1203,76 @@
   })();
 
   // ================= TRUCK SHOW MODE: one tap to show the truck off =================
-  var SHOWCASE = ['tornado', 'dragon', 'aliens', 'wolf', 'blackhole', 'waterclub', 'hyper', 'kaleido'];
+  // TRUCK SHOW: a quick ~12 second light show built just for showing off the truck. Tap to end early.
   function truckShow() {
-    closePanel();
+    closePanel(); stopPlaythrough(); if (window.XP && XP.active) XP.close();
     try { if (A && A.isMusicActive && !A.isMusicActive()) A.media('play'); } catch (e) {}
-    var list = SHOWCASE.slice().sort(function () { return Math.random() - .5; });
-    startPlaythrough(list, 'TRUCK SHOW', 15);
-    setTimeout(function () {
-      $('xpMid').innerHTML = '<span class="showTitle">NEXUS</span>';
-      sayLine(egoLine('show'), true);
-      setTimeout(function () { if ($('xpMid')) $('xpMid').innerHTML = ''; }, 6000);
-    }, 500);
+    var o = document.createElement('div'); o.id = 'tshow'; var c = document.createElement('canvas'); o.appendChild(c); document.body.appendChild(o);
+    var g = c.getContext('2d'), W = c.width = Math.round(innerWidth * .8), H = c.height = Math.round(innerHeight * .8), U = Math.min(W, H);
+    var t0 = performance.now(), DUR = 12500, done = false, sparks = [], beats = {};
+    var col = (EGOS[egoName] || {}).col || '#3dd6ff';
+    function end() { if (done) return; done = true; o.style.opacity = 0; setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 600); }
+    o.addEventListener('click', end); o.addEventListener('touchstart', end, { passive: true });
+    function once(k, fn) { if (!beats[k]) { beats[k] = 1; try { fn(); } catch (e) {} } }
+    function burst(n, x, y, sp) { for (var i = 0; i < n; i++) { var a = Math.random() * 6.283, v = (.3 + Math.random()) * sp; sparks.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - sp * .3, l: 1, h: Math.random() < .5 ? 45 : 200 + Math.random() * 60 }); } }
+    function ease(x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); }
+    function slam(txt, size, y, k, grad) {
+      if (k <= 0) return; var sc = 1 + (1 - ease(k)) * 2.2;
+      g.save(); g.translate(W / 2, y); g.scale(sc, sc); g.globalAlpha = Math.min(1, k * 2.5);
+      g.font = '900 ' + size + 'px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      var gr = g.createLinearGradient(0, -size / 2, 0, size / 2);
+      if (grad) { gr.addColorStop(0, '#ffffff'); gr.addColorStop(.45, '#cfd8e6'); gr.addColorStop(.5, '#6b7686'); gr.addColorStop(1, '#f4f7fb'); } else { gr.addColorStop(0, '#fff'); gr.addColorStop(1, '#fff'); }
+      g.shadowColor = col; g.shadowBlur = U * .05; g.fillStyle = gr; g.fillText(txt, 0, 0); g.restore();
+    }
+    sayLine(egoLine('show'), true);
+    (function f(now) {
+      if (done) return;
+      var ms = now - t0, t = ms / 1000; if (ms > DUR) { end(); return; }
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+      // haze + two sweeping spotlights from the floor
+      g.globalCompositeOperation = 'lighter';
+      for (var s2 = 0; s2 < 2; s2++) {
+        var ang = -Math.PI / 2 + (s2 ? 1 : -1) * (.55 - .4 * Math.sin(t * (t > 6 ? 2.4 : 1.1) + s2)), x0 = W * (s2 ? .85 : .15), len = Math.hypot(W, H);
+        var a2 = Math.min(1, t / 1.2) * .16, wdt = .09;
+        var lg = g.createLinearGradient(x0, H, x0 + Math.cos(ang) * len, H + Math.sin(ang) * len); lg.addColorStop(0, 'rgba(200,225,255,' + a2 + ')'); lg.addColorStop(.6, 'rgba(200,225,255,' + (a2 * .35) + ')'); lg.addColorStop(1, 'rgba(200,225,255,0)');
+        for (var sb = 0; sb < 3; sb++) {
+          g.fillStyle = lg; g.beginPath(); g.moveTo(x0, H); g.lineTo(x0 + Math.cos(ang - wdt) * len, H + Math.sin(ang - wdt) * len); g.lineTo(x0 + Math.cos(ang + wdt) * len, H + Math.sin(ang + wdt) * len); g.closePath(); g.fill(); wdt *= .55; }
+      }
+      // laser fan once the big word lands
+      if (t > 6.6 && t < 11.5) { g.lineWidth = Math.max(1, U * .004);
+        for (var l = 0; l < 14; l++) { var la = -Math.PI / 2 + (l - 6.5) * .12 + Math.sin(t * 3 + l) * .08; g.strokeStyle = 'hsla(' + ((l * 25 + t * 120) % 360) + ',100%,60%,.55)';
+          g.beginPath(); g.moveTo(W / 2, H * 1.02); g.lineTo(W / 2 + Math.cos(la) * H * 1.6, H * 1.02 + Math.sin(la) * H * 1.6); g.stroke(); } }
+      g.globalCompositeOperation = 'source-over';
+      // 1) LADIES AND GENTLEMEN (typed)
+      if (t > .6 && t < 4.2) { var txt = 'LADIES AND GENTLEMEN', n = Math.min(txt.length, Math.floor((t - .6) * 14));
+        g.globalAlpha = t > 3.8 ? (4.2 - t) / .4 : 1; g.font = '600 ' + Math.round(U * .065) + 'px monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.fillStyle = '#d8e6ff'; g.fillText(txt.slice(0, n) + (n < txt.length && Math.floor(t * 6) % 2 ? '▌' : ''), W / 2, H / 2); g.globalAlpha = 1;
+        if (n > 0 && n < txt.length && Math.floor((t - .6) * 14) !== beats.ty) { beats.ty = Math.floor((t - .6) * 14); tone('square', 900, 0, .025, .015); } }
+      // 2) FEAST YOUR EYES (slam)
+      if (t > 4.2 && t < 6.7) { once('fe', function () { tone('sine', 70, 0, .7, .2, 35); tone('sawtooth', 160, 0, .3, .05, 60); burst(70, W / 2, H / 2, U * .012); });
+        slam('FEAST YOUR EYES', Math.round(U * .14), H / 2, (t - 4.2) / .35); }
+      // 3) THIS TRUCK IS ... AWESOME
+      if (t > 6.7) { once('aw', function () { tone('sine', 55, 0, 1.2, .25, 30); tone('triangle', 880, 0, .5, .05, 1760); burst(160, W / 2, H * .55, U * .02); });
+        var k3 = t > 11.6 ? Math.max(0, 1 - (t - 11.6) / .6) : 1;
+        g.globalAlpha = k3; g.font = '700 ' + Math.round(U * .06) + 'px monospace'; g.textAlign = 'center'; g.fillStyle = col; g.fillText('THIS TRUCK IS', W / 2, H * .32);
+        slam('AWESOME', Math.round(U * .25), H * .55, Math.min(1, (t - 6.7) / .3) * k3, true);
+        // light sweep across the chrome word
+        var sx = W * (((t - 7) * .6) % 1.6 - .3), sg = g.createLinearGradient(sx - U * .15, 0, sx + U * .15, 0); sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(.5, 'rgba(255,255,255,.5)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
+        g.globalCompositeOperation = 'lighter'; g.fillStyle = sg; g.fillRect(sx - U * .15, H * .55 - U * .13, U * .3, U * .26); g.globalCompositeOperation = 'source-over';
+        if (t > 8.2 && t < 10.8 && Math.floor(t * 2.5) !== beats.bt) { beats.bt = Math.floor(t * 2.5); burst(25, W * (.2 + Math.random() * .6), H * (.2 + Math.random() * .4), U * .012); tone('sine', 60, 0, .25, .12, 40); }
+        g.globalAlpha = 1;
+        if (t > 9.5) { g.globalAlpha = Math.min(1, (t - 9.5) / .6) * k3; g.font = '600 ' + Math.round(U * .04) + 'px monospace'; g.fillStyle = '#9fb3d9'; g.fillText('P O W E R E D   B Y   N E X U S', W / 2, H * .82); g.globalAlpha = 1; }
+      }
+      // flash on each hit
+      [4.2, 6.7].forEach(function (h) { var d = t - h; if (d > 0 && d < .25) { g.fillStyle = 'rgba(255,255,255,' + (.7 * (1 - d / .25)) + ')'; g.fillRect(0, 0, W, H); } });
+      // sparks with gravity
+      g.globalCompositeOperation = 'lighter';
+      sparks = sparks.filter(function (p) { p.x += p.vx; p.y += p.vy; p.vy += U * .0006; p.vx *= .985; p.l -= .016; return p.l > 0; });
+      sparks.forEach(function (p) { g.strokeStyle = 'hsla(' + p.h + ',100%,' + (60 + p.l * 30) + '%,' + p.l + ')'; g.lineWidth = Math.max(1, U * .004);
+        g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 2.5, p.y - p.vy * 2.5); g.stroke(); });
+      g.globalCompositeOperation = 'source-over';
+      requestAnimationFrame(f);
+    })(t0);
   }
   // ---- Home buttons: built from a catalog so Nathan can pick which ones show and in what order ----
   var CATALOG = [];   // [act, icon, label]
@@ -1975,7 +2034,7 @@
     weather: function () {  return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
-    ['aliens', '👽', 'TRIPPY ALIENS'], ['wolf', '🐺', 'HOLOGRAM WOLF'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['tornado', '🌪', 'FIRE TORNADO'],
+    ['aliens', '👽', 'TRIPPY ALIENS'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['tornado', '🌪', 'FIRE TORNADO'],
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],

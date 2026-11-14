@@ -298,3 +298,5 @@ body.style-sharp .tile .lb { font-family: monospace; }
 @keyframes spin { to { transform: rotate(360deg); } }
 body.style-gold .tile { background: linear-gradient(145deg, rgba(60,45,10,.75), rgba(20,15,4,.8)); border: 1px solid #d9b45a; box-shadow: inset 0 0 2vmin rgba(255,215,120,.15); }
 body.style-gold .tile .ic, body.style-gold .tile .lb { color: #f6dc94; text-shadow: 0 0 1vmin rgba(255,200,80,.5); }
+#tshow { position: fixed; inset: 0; z-index: 190; background: #000; transition: opacity .6s; }
+#tshow canvas { width: 100%; height: 100%; display: block; }

@@ -109,7 +109,7 @@
       GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, wolf: wolf, aliens: aliens })[name]();
+      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -2330,80 +2330,6 @@
         cx.restore();
       }
       cx.globalAlpha = 1; cx.globalCompositeOperation = 'source-over';
-    }, 30);
-  }
-
-  // ---------------- HOLOGRAM WOLF (a wolf made of light, howls on the drop) ----------------
-  function wolf() {
-    var b = beatTracker(), hue = { cur: 192, tick: function () { this.cur = 192 + Math.sin(performance.now() / 4000) * 14; return this.cur; } }, pts = null, fur = null, lt = performance.now(), howl = 0, lastHowl = 0, rings = [];
-    // sitting, howling wolf (side view). x right, y down, about -1..1
-    var WOLF = [[.56, -.98], [.6, -.93], [.47, -.81], [.58, -.8], [.5, -.66], [.46, -.56], [.42, -.5], [.44, -.44], [.38, -.38], [.4, -.3], [.34, -.22], [.35, -.12],
-      [.3, .02], [.26, .2], [.22, .4], [.23, .62], [.25, .9], [.33, .94], [.33, .98], [.06, .98], [.06, .86], [.0, .8], [-.06, .9], [-.08, .96], [-.4, .98], [-.6, .96],
-      [-.82, .95], [-.96, .9], [-.8, .86], [-.6, .84], [-.5, .8], [-.57, .66], [-.58, .48], [-.52, .28], [-.42, .1], [-.33, -.05], [-.24, -.18], [-.2, -.26], [-.15, -.32],
-      [-.12, -.38], [-.08, -.45], [-.03, -.52], [.03, -.58], [.06, -.62], [.07, -.88], [.16, -.7], [.22, -.72], [.28, -.68], [.33, -.7], [.42, -.8]];
-    function build() {
-      var w = 400, h = 400, c = document.createElement('canvas'); c.width = w; c.height = h; var g2 = c.getContext('2d'), U = h * .45;
-      g2.fillStyle = '#fff'; g2.beginPath();
-      WOLF.forEach(function (q, i) { var X = w / 2 + q[0] * U, Y = h / 2 + q[1] * U; if (i) g2.lineTo(X, Y); else g2.moveTo(X, Y); });
-      g2.closePath(); g2.fill();
-      var d = g2.getImageData(0, 0, w, h).data, edge = [], fill = [];
-      function A2(x, y) { return x < 0 || y < 0 || x >= w || y >= h ? 0 : d[(y * w + x) * 4 + 3]; }
-      for (var y = 0; y < h; y += 2) for (var x = 0; x < w; x += 2) if (A2(x, y) > 128) {
-        var e = A2(x - 3, y) < 128 || A2(x + 3, y) < 128 || A2(x, y - 3) < 128 || A2(x, y + 3) < 128;
-        var px = (x - w / 2) / U, py = (y - h / 2) / U;
-        if (e) { var nx = (A2(x - 4, y) > 128 ? 1 : 0) - (A2(x + 4, y) > 128 ? 1 : 0), ny = (A2(x, y - 4) > 128 ? 1 : 0) - (A2(x, y + 4) > 128 ? 1 : 0), nl = Math.hypot(nx, ny) || 1; edge.push([px, py, nx / nl, ny / nl, Math.random()]); }
-        else if (Math.random() < .35) fill.push([px, py, Math.random()]);
-      }
-      pts = { edge: edge, fill: fill };
-    }
-    build();
-    text('xpTop', 'HOLOGRAM WOLF');
-    loop(function (now) {
-      var dt = Math.max(0, Math.min(.08, (now - lt) / 1000)); lt = now; var t = now / 1000;
-      var p = b.tick(now), hh = hue.tick(b.hit);
-      if (b.live && b.hit && b.k > .9 && now - lastHowl > 6000) { lastHowl = now; howl = 1; for (var r = 0; r < 4; r++) rings.push({ r: r * .08, a: 1 }); }
-      howl *= .985;
-      cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1;
-      cx.fillStyle = '#01040a'; cx.fillRect(0, 0, W, H);
-      var U = Math.min(W, H) * .42, ox = W * .5 + U * .2, oy = H * .5 - U * .02 + Math.sin(t * .8) * U * .01;
-      var col = function (a, l) { return 'hsla(' + hh + ',100%,' + (l || 65) + '%,' + a + ')'; };
-      // holographic moon behind
-      var mx = ox + U * 1.05, my = oy - U * .85, mr = U * .32;
-      var mg = cx.createRadialGradient(mx, my, mr * .2, mx, my, mr * 2.4); mg.addColorStop(0, col(.25 + howl * .2, 70)); mg.addColorStop(.4, col(.06)); mg.addColorStop(1, col(0));
-      cx.fillStyle = mg; cx.fillRect(mx - mr * 2.5, my - mr * 2.5, mr * 5, mr * 5);
-      cx.strokeStyle = col(.5, 75); cx.lineWidth = Math.max(1, U * .006); cx.beginPath(); cx.arc(mx, my, mr, 0, 6.283); cx.stroke();
-      for (var ln = -6; ln <= 6; ln++) { var yy = my + ln * mr / 7, hw = Math.sqrt(Math.max(0, mr * mr - (yy - my) * (yy - my))); cx.strokeStyle = col(.12); cx.beginPath(); cx.moveTo(mx - hw, yy); cx.lineTo(mx + hw, yy); cx.stroke(); }
-      // projector platform + light cone
-      var by = oy + U * 1.02;
-      var cg = cx.createLinearGradient(0, by, 0, oy - U * 1.1); cg.addColorStop(0, col(.22)); cg.addColorStop(1, col(0));
-      cx.fillStyle = cg; cx.beginPath(); cx.moveTo(ox - U * .45, by); cx.lineTo(ox - U * 1.1, oy - U * 1.1); cx.lineTo(ox + U * 1.0, oy - U * 1.1); cx.lineTo(ox + U * .45, by); cx.closePath(); cx.fill();
-      cx.globalCompositeOperation = 'lighter';
-      for (var e2 = 0; e2 < 3; e2++) { cx.strokeStyle = col(.6 - e2 * .18, 70); cx.lineWidth = Math.max(1, U * (.012 - e2 * .003)); cx.beginPath(); cx.ellipse(ox, by + e2 * U * .03, U * (.75 + e2 * .1), U * (.12 + e2 * .015), 0, 0, 6.283); cx.stroke(); }
-      // the wolf: filled with scanlines, outlined with bright points and fur strands
-      var glitch = (Math.random() < .015 + howl * .05) ? (Math.random() - .5) * U * .08 : 0, gy = Math.random() * 2 - 1;
-      var fl = .82 + .18 * Math.sin(t * 23) * Math.sin(t * 7.1), bright = (.75 + p * .35 + howl * .5) * fl;
-      var ds = Math.max(1.6, U * .016);
-      pts.fill.forEach(function (q) {
-        var sx = ox + q[0] * U + (Math.abs(q[1] - gy) < .05 ? glitch : 0), sy = oy + q[1] * U;
-        var scan = .5 + .5 * Math.sin(sy * .35 - t * 6); cx.globalAlpha = (.08 + .14 * scan) * bright;
-        cx.drawImage(glowDot(hh, 100, 60), sx - ds * .6, sy - ds * .6, ds * 1.2, ds * 1.2);
-      });
-      cx.strokeStyle = col(1, 80); cx.lineWidth = Math.max(1, U * .004);
-      pts.edge.forEach(function (q, i) {
-        var sx = ox + q[0] * U + (Math.abs(q[1] - gy) < .05 ? glitch : 0), sy = oy + q[1] * U;
-        cx.globalAlpha = .9 * bright; cx.drawImage(glowDot(hh, 100, 72), sx - ds, sy - ds, ds * 2, ds * 2);
-        if (i % 3 === 0) { var fl2 = U * (.025 + .04 * q[4]) * (1 + howl * .6 + p * .3), wv = Math.sin(t * 2 + q[4] * 9) * .4;
-          cx.globalAlpha = .35 * bright; cx.beginPath(); cx.moveTo(sx, sy); cx.lineTo(sx - (q[2] + wv * q[3]) * fl2, sy - (q[3] - wv * q[2]) * fl2); cx.stroke(); }
-      });
-      // eye
-      var ex = ox + .3 * U, ey = oy - .73 * U, es = U * .05 * (1 + howl); cx.globalAlpha = 1; cx.drawImage(glowDot(hh, 100, 85), ex - es, ey - es, es * 2, es * 2);
-      // howl: sound rings rising from the snout
-      rings = rings.filter(function (r) { r.r += dt * .5; r.a -= dt * .45; return r.a > 0; });
-      rings.forEach(function (r) { cx.globalAlpha = Math.max(0, r.a) * .7; cx.strokeStyle = col(1, 75); cx.lineWidth = Math.max(1, U * .008); cx.beginPath(); cx.arc(ox + .6 * U, oy - .98 * U, U * (.1 + r.r), -2.4, -.2); cx.stroke(); });
-      // scan bar sweeping up
-      var sb = (t * .25 % 1), sy2 = by - sb * U * 2.2; var sg = cx.createLinearGradient(0, sy2 - U * .05, 0, sy2 + U * .05); sg.addColorStop(0, col(0)); sg.addColorStop(.5, col(.18)); sg.addColorStop(1, col(0));
-      cx.globalAlpha = 1; cx.fillStyle = sg; cx.fillRect(ox - U * 1.1, sy2 - U * .05, U * 2.2, U * .1);
-      cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1;
     }, 30);
   }
 
