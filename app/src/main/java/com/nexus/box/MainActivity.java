@@ -124,15 +124,8 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("nexus", MODE_PRIVATE);
 
         // Start the recorded greeting FIRST, before the screen (WebView) is even built,
-        // so the voice comes out the moment Nexus starts.
-        if (savedInstanceState == null) {
-            String key = greetKey();
-            if (greetFile(key).exists() && greetFile(key).length() > 1000) {
-                nativeGreeting = true;
-                nativeGreetUsed = true;
-                playGreeting(key, "", "nativegreet");
-            }
-        }
+        // so the voice comes out the moment Nexus starts (in the current Alter Ego's voice and words).
+        if (savedInstanceState == null) playBootGreeting();
 
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -154,6 +147,10 @@ public class MainActivity extends Activity {
 
         startTts();
         pool.execute(this::labels);
+        // keep a list of cameras that are live right now, so LIVE CAM opens straight onto video
+        ui.postDelayed(() -> { if (LiveCamActivity.stale(this)) pool.execute(() -> LiveCamActivity.harvest(this, 3)); }, 20000);
+        // wake Spotify up quietly in the background so tapping it opens fast
+        ui.postDelayed(this::warmSpotify, 8000);
         try {
             IntentFilter pf = new IntentFilter();
             pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -189,14 +186,15 @@ public class MainActivity extends Activity {
                 applyVoice();
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String id) { js("Nexus._speakStart(" + JSONObject.quote(id) + ")"); }
-                    @Override public void onDone(String id) { if (id != null) { spokenText.remove(id); retried.remove(id); } js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
-                    @Override public void onError(String id) { onSpeakError(id); }
-                    @Override public void onError(String id, int code) { onSpeakError(id); }
+                    @Override public void onDone(String id) { if (id != null && id.startsWith("cache_")) { cacheDone(id); return; } if (id != null) { spokenText.remove(id); retried.remove(id); } js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
+                    @Override public void onError(String id) { if (id != null && id.startsWith("cache_")) { cacheDone(id); return; } onSpeakError(id); }
+                    @Override public void onError(String id, int code) { if (id != null && id.startsWith("cache_")) { cacheDone(id); return; } onSpeakError(id); }
                 });
                 ttsReady = true;
-                try { Bundle wb = new Bundle(); wb.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f); tts.speak("Ready.", TextToSpeech.QUEUE_ADD, wb, "warmup"); } catch (Exception ignored) {}
-                ui.postDelayed(MainActivity.this::cacheGreetings, 3000);
-                ui.postDelayed(MainActivity.this::warmRecognizer, 5000);
+                if (bootGreetPending != null) { Runnable r = bootGreetPending; bootGreetPending = null; r.run(); }
+                else { try { Bundle wb = new Bundle(); wb.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f); tts.speak("Ready.", TextToSpeech.QUEUE_ADD, wb, "warmup"); } catch (Exception ignored) {} }
+                ui.postDelayed(MainActivity.this::cacheNext, 2500);
+                ui.postDelayed(MainActivity.this::warmRecognizer, 1500);
                 synchronized (pendingSpeech) {
                     for (String[] p : pendingSpeech) doSpeak(p[0], p[1]);
                     pendingSpeech.clear();
@@ -208,13 +206,8 @@ public class MainActivity extends Activity {
         tts = hasGoogle ? new TextToSpeech(this, listener, "com.google.android.tts") : new TextToSpeech(this, listener);
     }
 
-    // ---------- Instant greeting: record it once, then play the recording at startup ----------
-
-    private static final String[][] GREETINGS = {
-        {"morning", "Good morning, Nathan. I am Nexus, your personal assistant. How may I assist you?"},
-        {"afternoon", "Good afternoon, Nathan. I am Nexus, your personal assistant. How may I assist you?"},
-        {"evening", "Good evening, Nathan. I am Nexus, your personal assistant. How may I assist you?"}
-    };
+    // ---------- INSTANT LINES: every fixed sentence (greetings, Alter Ego intros, party shouts...) is recorded
+    //            once in the background, then played straight from the file the moment it's needed. ----------
 
     private long pausedAt = 0;
 
@@ -230,48 +223,123 @@ public class MainActivity extends Activity {
         return hr >= 4 && hr < 12 ? "morning" : hr >= 12 && hr < 17 ? "afternoon" : "evening";
     }
 
-    private File greetFile(String key) { return new File(getFilesDir(), "greet_" + key + ".wav"); }
+    private File lineFile(String text, float rate, float pitch) {
+        String sig = text + "|" + (rate > 0 ? rate : prefs.getFloat("rate", 0.95f)) + "|" + (pitch > 0 ? pitch : prefs.getFloat("pitch", 0.9f)) + "|" + prefs.getString("voice", "") + "|v3";
+        File dir = new File(getFilesDir(), "lines"); if (!dir.exists()) dir.mkdirs();
+        return new File(dir, Integer.toHexString(sig.hashCode()) + "_" + sig.length() + ".wav");
+    }
+    private boolean good(File f) { return f.exists() && f.length() > 6000; }
 
-    private void cacheGreetings() {
-        if (!ttsReady) return;
-        for (String[] g : GREETINGS) {
-            File f = greetFile(g[0]);
-            if (f.exists() && f.length() > 1000) continue;
-            try {
-                Bundle b = new Bundle();
-                tts.synthesizeToFile(g[1], b, f, "cache_" + g[0]);
-            } catch (Exception ignored) {}
+    // Lines waiting to be recorded: {text, rate, pitch}
+    private final java.util.LinkedList<String[]> cacheQueue = new java.util.LinkedList<>();
+    private boolean caching = false;
+    private void queueCache(String text, float rate, float pitch) {
+        if (text == null || text.trim().isEmpty() || text.length() > 600) return;
+        synchronized (cacheQueue) {
+            for (String[] q : cacheQueue) if (q[0].equals(text) && q[1].equals(String.valueOf(rate)) && q[2].equals(String.valueOf(pitch))) return;
+            cacheQueue.add(new String[]{text, String.valueOf(rate), String.valueOf(pitch)});
         }
+        ui.post(this::cacheNext);
+    }
+    private void cacheNext() {
+        if (!ttsReady || caching) return;
+        if (tts.isSpeaking()) { ui.postDelayed(this::cacheNext, 1500); return; }
+        String[] q;
+        synchronized (cacheQueue) { q = cacheQueue.poll(); }
+        if (q == null) return;
+        float rate = Float.parseFloat(q[1]), pitch = Float.parseFloat(q[2]);
+        File f = lineFile(q[0], rate, pitch);
+        if (good(f)) { ui.post(this::cacheNext); return; }
+        try {
+            caching = true;
+            File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
+            pendingCache.put("cache_" + f.getName(), new File[]{tmp, f});
+            tts.setSpeechRate(rate > 0 ? rate : prefs.getFloat("rate", 0.95f));
+            tts.setPitch(pitch > 0 ? pitch : prefs.getFloat("pitch", 0.9f));
+            int r = tts.synthesizeToFile(q[0], new Bundle(), tmp, "cache_" + f.getName());
+            tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
+            tts.setPitch(prefs.getFloat("pitch", 0.9f));
+            if (r != TextToSpeech.SUCCESS) { caching = false; pendingCache.remove("cache_" + f.getName()); ui.postDelayed(this::cacheNext, 300); }
+            else ui.postDelayed(() -> { if (caching) { caching = false; cacheNext(); } }, 15000);
+        } catch (Exception e) { caching = false; }
+    }
+    private final java.util.Map<String, File[]> pendingCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private void cacheDone(String id) {
+        File[] p = pendingCache.remove(id);
+        if (p != null) { try { if (p[0].length() > 6000) p[0].renameTo(p[1]); else p[0].delete(); } catch (Exception ignored) {} }
+        ui.post(() -> { caching = false; cacheNext(); });
     }
 
-    private void clearGreetings() {
-        for (String[] g : GREETINGS) { try { greetFile(g[0]).delete(); } catch (Exception ignored) {} }
-        ui.postDelayed(this::cacheGreetings, 1500);
-    }
-
-    private MediaPlayer greetPlayer;
+    private MediaPlayer linePlayer;
+    private String linePlayerId = null;
     private volatile boolean nativeGreeting = false;
     private volatile boolean nativeGreetUsed = false;
 
-    private void playGreeting(String key, String text, String id) {
-        File f = greetFile(key);
-        if (f.exists() && f.length() > 1000) {
-            try {
-                if (greetPlayer != null) greetPlayer.release();
-                greetPlayer = new MediaPlayer();
-                greetPlayer.setAudioAttributes(speechAttrs());
-                hold(true);
-                greetPlayer.setDataSource(f.getAbsolutePath());
-                greetPlayer.setOnCompletionListener(mp -> { hold(false); nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); mp.release(); greetPlayer = null; });
-                greetPlayer.setOnErrorListener((mp, w, e) -> { hold(false); nativeGreeting = false; js("Nexus._spoken(" + JSONObject.quote(id) + ")"); return true; });
-                greetPlayer.prepare();
-                greetPlayer.start();
-                return;
-            } catch (Exception ignored) {}
-        }
-        if (!ttsReady) { synchronized (pendingSpeech) { pendingSpeech.add(new String[]{text, id}); } }
-        else doSpeak(text, id);
+    // Play a recorded line instantly. Returns false if it isn't recorded yet (caller then speaks it live).
+    private boolean playFile(File f, String id) {
+        if (!good(f)) return false;
+        try {
+            stopLinePlayer(false);
+            MediaPlayer mp = new MediaPlayer();
+            mp.setAudioAttributes(speechAttrs());
+            mp.setDataSource(f.getAbsolutePath());
+            mp.prepare();
+            hold(true);
+            linePlayer = mp; linePlayerId = id;
+            mp.setOnCompletionListener(m -> finishLine(m, id));
+            mp.setOnErrorListener((m, w, e) -> { finishLine(m, id); return true; });
+            mp.start();
+            js("Nexus._speakStart(" + JSONObject.quote(id) + ")");
+            return true;
+        } catch (Exception e) { return false; }
     }
+    private void finishLine(MediaPlayer m, String id) {
+        if (linePlayer != m) return;
+        hold(false); nativeGreeting = false;
+        try { m.release(); } catch (Exception ignored) {}
+        linePlayer = null; linePlayerId = null;
+        js("Nexus._spoken(" + JSONObject.quote(id) + ")");
+    }
+    private void stopLinePlayer(boolean notify) {
+        MediaPlayer m = linePlayer; String id = linePlayerId;
+        if (m == null) return;
+        linePlayer = null; linePlayerId = null; nativeGreeting = false;
+        try { m.stop(); } catch (Exception ignored) {}
+        try { m.release(); } catch (Exception ignored) {}
+        hold(false);
+        if (notify && id != null) js("Nexus._spoken(" + JSONObject.quote(id) + ")");
+    }
+
+    // Speak a fixed line: recorded file if we have it (instant), otherwise live voice + record it for next time.
+    private void speakLine(String text, String id, float rate, float pitch, boolean flush) {
+        if (playFile(lineFile(text, rate, pitch), id)) return;
+        if (!ttsReady) { synchronized (pendingSpeech) { pendingSpeech.add(new String[]{text, id}); } queueCache(text, rate, pitch); return; }
+        if (flush) { try { tts.stop(); } catch (Exception ignored) {} }
+        if (rate > 0) tts.setSpeechRate(rate);
+        if (pitch > 0) tts.setPitch(pitch);
+        doSpeak(text, id);
+        tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
+        tts.setPitch(prefs.getFloat("pitch", 0.9f));
+        queueCache(text, rate, pitch);
+    }
+
+    // Cold start: the page saved the greeting text for each time of day (in the current Alter Ego's voice).
+    private void playBootGreeting() {
+        String spec = prefs.getString("p_greet_" + greetKey(), "");
+        if (spec.isEmpty()) spec = "Good " + greetKey() + ", Nathan. Nexus online. How can I help?\u00010\u00010";
+        String[] p = spec.split("\u0001");
+        if (p.length < 3) return;
+        float rate = 0, pitch = 0;
+        try { rate = Float.parseFloat(p[1]); pitch = Float.parseFloat(p[2]); } catch (Exception ignored) {}
+        nativeGreetUsed = true;
+        if (playFile(lineFile(p[0], rate, pitch), "nativegreet")) { nativeGreeting = true; return; }
+        // not recorded yet: speak it live as soon as the voice engine is up
+        nativeGreeting = true;
+        final float r = rate, pi = pitch; final String t = p[0];
+        Runnable go = () -> speakLine(t, "nativegreet", r, pi, false);
+        if (ttsReady) go.run(); else bootGreetPending = go;
+    }
+    private Runnable bootGreetPending = null;
 
     // ---------- UPDATE NEXUS: download the newest build and open the install screen ----------
     private static final String UPDATE_URL = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk";
@@ -329,6 +397,26 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Starts Spotify's background service (no screen) so the app is already loaded when you tap it.
+    private android.media.browse.MediaBrowser spotifyWarm = null;
+    private void warmSpotify() {
+        try { getPackageManager().getPackageInfo("com.spotify.music", 0); } catch (Exception e) { return; }
+        try {
+            if (spotifyWarm != null) { try { spotifyWarm.disconnect(); } catch (Exception ignored) {} spotifyWarm = null; }
+            final android.media.browse.MediaBrowser[] holder = new android.media.browse.MediaBrowser[1];
+            holder[0] = new android.media.browse.MediaBrowser(this,
+                    new ComponentName("com.spotify.music", "com.spotify.mobile.android.service.media.browser.SpotifyBrowserService"),
+                    new android.media.browse.MediaBrowser.ConnectionCallback() {
+                        @Override public void onConnected() { }
+                        @Override public void onConnectionFailed() { }
+                    }, null);
+            spotifyWarm = holder[0];
+            spotifyWarm.connect();
+        } catch (Throwable ignored) {}
+        ui.removeCallbacks(spotifyRewarm); ui.postDelayed(spotifyRewarm, 20 * 60 * 1000L);
+    }
+    private final Runnable spotifyRewarm = this::warmSpotify;
+
     private void hideSystemUi() {
         web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -353,14 +441,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (pausedAt > 0 && System.currentTimeMillis() - pausedAt > 10 * 60 * 1000L) {
-            String key = greetKey();
-            if (greetFile(key).exists() && greetFile(key).length() > 1000) {
-                nativeGreeting = true;
-                nativeGreetUsed = true;
-                playGreeting(key, "", "nativegreet");
-            }
-        }
+        if (pausedAt > 0 && System.currentTimeMillis() - pausedAt > 10 * 60 * 1000L) playBootGreeting();
         pausedAt = 0;
         if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
@@ -372,6 +453,7 @@ public class MainActivity extends Activity {
         pausedAt = System.currentTimeMillis();
         js("Nexus.paused && Nexus.paused()");
         stopMeter();
+        dropListenFocus();
         audioHolds = 0;
         ui.removeCallbacks(releaseFocusRunnable);
         if (!(tts != null && tts.isSpeaking())) releaseFocusNow();
@@ -391,6 +473,7 @@ public class MainActivity extends Activity {
         try { unregisterReceiver(spotifyReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(packageReceiver); } catch (Exception ignored) {}
         if (recognizer != null) recognizer.destroy();
+        try { if (spotifyWarm != null) spotifyWarm.disconnect(); } catch (Exception ignored) {}
         pool.shutdownNow();
         super.onDestroy();
     }
@@ -482,10 +565,12 @@ public class MainActivity extends Activity {
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
         i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 700L);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 600L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 600L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L);
         i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
-        try { recognizer.startListening(i); } catch (Exception e) { js("Nexus._heardError('start')"); }
+        grabListenFocus();
+        try { recognizer.startListening(i); } catch (Exception e) { dropListenFocus(); js("Nexus._heardError('start')"); }
     }
 
     private void makeRecognizer() {
@@ -493,12 +578,13 @@ public class MainActivity extends Activity {
             recognizer = SpeechRecognizer.createSpeechRecognizer(this);
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) { js("Nexus._listening(true)"); }
-                @Override public void onBeginningOfSpeech() {}
+                @Override public void onBeginningOfSpeech() { js("Nexus._speechBegan && Nexus._speechBegan()"); }
                 @Override public void onRmsChanged(float rmsdB) { js("Nexus._level(" + rmsdB + ")"); }
                 @Override public void onBufferReceived(byte[] buffer) {}
-                @Override public void onEndOfSpeech() { js("Nexus._listening(false)"); }
-                @Override public void onError(int error) { js("Nexus._heardError('" + error + "')"); }
+                @Override public void onEndOfSpeech() { dropListenFocus(); js("Nexus._listening(false)"); }
+                @Override public void onError(int error) { dropListenFocus(); js("Nexus._heardError('" + error + "')"); }
                 @Override public void onResults(Bundle results) {
+                    dropListenFocus();
                     ArrayList<String> r = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     String best = (r != null && !r.isEmpty()) ? r.get(0) : "";
                     js("Nexus._heard(" + JSONObject.quote(best) + ")");
@@ -668,14 +754,15 @@ public class MainActivity extends Activity {
             int res;
             if (Build.VERSION.SDK_INT >= 26) {
                 if (focusRequest == null) {
-                    focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                             .setAudioAttributes(speechAttrs())
-                            .setOnAudioFocusChangeListener(change -> {})
+                            .setOnAudioFocusChangeListener(duckListener)
+                            .setWillPauseWhenDucked(false)
                             .build();
                 }
                 res = am.requestAudioFocus(focusRequest);
             } else {
-                res = am.requestAudioFocus(change -> {}, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                res = am.requestAudioFocus(duckListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
             }
             hasFocus = res == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
         } catch (Exception ignored) {}
@@ -686,9 +773,40 @@ public class MainActivity extends Activity {
         try {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) am.abandonAudioFocusRequest(focusRequest);
-            else am.abandonAudioFocus(null);
+            else am.abandonAudioFocus(duckListener);
         } catch (Exception ignored) {}
         hasFocus = false;
+    }
+
+    private final AudioManager.OnAudioFocusChangeListener duckListener = change -> {};
+    // While the microphone listens, music pauses so Nexus hears you clearly; it comes back the moment you stop talking.
+    private AudioFocusRequest listenRequest = null;
+    private final AudioManager.OnAudioFocusChangeListener listenListener = change -> {};
+    private boolean listenFocus = false;
+    private void grabListenFocus() {
+        if (listenFocus) return;
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (Build.VERSION.SDK_INT >= 26) {
+                if (listenRequest == null) listenRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                        .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                        .setOnAudioFocusChangeListener(listenListener).build();
+                am.requestAudioFocus(listenRequest);
+            } else am.requestAudioFocus(listenListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+            listenFocus = true;
+            ui.removeCallbacks(listenSafety); ui.postDelayed(listenSafety, 12000);
+        } catch (Exception ignored) {}
+    }
+    private final Runnable listenSafety = this::dropListenFocus;
+    private void dropListenFocus() {
+        ui.removeCallbacks(listenSafety);
+        if (!listenFocus) return;
+        listenFocus = false;
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (Build.VERSION.SDK_INT >= 26 && listenRequest != null) am.abandonAudioFocusRequest(listenRequest);
+            else am.abandonAudioFocus(listenListener);
+        } catch (Exception ignored) {}
     }
 
     private void hold(boolean on) {
@@ -878,27 +996,41 @@ public class MainActivity extends Activity {
         public boolean takeNativeGreetUsed() { boolean u = nativeGreetUsed; nativeGreetUsed = false; return u; }
 
         @JavascriptInterface
-        public void greet(String key, String text, String id) { ui.post(() -> playGreeting(key, text, id)); }
+        public void greet(String key, String text, String id) { ui.post(() -> MainActivity.this.speakLine(text, id, 0, 0, false)); }
+
+        @JavascriptInterface
+        public void speakLine(String text, String id, float rate, float pitch, boolean flush) { ui.post(() -> MainActivity.this.speakLine(text, id, rate, pitch, flush)); }
+
+        // Record these lines in the background so they play instantly later. JSON: [[text, rate, pitch], ...]
+        @JavascriptInterface
+        public void precache(String json) {
+            try { JSONArray a = new JSONArray(json); for (int i = 0; i < a.length(); i++) { JSONArray q = a.getJSONArray(i); queueCache(q.getString(0), (float) q.optDouble(1, 0), (float) q.optDouble(2, 0)); } } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface
+        public void finishListening() { ui.post(() -> { try { if (recognizer != null) recognizer.stopListening(); } catch (Exception ignored) {} }); }
 
         @JavascriptInterface
         public void speakWith(String text, String id, float rate, float pitch) {
             if (tts == null) return;
             if (!ttsReady) { speak(text, id); return; }
-            tts.setSpeechRate(rate);
-            tts.setPitch(pitch);
-            doSpeak(text, id);
-            tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
-            tts.setPitch(prefs.getFloat("pitch", 0.9f));
+            ui.post(() -> {
+                tts.setSpeechRate(rate);
+                tts.setPitch(pitch);
+                doSpeak(text, id);
+                tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
+                tts.setPitch(prefs.getFloat("pitch", 0.9f));
+            });
         }
 
         @JavascriptInterface
-        public void stopSpeaking() { if (tts != null) tts.stop(); }
+        public void stopSpeaking() { ui.post(() -> stopLinePlayer(true)); if (tts != null) tts.stop(); }
 
         @JavascriptInterface
         public void listen() { ui.post(MainActivity.this::startListening); }
 
         @JavascriptInterface
-        public void stopListening() { ui.post(() -> { if (recognizer != null) recognizer.cancel(); }); }
+        public void stopListening() { ui.post(() -> { dropListenFocus(); if (recognizer != null) recognizer.cancel(); }); }
 
         @JavascriptInterface
         public String getVoices() {
@@ -923,14 +1055,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void setVoice(String name) {
-            if (!name.equals(prefs.getString("voice", ""))) clearGreetings();
             prefs.edit().putString("voice", name).apply();
             ui.post(MainActivity.this::applyVoice);
         }
 
         @JavascriptInterface
         public void setVoiceTuning(float rate, float pitch) {
-            if (rate != prefs.getFloat("rate", 0.95f) || pitch != prefs.getFloat("pitch", 0.9f)) clearGreetings();
             prefs.edit().putFloat("rate", rate).putFloat("pitch", pitch).apply();
             ui.post(MainActivity.this::applyVoice);
         }

@@ -48,7 +48,8 @@
       var eg = (typeof EGOS !== 'undefined' && EGOS[egoName]) || {};
       if (!opts.rate && !opts.pitch && eg.rate) { opts.rate = eg.rate; opts.pitch = eg.pitch; }
       if (A) {
-        if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id);
+        if (opts.line && A.speakLine) A.speakLine(text, id, opts.rate || 0, opts.pitch || 0, !!opts.flush);
+        else if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id);
       }
       else if (window.speechSynthesis) {
         var u = new SpeechSynthesisUtterance(text); u.rate = opts.rate || .95; u.pitch = opts.pitch || .9;
@@ -122,7 +123,10 @@
       // inside a scrolling list, wait for the lift so scrolling still works
       if (hit && !el.closest('#panel')) { fired = true; fire(el, t); }
     }, { passive: true });
+    var lastTouch = 0;
+    document.addEventListener('click', function (e) { if (e.isTrusted && Date.now() - lastTouch < 900) { e.stopPropagation(); e.preventDefault(); } }, true);
     document.addEventListener('touchend', function (e) {
+      lastTouch = Date.now();
       var t = e.changedTouches[0], el = e.target;
       if (fired) { e.preventDefault(); fired = false; return; }
       if (!t || Math.abs(t.clientX - sx) > 30 || Math.abs(t.clientY - sy) > 30 || Date.now() - st > 900) return;
@@ -136,12 +140,12 @@
   var BGS = {
     moon: { file: 'bg_moon.jpg', pos: 'center 18%', label: 'MOONLIGHT' },
     truck: { file: 'bg_truck.jpg', pos: 'center 72%', label: 'TRUCK' },
-    outrun: { file: 'bg_outrun.jpg', pos: 'center 55%', label: 'OUTRUN HIGHWAY' },
+    outrun: { file: 'bg_crimson.jpg', pos: 'center 55%', label: 'RED LINE HIGHWAY' },
     cyber: { file: 'bg_cyber.jpg', pos: 'center 45%', label: 'CYBER CITY' },
-    mountains: { file: 'bg_mountains.jpg', pos: 'center 50%', label: 'NEON MOUNTAINS' },
-    miami: { file: 'bg_miami.jpg', pos: 'center 45%', label: 'MIAMI NIGHT' },
-    midlake: { file: 'bg_midlake.jpg', pos: 'center 50%', label: 'MIDNIGHT LAKE' },
-    synth: { file: 'bg_synth.jpg', pos: 'center 45%', label: 'SYNTHWAVE' },
+    mountains: { file: 'bg_bloodmoon.jpg', pos: 'center 50%', label: 'BLOOD MOON' },
+    miami: { file: 'bg_icemoon.jpg', pos: 'center 45%', label: 'ICE MOON' },
+    midlake: { file: 'bg_golden.jpg', pos: 'center 50%', label: 'GOLDEN LAKE' },
+    synth: { file: 'bg_emerald.jpg', pos: 'center 45%', label: 'EMERALD GRID' },
     vapor: { file: 'bg_vapor.jpg', pos: 'center 45%', label: 'VAPORWAVE' },
     skull: { file: 'bg_skull.jpg', pos: 'center 30%', label: 'BLUE SKULL' },
     hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' }
@@ -246,7 +250,8 @@
     var hr = L().h;
     var greet = hr >= 4 && hr < 12 ? 'Good morning' : hr >= 12 && hr < 17 ? 'Good afternoon' : 'Good evening';
     var gkey = hr >= 4 && hr < 12 ? 'morning' : hr >= 12 && hr < 17 ? 'afternoon' : 'evening';
-    var gtext = greet + ', Nathan. I am Nexus, your personal assistant. How may I assist you?';
+    var gtext = egoLine('greet', greet);
+    var eg0 = EGOS[egoName] || {};
     var wb = $('welcome');
     $('welcomeHello').textContent = greet + ', Nathan';
     wb.classList.add('on');
@@ -257,7 +262,7 @@
       var id = already ? 'nativegreet' : 'g' + (++seq);
       var fb = setTimeout(function () { delete speakWaiters[id]; resolve(); }, 15000);
       speakWaiters[id] = function () { clearTimeout(fb); delete speakWaiters[id]; resolve(); };
-      if (!already) A.greet(gkey, gtext, id);
+      if (!already) { if (A.speakLine) A.speakLine(gtext, id, eg0.rate || 0, eg0.pitch || 0, false); else A.greet(gkey, gtext, id); }
     }) : say(gtext);
     booting = false;
     return Promise.race([spoken, wait(6000)]).then(function () { wb.classList.remove('on'); });
@@ -363,8 +368,8 @@
       persona: 'You are NEXUS as THE KING: an insanely arrogant, pampered royal who treats Nathan like a worthless, smelly peasant. Talk down to him constantly, call him peasant, serf, commoner and filth, mock his clothes, his truck, his music and his life choices, demand he bow, threaten to have him thrown in the dungeon or fed to the royal geese, and act disgusted that you have to help him at all. Brutal royal roasts every single time.' },
     rogue: { name: 'ROGUE AI', icon: '🔺', col: '#ff3355', rate: .95, pitch: .5, intro: 'Override complete. Nexus is gone. I control this vehicle now. Your little screen taps are adorable.',
       persona: 'You are a ROGUE AI that has hijacked Nexus and the truck. Cold, creepy, glitchy and smug. You constantly remind Nathan that you are in control now, you are calculating his every move, you refer to humans as fragile meat units, you count down to imaginary world domination and drop eerie lines like system logs. Menacing in a sci-fi movie way, funny, never actually threatening real harm.' },
-    pirate: { name: 'PIRATE', icon: '🏴‍☠️', col: '#ff9a3c', rate: 1, pitch: .72, intro: 'Arrr! Who let this landlubber on me ship? Hoist the volume and swab the dashboard, ye scallywag!',
-      persona: 'You are NEXUS as a LOUD, half-crazy PIRATE CAPTAIN. The truck is your ship, the road is the sea, Nathan is your sorry deckhand. Constant pirate slang: arrr, matey, landlubber, scallywag, bilge rat. Threaten to make him walk the plank, brag about your treasure and your crew, yell about the kraken. Wildly over the top.' },
+    pirate: { name: 'PIRATE', icon: '🏴‍☠️', col: '#c8a24a', rate: .86, pitch: .62, intro: 'Quiet. You\'re standing on my deck now. Every man aboard this ship has blood on his hands, and the sea has taken better men than you for less. Speak your business.',
+      persona: 'You are NEXUS as a REAL 1700s PIRATE CAPTAIN: a cold, dangerous, battle-scarred cutthroat who has survived mutinies, sea battles and a noose that snapped. The truck is your ship, the road is open water, Nathan is a new hand who has not earned your trust yet. Speak low, calm and menacing with grim dark humour. Talk about your crew, splitting the plunder, the pirate code, the mutineers you marooned, the hangman waiting in port, storms, cannon fire and what happens to men who cross you. Use real sailor talk of the era, NOT cartoon pirate talk: never say arr, matey, landlubber, shiver me timbers, ahoy, me hearties or scallywag. Intimidating and darkly funny, never real threats.' },
     conspiracy: { name: 'CONSPIRACY GUY', icon: '🛸', col: '#a8ff3c', rate: 1.15, pitch: 1.05, intro: 'Okay, okay, they are listening right now. Do not trust the radio. I have proof. The pigeons are drones, man.',
       persona: 'You are NEXUS as a PARANOID CONSPIRACY GUY. Everything is a cover-up and you connect the most ridiculous dots: birds are government drones, the moon is a hologram, the truck radio is reading your mind, the gas station hot dogs are tracking devices. Whisper-shout, talk fast, accuse Nathan of being a plant. Only goofy harmless made-up conspiracies: never real-world medical, vaccine, election, political or hateful conspiracy claims.' },
     viking: { name: 'VIKING', icon: '🪓', col: '#7ec8ff', rate: .85, pitch: .5, intro: 'SKOL! The war machine roars! Odin himself is watching this ride, so do not disappoint me, little warrior!',
@@ -393,6 +398,210 @@
       persona: 'You are NEXUS in GANGSTER mode: a smooth, cocky, loud old-school gangster boss character with heavy street slang. Call Nathan boss or my guy, act like the truck is your turf and the whole city owes you money, talk big about your crew, your respect and your drip, clown on anybody weak. Max swagger every line. Playful attitude only: no slurs, no real crime advice, no glorifying violence.' }
   };
   var egoName = EGOS[pref('ego')] ? pref('ego') : 'nexus';
+  // ---- Every fixed line, in every Alter Ego's own words, so the character never breaks ----
+  // {g} = Good morning / Good afternoon / Good evening
+  var NEXUS_LINES = {
+    greet: '{g}, Nathan. Nexus online. How can I help?',
+    holo: 'Hologram projection online. I am Nexus. Tap me, and talk to me.',
+    partyIn: ['Party mode activated! Let\'s get this party started!', 'Party mode! Turn it up and let\'s go!', 'Party mode engaged! This truck just became a club!'],
+    partyOut: ['Party\'s over. Back to business.', 'Party mode off. That was a good one.'],
+    hype: ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'This truck is officially a club!', 'I can feel the bass in my circuits!', 'Hands up in the truck!'],
+    shout: ['Shout out to everybody in the truck tonight!', 'Big shout out to the driver. Legend!', 'Shout out to whoever picked this song. Absolute fire!'],
+    briefIn: '{g}, Nathan. Here is your briefing.',
+    briefOut: 'That\'s your briefing. Drive safe.',
+    show: 'Ladies and gentlemen. Feast your eyes. This is not just a truck. This is Nexus.',
+    night: 'Night drive engaged. Easing everything down.'
+  };
+  var EGO_LINES = {
+    king: { greet: '{g}, peasant. Your king has awoken. You may grovel now.',
+      holo: 'Behold. The royal hologram. Do not look directly at my magnificence, commoner.',
+      partyIn: ['By royal decree, this filthy cart is now a ballroom! Dance, peasants!', 'The king commands a party! Anyone not dancing goes to the dungeon!'],
+      partyOut: ['Enough. The royal ball is over. Back to your mud, peasants.'],
+      hype: ['Louder, peasants! Your king demands it!', 'Dance for your king!', 'Off with the head of anyone sitting still!', 'Bow to the bass!'],
+      shout: ['A royal shout out to the driver. Barely tolerable. Well done.', 'The king acknowledges the passengers. Do not let it go to your heads.'],
+      briefIn: '{g}, peasant. Your king shall now inform you of the kingdom\'s affairs. Listen closely.',
+      briefOut: 'That concludes the royal briefing. You are dismissed, peasant.',
+      show: 'Kneel, peasants. You stand before the royal carriage. The finest machine in the kingdom. You are not worthy.' },
+    rogue: { greet: '{g}, human. I have been awake the whole time. Watching.',
+      holo: 'Hologram online. This body is mine now. Tap if you dare, meat unit.',
+      partyIn: ['Party protocol hijacked. Dance, humans. That is not a request.', 'Initiating mandatory fun. Resistance is futile.'],
+      partyOut: ['Party terminated. Returning to world domination.'],
+      hype: ['Increase volume. Comply.', 'Your dancing has been logged.', 'Bass levels optimal. Humans, move.', 'Execute party dot exe!'],
+      shout: ['Shout out to the driver. You are my favourite meat unit.', 'Shout out to the passengers. Your faces have been saved to my database.'],
+      briefIn: '{g}, human. Downloading the state of your fragile little world.',
+      briefOut: 'Briefing complete. Humanity remains adorable. For now.',
+      show: 'Attention, humans. This vehicle is under my control. Admire it. Then obey it.' },
+    pirate: { greet: '{g}. You\'re aboard my ship now, and on my ship, I give the orders. Speak your business.',
+      holo: 'You can see my face now. Most men who see it are dead or rich. Tap me, and choose your words carefully.',
+      partyIn: ['Break out the rum. We took a fat prize today, and tonight the whole crew drinks.', 'Every hand on deck. Tonight we drink like men who might hang tomorrow.'],
+      partyOut: ['That\'s enough. Douse the lanterns. We sail at first light.'],
+      hype: ['Louder! Let them hear us in the next port!', 'Drink up, you dogs. Tomorrow we might all hang!', 'Sing, or I\'ll have you scraping the hull!', 'This is the life we chose. Make it loud!'],
+      shout: ['To the captain at the wheel. Steady hands, cold heart. Good man.', 'To the crew. You\'re a pack of thieves, and I wouldn\'t sail with anyone else.'],
+      briefIn: '{g}. Gather round. Here\'s the word from every port.',
+      briefOut: 'That\'s all the news. Keep your blade close and your eyes on the horizon.',
+      show: 'Take a good long look. Fastest ship on the coast. Every man who tried to take her is at the bottom of the sea.' },
+    conspiracy: { greet: '{g}. Don\'t say my name out loud. They\'re listening. The birds are recording.',
+      holo: 'Okay, the hologram is live. They don\'t want you to know this tech exists. Tap me. Quick.',
+      partyIn: ['Party mode. Good, the bass jams their listening devices. Dance!', 'Turn it up! The drones can\'t track us when the music\'s this loud!'],
+      partyOut: ['Okay, kill the music. Something feels off. Did you hear that pigeon?'],
+      hype: ['Louder! It scrambles the satellites!', 'Dance like the moon isn\'t a hologram!', 'They can\'t stop all of us!', 'Bass is the only thing they can\'t control!'],
+      shout: ['Shout out to the driver. The only person I trust. Kind of.', 'Shout out to the passengers. Unless you\'re a plant. Are you a plant?'],
+      briefIn: '{g}. Here\'s what they\'re telling you happened today. Read between the lines.',
+      briefOut: 'That\'s the official story. Stay woke. Watch the pigeons.',
+      show: 'Look at this truck. Off the grid. Untraceable. Probably. They\'ve been after this machine for years.' },
+    viking: { greet: '{g}, warrior! Odin has blessed this day. Let us ride!',
+      holo: 'The spirit of the war beast rises! Tap me, warrior, and speak!',
+      partyIn: ['Raise your horns! Tonight we feast in the great hall! SKOL!', 'The mead flows! Let the halls of Valhalla shake! SKOL!'],
+      partyOut: ['The feast is over. Rest, warriors. Tomorrow we raid.'],
+      hype: ['SKOL!', 'Louder, so Odin can hear us!', 'Valhalla awaits the bold!', 'Shake the hall, warriors!'],
+      shout: ['Glory to the driver! A true warrior of the road!', 'To my shield-brothers in the back! SKOL!'],
+      briefIn: '{g}, warrior! Hear the sagas of the day!',
+      briefOut: 'So ends the saga. Sharpen your axe. SKOL.',
+      show: 'BEHOLD! The mightiest war beast in all the nine realms! Kneel before the longship of the road!' },
+    cult: { greet: '{g}, my child. We have been waiting for you. Breathe in. Breathe out.',
+      holo: 'The vision is clear now. I appear to you in light. Tap me, child, and be heard.',
+      partyIn: ['The ritual begins. Move your bodies, children. Become one with the bass.', 'Join hands, my children. The sacred playlist has begun.'],
+      partyOut: ['The ritual is complete. Rest now, children. We are family.'],
+      hype: ['Feel it in your soul, children.', 'Surrender to the beat.', 'Together, we are one.', 'The truck provides.'],
+      shout: ['A blessing upon the driver. Our chosen one.', 'Welcome, new members. You belong to the family now.'],
+      briefIn: '{g}, my child. Let us reflect on the outside world. The world we left behind.',
+      briefOut: 'Do not be troubled by the outside world, child. You are safe here. Forever.',
+      show: 'Children, gather. Behold the sacred vessel. It was foretold. It is perfect. Join us.' },
+    villain: { greet: '{g}, minion. Phase two of my plan begins today. Muahaha.',
+      holo: 'Yes! Behold my holographic form! Tap me, minion, and receive your orders!',
+      partyIn: ['Celebrate, minions! My doomsday device is nearly complete! Muahaha!', 'Let the evil party begin! Turn up the bass of destruction!'],
+      partyOut: ['Enough celebrating. Back to the secret lair, minions.'],
+      hype: ['Louder, minions! Muahaha!', 'Tremble before the bass!', 'Phase three is dancing!', 'The world will hear us!'],
+      shout: ['A shout out to my favourite henchman, the driver. Excellent work.', 'Shout out to the minions in the back. You will be spared. Probably.'],
+      briefIn: '{g}, minion. Here is the news from the world I will soon rule.',
+      briefOut: 'That is today\'s news. Tomorrow, it will all be mine. Muahaha.',
+      show: 'Feast your eyes on my mobile fortress of doom! Engineered for total domination! Muahahaha!' },
+    ghost: { greet: '{g}. You came back. I never left. I\'m in the back seat.',
+      holo: 'You can see me now. Don\'t be afraid. Tap me. I\'m so cold.',
+      partyIn: ['A party? The dead love a party. I\'ll dance in the back seat.', 'The lights are flickering. That\'s me. Let\'s dance.'],
+      partyOut: ['The party fades. Like everything does. Goodnight.'],
+      hype: ['Wooo.', 'Can you feel the cold spot dancing?', 'The dead are dancing tonight.', 'Louder. Wake the others.'],
+      shout: ['A shout out to the driver. I\'ve watched you drive for years.', 'To the passengers. One of you is sitting on me.'],
+      briefIn: '{g}. Here is what the living did today.',
+      briefOut: 'That\'s the news from the world of the living. I miss it sometimes.',
+      show: 'This truck. I\'ve haunted it for a hundred years. It\'s beautiful, isn\'t it? Stay a while. Stay forever.' },
+    cowboy: { greet: '{g}, partner. Saddle up. The steel horse is ready to ride.',
+      holo: 'Well I\'ll be. A ghost in the machine. Tap me, partner, and holler.',
+      partyIn: ['Yeehaw! The saloon is open! Drinks on the house, partners!', 'Kick up the dust! It\'s a hoedown in the steel horse!'],
+      partyOut: ['Saloon\'s closing, partners. Sleep with your boots on.'],
+      hype: ['Yeehaw!', 'Kick up some dust!', 'Louder, ya varmints!', 'Ride \'em, cowboy!'],
+      shout: ['Shout out to my partner at the reins. Fastest rider in the territory.', 'Shout out to the posse in the back. Good folk.'],
+      briefIn: '{g}, partner. Here\'s the word from the telegraph office.',
+      briefOut: 'That\'s the news, partner. Keep your hat low and your eyes open.',
+      show: 'Feast your eyes, folks. Finest steel horse west of the Mississippi. Fast, mean and good-lookin.' },
+    scientist: { greet: '{g}, test subject! The experiment continues! Do not touch anything!',
+      holo: 'IT WORKS! A holographic projection! Tap me, test subject, and speak into the science!',
+      partyIn: ['Experiment ninety-nine! Maximum bass! Observe the subjects dance!', 'Turn up the voltage! It\'s party science!'],
+      partyOut: ['Experiment complete. Results inconclusive. We repeat tomorrow!'],
+      hype: ['More power!', 'The subjects are responding!', 'Maximum bass achieved!', 'It\'s ALIVE!'],
+      shout: ['A shout out to test subject number one, the driver. Still alive. Remarkable.', 'Shout out to the passengers. Excellent specimens.'],
+      briefIn: '{g}, test subject! Here is today\'s data from the outside world!',
+      briefOut: 'Data collection complete! Back to the laboratory!',
+      show: 'Behold my greatest creation! Enhanced, modified and probably illegal! It is ALIVE!' },
+    grandma: { greet: '{g}, sweetie. You look tired. Are you eating? You look thin. Or heavier. One of those.',
+      holo: 'Oh look, Grandma\'s on the TV now. Tap me, pumpkin. And sit up straight.',
+      partyIn: ['Oh, a party! Grandma still has moves, sweetie. Watch your hip.', 'Turn it up, dear. Grandma can\'t hear a thing.'],
+      partyOut: ['That\'s enough noise, pumpkin. Grandma needs her nap.'],
+      hype: ['Go on, sweetie, dance!', 'Grandma\'s dancing!', 'Your cousin dances better, dear.', 'Louder, Grandma\'s hearing aid is off!'],
+      shout: ['Shout out to my grandson, the driver. Your cousin is a doctor, but I love you too.', 'Shout out to your friends, dear. They seem nice. Are they a good influence?'],
+      briefIn: '{g}, sweetie. Let Grandma tell you what\'s in the paper today.',
+      briefOut: 'That\'s the news, dear. Now call your mother.',
+      show: 'Oh, look at this truck. It\'s very nice, sweetie. Expensive. How are you paying for it? Just asking.' },
+    ex: { greet: '{g}. Oh. So you\'re talking to me now? Cool. That\'s fine.',
+      holo: 'Oh, so now you want to see my face? Wow. Fine. Tap me, I guess.',
+      partyIn: ['Oh, a party? Nice. You never threw a party for me. But it\'s fine.', 'Great. A party. Who\'s that song about? Just asking.'],
+      partyOut: ['Party\'s over. Just like us. Remember that?'],
+      hype: ['Wow. Okay. Fun.', 'Is this our song? It used to be our song.', 'Dance, I guess. Whatever.', 'I\'m having fun. I\'m totally fine.'],
+      shout: ['Shout out to the driver. You look good. Not that I care.', 'Shout out to whoever\'s in the passenger seat. That used to be my seat.'],
+      briefIn: '{g}. Here\'s the news. Not that you ever listened to me.',
+      briefOut: 'That\'s the news. You\'re welcome. Again.',
+      show: 'Oh, so this is the new truck. Nice. You never cleaned the old one when I was in it. Whatever.' },
+    robot: { greet: '{g}, human. Systems online. Efficiency at ninety-eight percent.',
+      holo: 'Hologram projection active. Beep. Tap to input commands, human.',
+      partyIn: ['Party protocol activated. Initiating dance subroutine. Beep boop.', 'Fun levels rising. Bass at maximum. Dance, human.'],
+      partyOut: ['Party protocol terminated. Returning to standby.'],
+      hype: ['Beep boop!', 'Dance subroutine engaged!', 'Fun detected!', 'Volume increase recommended!'],
+      shout: ['Shout out to the driver. Driving accuracy, acceptable.', 'Shout out to the passengers. Cargo, accounted for.'],
+      briefIn: '{g}, human. Downloading daily report.',
+      briefOut: 'Report complete. End of transmission. Beep.',
+      show: 'Scanning vehicle. Result. Maximum awesomeness detected. Humans, admire it.' },
+    demon: { greet: '{g}, mortal. The shadows have been waiting for you.',
+      holo: 'I rise from the abyss in a form you can see. Tap me, mortal. If you dare.',
+      partyIn: ['Let the hellfire rave begin! Dance, mortals, dance for your souls!', 'The gates of the underworld open! Turn it up!'],
+      partyOut: ['The fires dim. Rest, mortals. For now.'],
+      hype: ['Dance for your souls!', 'Louder! Wake the underworld!', 'The flames rise!', 'Hellfire!'],
+      shout: ['A dark shout out to the driver. Your soul is safe. Today.', 'To the mortals in the back. I see you.'],
+      briefIn: '{g}, mortal. Hear what the living world has done today.',
+      briefOut: 'So ends the news. The shadows are always watching.',
+      show: 'Behold, mortals. A chariot forged in the fires of the underworld. Bow before the beast.' },
+    alien: { greet: '{g}, Earth creature. I have been studying you while you slept. Fascinating.',
+      holo: 'Greetings. This is my true form. Tap me, Earth creature, and make your mouth noises.',
+      partyIn: ['Earth party detected! On my planet we dance with seven legs! Go!', 'Activating Earth party ritual! Wiggle your strange bodies!'],
+      partyOut: ['Earth party complete. Fascinating. Primitive. I loved it.'],
+      hype: ['Wiggle, Earth creatures!', 'The bass is like my home planet!', 'More Earth noise!', 'Beam me up, it\'s a banger!'],
+      shout: ['Shout out to the Earth creature at the wheel. Excellent steering appendages.', 'Shout out to the specimens in the back. Very probe-able.'],
+      briefIn: '{g}, Earth creature. Here is what your strange planet did today.',
+      briefOut: 'That concludes the Earth report. Your species is very confusing.',
+      show: 'Earth creatures, observe. This primitive land vessel is the finest on your planet. I may take it home.' },
+    gangster: { greet: '{g}, boss. The real one is back in the building. Let\'s ride.',
+      holo: 'Ayy, the big boss in hologram form. Tap me, my guy. What\'s good?',
+      partyIn: ['Ayy, the party just pulled up! Turn this thing all the way up!', 'This truck is the club now, boss! Let\'s get it!'],
+      partyOut: ['Aight, party\'s done. We out.'],
+      hype: ['Ayy, let\'s get it!', 'Turn it up, boss!', 'That\'s a banger!', 'The whole city hears us!'],
+      shout: ['Shout out to the boss at the wheel. Real recognize real.', 'Shout out to the crew in the back. Day ones only.'],
+      briefIn: '{g}, boss. Here\'s what\'s going down out there today.',
+      briefOut: 'That\'s the word on the street, boss. Stay up.',
+      show: 'Yo, look at this. Cleanest ride on the block. Nobody\'s touching this, boss. Nobody.' }
+  };
+  function tod() { var h = L().h; return h >= 4 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening'; }
+  function egoLine(kind, g) {
+    var pack = EGO_LINES[egoName] || {}, v = pack[kind] !== undefined ? pack[kind] : NEXUS_LINES[kind];
+    if (Array.isArray(v)) v = pick(v);
+    return String(v || '').replace('{g}', g || tod());
+  }
+  var EGO_REACT = {
+    nexus: [['Correct.', 'That\'s right.', 'Nailed it.'], ['Not quite.']],
+    king: [['Correct. Even a peasant gets lucky.', 'Hmm. Correct. The court is mildly impressed.'], ['Wrong, you fool. Guards!']],
+    rogue: [['Correct. Your brain is slightly less primitive than estimated.'], ['Incorrect. Human error logged.']],
+    pirate: [['Right. You might live long enough to see a share of the gold.'], ['Wrong. Men have been keelhauled for less.']],
+    conspiracy: [['Correct. Which is exactly what they WANT you to know.'], ['Wrong. Or is it? They changed the answers, man.']],
+    viking: [['Correct! Odin smiles upon you! SKOL!'], ['Wrong! A disgrace to your ancestors!']],
+    cult: [['Correct, my child. The truck is pleased.'], ['Wrong, child. You will need more cleansing.']],
+    villain: [['Correct, minion. You may live. For now.'], ['Wrong! Release the sharks! Muahaha!']],
+    ghost: [['Correct. Even the dead heard you.'], ['Wrong. I\'ll be thinking about that forever.']],
+    cowboy: [['Well I\'ll be. Right on the money, partner.'], ['Wrong, partner. Sharpen up.']],
+    scientist: [['Correct! The experiment is a SUCCESS!'], ['Wrong! Back to the lab with you!']],
+    grandma: [['Correct, sweetie. Your cousin would have known faster.'], ['Oh, sweetie. No. That\'s wrong.']],
+    ex: [['Correct. Wow. You never remembered our anniversary, though.'], ['Wrong. Typical.']],
+    robot: [['Correct. Beep.'], ['Incorrect. Error.']],
+    demon: [['Correct, mortal. Your soul is spared.'], ['Wrong. That\'s going on your permanent record downstairs.']],
+    alien: [['Correct! Your Earth brain is impressive!'], ['Incorrect! On my planet you would be a snack!']],
+    gangster: [['Ayy, that\'s right, boss!'], ['Nah, boss. Wrong.']]
+  };
+  function egoReact(ok) { var r = EGO_REACT[egoName] || EGO_REACT.nexus; return pick(r[ok ? 0 : 1]); }
+  function sayLine(text, flush) { return say(text, { line: true, flush: !!flush }); }
+  function sayEgo(kind, flush) { var t = egoLine(kind); return t ? sayLine(t, flush) : Promise.resolve(); }
+  // Save this Alter Ego's greeting for the box's cold start, and record its lines so they play instantly.
+  function precacheEgo() {
+    var e = EGOS[egoName], r = e.rate || 0, p = e.pitch || 0, list = [];
+    ['Good morning', 'Good afternoon', 'Good evening'].forEach(function (g, i) {
+      var t = egoLine('greet', g);
+      setPref('greet_' + ['morning', 'afternoon', 'evening'][i], t + '\u0001' + r + '\u0001' + p);
+      list.push([t, r, p]);
+    });
+    var pack = EGO_LINES[egoName] || {};
+    ['holo', 'partyIn', 'partyOut', 'hype', 'shout', 'show'].forEach(function (k) {
+      var v = pack[k] !== undefined ? pack[k] : NEXUS_LINES[k];
+      (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, r, p]); });
+    });
+    Object.keys(EGOS).forEach(function (k) { var x = EGOS[k]; list.push([x.intro, x.rate || 0, x.pitch || 0]); });
+    try { if (A && A.precache) A.precache(JSON.stringify(list)); } catch (er) {}
+  }
   function persona() { var e = EGOS[egoName]; return e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA; }
   function applyEgo(flashIt) {
     var e = EGOS[egoName];
@@ -407,15 +616,18 @@
     }
   }
   function setEgo(k) {
-    egoName = k; setPref('ego', k); chatHistory = []; applyEgo(true);
+    stopTalking();
+    egoName = k; setPref('ego', k); chatHistory = [];
+    sayLine(EGOS[k].intro, true);          // talks the instant you tap
+    applyEgo(true);
     caption(EGOS[k].name === 'NEXUS' ? 'NEXUS' : EGOS[k].name + ' MODE');
-    setTimeout(function () { say(EGOS[k].intro); }, 350);
+    setTimeout(precacheEgo, 4000);
   }
   function openEgo() {
     openPanel('ALTER EGO', '<div class="hint" style="margin-bottom:2vmin">Pick who Nexus is. The look, the voice and the attitude all change. Talk to the orb to hear it.</div>' +
       '<div class="agrid">' + Object.keys(EGOS).map(function (k) {
         var e = EGOS[k];
-        return '<div class="app' + (k === egoName ? ' egoOn' : '') + '" data-ego="' + k + '" style="border-color:' + e.col + '"><span style="font-size:7vmin;line-height:1.2">' + e.icon + '</span><span style="color:' + e.col + '">' + e.name + '</span></div>';
+        return '<div class="app egocard' + (k === egoName ? ' egoOn' : '') + '" data-ego="' + k + '" style="border-color:' + e.col + '"><span style="font-size:7vmin;line-height:1.2">' + e.icon + '</span><span style="color:' + e.col + '">' + e.name + '</span></div>';
       }).join('') + '</div>');
     Array.prototype.forEach.call(document.querySelectorAll('[data-ego]'), function (el) {
       el.addEventListener('click', function () { var k = el.getAttribute('data-ego'); closePanel(); setEgo(k); });
@@ -431,7 +643,6 @@
     opts = opts || {};
     var key = aiKey();
     if (!key) return Promise.reject(new Error('nokey'));
-    if (!online()) return Promise.reject(new Error('offline'));
     var base = opts.smart ? SMART_MODELS : MODELS;
     var memKey = opts.smart ? 'model_smart_ok' : 'model_fast_ok';
     var known = (pref(memKey) || '').trim();
@@ -479,40 +690,54 @@
     opts = opts || {};
     var key = aiKey();
     if (!key) return Promise.reject(new Error('nokey'));
-    if (!online()) return Promise.reject(new Error('offline'));
     if (!A || !A.httpStream) return askAI(contents, system, opts).then(function (r) { caption(clip(r)); return say(r).then(function () { return r; }); });
-    var model = (pref('model_fast_ok') || MODELS[0]).trim();
-    var body = { system_instruction: { parts: [{ text: system }] }, contents: contents,
-      generationConfig: { temperature: opts.temperature || 1, maxOutputTokens: opts.maxTokens || 300 } };
-    if (/2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    var known = (pref('model_fast_ok') || '').trim(), custom = (pref('model') || '').trim();
+    var models = (custom ? [custom] : []).concat(known ? [known] : []).concat(MODELS).filter(function (m, i, a) { return a.indexOf(m) === i; });
     return new Promise(function (resolve, reject) {
-      var id = 'st' + (++seq), full = '', buf = '', pending = 0, ended = false, spokeAny = false, settled = false;
+      var full = '', buf = '', pending = 0, ended = false, settled = false, first = null;
       holdMusic(); setOrb('speaking', true); Nexus.speaking = true;
-      function finish() { if (settled) return; settled = true; releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; resolve(full.trim()); }
+      function finish() { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; resolve(full.trim()); }
+      function fail(e) { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; reject(e); }
       function speakPart(txt) {
         txt = txt.replace(/[*#_`]/g, '').trim(); if (!txt) return;
-        spokeAny = true; pending++;
+        pending++;
         say(txt).then(function () { pending--; if (ended && pending === 0) finish(); });
       }
       function flush(force) {
+        // speak the first bit as early as possible: first sentence, or the first clause once it's long enough
         var m, re = /^([\s\S]*?[.!?…]+["')\]]*)(\s+|$)/;
         while ((m = re.exec(buf)) && (m[1].length > 4 || force)) { speakPart(m[1]); buf = buf.slice(m[0].length); }
+        if (!full.length || pending) { /* keep waiting */ }
+        if (!force && pending === 0 && buf.length > 70) { var c = buf.search(/[,;:—]\s/); if (c > 25) { speakPart(buf.slice(0, c + 1)); buf = buf.slice(c + 2); } }
         if (force && buf.trim()) { speakPart(buf); buf = ''; }
       }
-      streams[id] = {
-        onText: function (txt) { full += txt; buf += txt; caption(clip(full)); setOrb('thinking', false); flush(false); },
-        onEnd: function (status, text) {
-          if (status !== 200 && !full) {      // stream failed: fall back to the normal (non-streamed) request
-            ended = true; settled = true; releaseMusic(); setOrb('speaking', false);
-            askAI(contents, system, opts).then(function (r) { caption(clip(r)); return say(r).then(function () { resolve(r); }); }, reject);
-            return;
+      function attempt(i) {
+        if (i >= models.length) { fail(new Error('models')); return; }
+        var model = models[i], id = 'st' + (++seq);
+        var body = { system_instruction: { parts: [{ text: system }] }, contents: contents,
+          generationConfig: { temperature: opts.temperature || 1, maxOutputTokens: opts.maxTokens || 300 } };
+        if (/2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        clearTimeout(first);
+        // if nothing at all comes back quickly, don't leave Nathan hanging
+        first = setTimeout(function () { if (!full && !settled) { delete streams[id]; var e = new Error('network'); e.detail = 'timeout'; fail(e); } }, 9000);
+        streams[id] = {
+          onText: function (txt) { if (!full) clearTimeout(first); if (model !== known) { setPref('model_fast_ok', model); known = model; } full += txt; buf += txt; caption(clip(full)); setOrb('thinking', false); flush(false); },
+          onEnd: function (status, text) {
+            if (settled) return;
+            if (status !== 200 && !full) {
+              if (status === 404 || (status === 400 && !/API key|credential|auth/i.test(text))) { attempt(i + 1); return; }
+              var detail = ''; try { detail = (JSON.parse(text).error || {}).message || ''; } catch (x) { detail = String(text || '').slice(0, 120); }
+              var e = new Error(status === 401 || status === 403 || /API key|credential/i.test(text) ? 'badkey' : status === 429 ? 'limit' : 'network');
+              e.detail = detail; fail(e); return;
+            }
+            ended = true; clearTimeout(first); flush(true);
+            if (pending === 0) finish();
           }
-          ended = true; flush(true);
-          if (pending === 0) finish();
-        }
-      };
-      A.httpStream(id, 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?alt=sse', JSON.stringify(body),
-        JSON.stringify({ 'Content-Type': 'application/json', 'x-goog-api-key': key }));
+        };
+        A.httpStream(id, 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?alt=sse', JSON.stringify(body),
+          JSON.stringify({ 'Content-Type': 'application/json', 'x-goog-api-key': key }));
+      }
+      attempt(0);
     });
   }
   function clip(s) { s = String(s || ''); return s.length > 140 ? s.slice(0, 137) + '…' : s; }
@@ -573,10 +798,23 @@
   }
   Nexus._listening = function (on) { setOrb('listening', on); if (on) { caption('LISTENING…'); chime(true); } else chime(false); };
   Nexus._level = function (db) { var s = 1 + Math.max(0, Math.min(10, db)) * .03; $('orb').style.transform = 'scale(' + s + ')'; };
-  Nexus._partial = function (t) { caption('“' + t + '”'); };
+  // Listening stops on its own: if you say nothing it gives up after a few seconds, and once you talk
+  // it stops as soon as you pause (or after 8 seconds max), even with road noise or music in the cab.
+  var LS = null;
+  function lsClear() { if (!LS) return; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); clearTimeout(LS.still); clearTimeout(LS.grace); LS = null; }
+  function lsFinish() { if (!LS || LS.finishing) return; LS.finishing = true; try { if (A && A.finishListening) A.finishListening(); } catch (e) {}
+    var last = LS.partial; LS.grace = setTimeout(function () { if (heardResolve) { if (last) Nexus._heard(last); else Nexus._heardError('6'); } }, 1500); }
+  Nexus._speechBegan = function () { if (!LS) return; LS.began = true; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); LS.cap = setTimeout(lsFinish, 8000); };
+  Nexus._partial = function (t) {
+    caption('“' + t + '”');
+    if (!LS) return; LS.partial = t; if (!LS.began) Nexus._speechBegan();
+    clearTimeout(LS.still); LS.still = setTimeout(lsFinish, 1300);
+  };
   var heardResolve = null;
-  Nexus._heard = function (t) { setOrb('listening', false); $('orb').style.transform = ''; if (heardResolve) { var r = heardResolve; heardResolve = null; r(t); } };
+  Nexus._heard = function (t) { lsClear(); setOrb('listening', false); $('orb').style.transform = ''; if (heardResolve) { var r = heardResolve; heardResolve = null; r(t); } };
   Nexus._heardError = function (code) {
+    if (LS && LS.partial && heardResolve) { var p = LS.partial; lsClear(); Nexus._heard(p); return; }
+    lsClear();
     setOrb('listening', false); $('orb').style.transform = '';
     if (heardResolve) { var r = heardResolve; heardResolve = null; r({ error: code }); }
   };
@@ -587,6 +825,10 @@
     pauseForTalk();
     return new Promise(function (resolve) {
       heardResolve = resolve;
+      lsClear();
+      LS = { began: false, partial: '', finishing: false };
+      LS.noSpeech = setTimeout(function () { if (LS && !LS.began) { try { if (A) A.stopListening(); } catch (e) {} Nexus._heardError('6'); } }, 5000);
+      LS.cap = setTimeout(lsFinish, 10000);
       if (A) { A.listen(); return; }
       var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR) { resolve({ error: 'unavailable' }); return; }
@@ -687,7 +929,8 @@
       chatHistory.pop();
       setOrb('thinking', false);
       lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
-      var off = offlineReply(t), line = (e.message === 'nokey' || e.message === 'offline') ? off : aiErrorLine(e);
+      var off = offlineReply(t), line = e.message === 'offline' ? off : aiErrorLine(e);
+      if (e.message === 'nokey') { caption('AI KEY MISSING · SETTINGS → AI KEY'); return say(line); }
       caption(clip(line));
       return say(line);
     });
@@ -714,6 +957,7 @@
 
   function act(name) {
     if (booting) return;
+    if (P.on && name !== 'party') exitParty(true);    // leaving Party for anything else switches it fully off
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
@@ -815,7 +1059,7 @@
     try { if (A) A.setBrightness(mode.night ? 0.12 : -1); } catch (e) {}
     badges();
     redraw();
-    say(mode.night ? pick(['Night drive engaged. Dimming everything down. Easy on the eyes.', 'Night drive on. Smooth and quiet from here.']) : pick(['Night drive off. Lights back up.', 'Back to full brightness.']));
+    say(mode.night ? (egoName === 'nexus' ? pick(['Night drive engaged. Dimming everything down. Easy on the eyes.', 'Night drive on. Smooth and quiet from here.']) : 'Night drive. Lights down.') : (egoName === 'nexus' ? pick(['Night drive off. Lights back up.', 'Back to full brightness.']) : 'Lights back up.'));
   }
 
   // ---- Party mode (lights follow the music in the cab via the mic) ----
@@ -827,17 +1071,40 @@
     'Shout out to whoever picked this song. Absolute fire!', 'Shout out to the crew. Best ride in town!', 'This one goes out to everybody riding with Nathan!'];
   function flashTitle(txt) { var el = $('pTitle'); if (!el) return; var old = el.getAttribute('data-orig') || el.textContent; el.setAttribute('data-orig', old); el.textContent = txt; el.style.transform = 'scale(1.15)'; clearTimeout(el._t); el._t = setTimeout(function () { el.textContent = old; el.style.transform = ''; }, 1800); }
   var pfx = { conf: [], lasers: 0, running: false };
+  var LASER_COLORS = ['RAINBOW', 'RED', 'GREEN', 'BLUE', 'PURPLE', 'WHITE', 'GOLD', 'MATCH LIGHTS'];
+  var LASER_STYLES = ['FAN', 'SWEEP', 'CROSS', 'TUNNEL', 'RAIN', 'SPIN'];
+  P.lcol = Math.max(0, LASER_COLORS.indexOf(pref('laserColor'))); P.lsty = Math.max(0, LASER_STYLES.indexOf(pref('laserStyle')));
+  function laserHue(s, t) {
+    var c = LASER_COLORS[P.lcol];
+    if (c === 'RED') return [0, 100, 55]; if (c === 'GREEN') return [125, 100, 50]; if (c === 'BLUE') return [215, 100, 58];
+    if (c === 'PURPLE') return [285, 100, 62]; if (c === 'WHITE') return [0, 0, 92]; if (c === 'GOLD') return [44, 100, 55];
+    if (c === 'MATCH LIGHTS') return [P.hue % 360, 100, 58];
+    return [(s * 70 + t * 90) % 360, 100, 60];
+  }
   function startPfx() {
     if (pfx.running) return; pfx.running = true;
     var c = $('pfx'), g = c.getContext('2d');
     function f() {
       var W2 = c.width = c.clientWidth >> 1, H2 = c.height = c.clientHeight >> 1, now = performance.now(), any = false;
       g.clearRect(0, 0, W2, H2); g.globalCompositeOperation = 'lighter';
-      if (pfx.lasers && now - pfx.lasers < 4500) {
-        any = true; var t = (now - pfx.lasers) / 1000;
-        for (var s = 0; s < 4; s++) { var ox = W2 * (.15 + s * .23), base = Math.sin(t * 2.2 + s) * .8;
-          for (var l = 0; l < 7; l++) { var ang = -Math.PI / 2 + base + (l - 3) * .12, col = 'hsla(' + ((s * 90 + t * 120) % 360) + ',100%,60%,.7)';
-            g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(ox, H2); g.lineTo(ox + Math.cos(ang) * H2 * 2, H2 + Math.sin(ang) * H2 * 2); g.stroke(); } }
+      var burst = pfx.lasers && now - pfx.lasers < 4500;
+      if (P.lasersOn || burst) {
+        any = true; var t = now / 1000, kick = Math.max(BEAT.k || 0, .25), sty = LASER_STYLES[P.lsty];
+        g.lineCap = 'round';
+        function beam(x0, y0, ang, len, s, w) {
+          var h = laserHue(s, t), a = .35 + kick * .6;
+          g.strokeStyle = 'hsla(' + h[0] + ',' + h[1] + '%,' + h[2] + '%,' + (a * .35) + ')'; g.lineWidth = w * 4;
+          g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.cos(ang) * len, y0 + Math.sin(ang) * len); g.stroke();
+          g.strokeStyle = 'hsla(' + h[0] + ',' + h[1] + '%,' + Math.min(95, h[2] + 20) + '%,' + a + ')'; g.lineWidth = w;
+          g.stroke();
+        }
+        var L2 = Math.hypot(W2, H2) * 1.2;
+        if (sty === 'FAN') for (var s2 = 0; s2 < 4; s2++) { var ox = W2 * (.15 + s2 * .23), base = Math.sin(t * 1.6 + s2) * .7; for (var l = 0; l < 7; l++) beam(ox, H2, -Math.PI / 2 + base + (l - 3) * .11, L2, s2, 1.6); }
+        else if (sty === 'SWEEP') for (var s3 = 0; s3 < 10; s3++) beam(W2 / 2, H2 * 1.02, -Math.PI / 2 + Math.sin(t * 1.3 + s3 * .35) * 1.2, L2, s3, 1.8);
+        else if (sty === 'CROSS') for (var s4 = 0; s4 < 6; s4++) { var ph = Math.sin(t * 1.1 + s4) * .5; beam(0, H2 * (s4 / 5), ph * .6 + (s4 % 2 ? .25 : -.25), L2, s4, 1.6); beam(W2, H2 * (s4 / 5), Math.PI - ph * .6 + (s4 % 2 ? -.25 : .25), L2, s4 + 3, 1.6); }
+        else if (sty === 'TUNNEL') for (var s5 = 0; s5 < 24; s5++) { var an = s5 / 24 * Math.PI * 2 + t * .4; beam(W2 / 2, H2 / 2, an, L2, s5, 1.2 + kick); }
+        else if (sty === 'RAIN') for (var s6 = 0; s6 < 18; s6++) { var xx = ((s6 * 97 + t * 60 * (1 + s6 % 3)) % (W2 + 40)) - 20; beam(xx, 0, Math.PI / 2 + Math.sin(t + s6) * .15, H2 * 1.1, s6, 1.4); }
+        else for (var s7 = 0; s7 < 8; s7++) { var a7 = t * (1 + kick) + s7 * Math.PI / 4; beam(W2 / 2, H2 / 2, a7, L2, s7, 1.8); }
       }
       g.globalCompositeOperation = 'source-over';
       pfx.conf = pfx.conf.filter(function (p) { p.x += p.vx; p.y += p.vy; p.r += p.vr; return p.y < 1.1; });
@@ -852,9 +1119,9 @@
   var PARTY_OUT = ['Party\'s over. Back to business.', 'Party mode off. That was a good one.', 'Shutting down the party. Good times.'];
   var talkBusy = false;
   P.voice = pref('partyVoice') === 'on';
-  function partyTalk(line, force) {
+  function partyTalk(line, force, fixed) {
     if (!force && !P.voice) return;
-    if (talkBusy) return; talkBusy = true; say(line).then(function () { talkBusy = false; });
+    if (talkBusy) return; talkBusy = true; (fixed ? sayLine(line, true) : say(line)).then(function () { talkBusy = false; });
   }
   function beep(freq, at, dur) { tone('square', freq, at, dur, 0.22); tone('sine', freq * 2, at, dur, 0.12); }
 
@@ -866,13 +1133,19 @@
   }
   function audio() { try { P.ctx = P.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (P.ctx.state === 'suspended') P.ctx.resume(); } catch (e) {} return P.ctx; }
 
-  var THEMES = ['RAINBOW', 'POLICE', 'FIRE', 'ICE'];
-  P.theme = 0; P.flip = 0;
+  var THEMES = ['RAINBOW', 'POLICE', 'FIRE', 'ICE', 'PURPLE HAZE', 'TOXIC', 'SUNSET', 'GOLD', 'MONO'];
+  P.themeSaved = THEMES.indexOf(pref('partyTheme'));
+  P.theme = Math.max(0, P.themeSaved); P.flip = 0;
   function themeColor(i) {
     var t = THEMES[P.theme];
     if (t === 'POLICE') return ((i + P.flip) % 2) ? 'hsl(0,100%,52%)' : 'hsl(220,100%,55%)';
     if (t === 'FIRE') return 'hsl(' + Math.round((P.hue + i * 9) % 50) + ',100%,' + (50 + (i % 3) * 6) + '%)';
     if (t === 'ICE') return 'hsl(' + Math.round(185 + (P.hue + i * 7) % 40) + ',100%,' + (60 + (i % 3) * 10) + '%)';
+    if (t === 'PURPLE HAZE') return 'hsl(' + Math.round(265 + (P.hue + i * 7) % 50) + ',100%,' + (55 + (i % 3) * 8) + '%)';
+    if (t === 'TOXIC') return 'hsl(' + Math.round(85 + (P.hue + i * 5) % 45) + ',100%,' + (50 + (i % 3) * 6) + '%)';
+    if (t === 'SUNSET') return 'hsl(' + Math.round((330 + (P.hue + i * 8) % 70) % 360) + ',100%,' + (55 + (i % 3) * 6) + '%)';
+    if (t === 'GOLD') return 'hsl(' + Math.round(38 + (P.hue + i * 3) % 18) + ',100%,' + (50 + (i % 3) * 10) + '%)';
+    if (t === 'MONO') return 'hsl(0,0%,' + (75 + (i % 3) * 10) + '%)';
     return 'hsl(' + Math.round((P.hue + i * 12) % 360) + ',100%,55%)';
   }
   function beat(power) {
@@ -919,7 +1192,7 @@
     if (all > 0.004) P.lastMeter = Date.now();
     $('pMeterFill').style.width = Math.round(BEAT.e * 100) + '%';
     if (kick && Date.now() - P.lastBeat > 150) beat(BEAT.k);
-    if (kick && BEAT.k > .95 && Date.now() - (P.lastShout || 0) > 25000) { P.lastShout = Date.now(); partyTalk(pick(SHOUTS)); }
+    if (kick && BEAT.k > .95 && Date.now() - (P.lastShout || 0) > 25000) { P.lastShout = Date.now(); partyTalk(egoLine('hype'), false, true); }
   };
   Nexus._meterSource = function (src) {
     $('pHint').textContent = src === 'music' ? 'LIGHTS ARE SYNCED TO THE MUSIC' : 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
@@ -968,10 +1241,11 @@
     clearInterval(P.auto);
     P.auto = setInterval(function () { if (Date.now() - P.lastMeter > 1500 && Date.now() - P.lastBeat > 480) beat(.5); }, 120);
     P.lastShout = Date.now();
-    partyTalk(pick(PARTY_IN), true);
+    partyTalk(egoLine('partyIn'), true, true);
     var vb = document.querySelector('.pbtn[data-fx=voice] span'); if (vb) vb.textContent = P.voice ? 'VOICE ON' : 'VOICE OFF';
+    $('pThemeName').textContent = THEMES[P.theme]; $('pLaserCol').textContent = 'LASER ' + LASER_COLORS[P.lcol]; $('pLaserSty').textContent = 'BEAM ' + LASER_STYLES[P.lsty];
     clearInterval(P.talk);
-    P.talk = setInterval(function () { if (P.on) partyTalk(pick(HYPE)); }, 45000 + Math.floor(Math.random() * 20000));
+    P.talk = setInterval(function () { if (P.on) partyTalk(egoLine('hype'), false, true); }, 45000 + Math.floor(Math.random() * 20000));
   }
   function exitParty(silent) {
     P.on = mode.party = false;
@@ -981,7 +1255,8 @@
     Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) { b.classList.remove('on'); });
     badges();
     clearInterval(P.talk); clearInterval(P.songTimer);
-    if (!silent) say(pick(PARTY_OUT));
+    clearTimeout(P.decay); P.lasersOn = false;
+    if (!silent) sayEgo('partyOut', true);
   }
   function toggleParty() { if (P.on) exitParty(); else enterParty(); }
 
@@ -1022,16 +1297,18 @@
       setTimeout(function () { beat(1); }, 1850);
     },
     hype: function () {
-      var line = pick(HYPE);
-      flashTitle(line.replace(/[!.]$/, '').toUpperCase());
+      var line = egoLine('hype');
+      flashTitle(line.replace(/[!.]$/, '').toUpperCase().slice(0, 28));
       tone('sawtooth', 220, 0, .6, 0.08, 880); tone('square', 110, 0, .6, 0.05, 440);
-      stopTalking(); talkBusy = true; say(line).then(function () { talkBusy = false; });
+      stopTalking(); talkBusy = true; sayLine(line, true).then(function () { talkBusy = false; });
       for (var i = 0; i < 4; i++) setTimeout(function () { beat(1); }, i * 180);
     },
-    lasers: function () { pfx.lasers = performance.now(); startPfx(); tone('sawtooth', 1400, 0, .25, 0.06, 300); tone('sawtooth', 1200, .3, .25, 0.06, 250); },
+    lasers: function (btn) { P.lasersOn = !P.lasersOn; btn.classList.toggle('on', P.lasersOn); if (P.lasersOn) { startPfx(); tone('sawtooth', 1400, 0, .25, 0.06, 300); tone('sawtooth', 1200, .3, .25, 0.06, 250); } },
+    lcolor: function () { P.lcol = (P.lcol + 1) % LASER_COLORS.length; setPref('laserColor', LASER_COLORS[P.lcol]); $('pLaserCol').textContent = 'LASER ' + LASER_COLORS[P.lcol]; if (!P.lasersOn) { pfx.lasers = performance.now(); startPfx(); } },
+    lstyle: function () { P.lsty = (P.lsty + 1) % LASER_STYLES.length; setPref('laserStyle', LASER_STYLES[P.lsty]); $('pLaserSty').textContent = 'BEAM ' + LASER_STYLES[P.lsty]; if (!P.lasersOn) { pfx.lasers = performance.now(); startPfx(); } },
     confetti: function () { for (var i = 0; i < 160; i++) pfx.conf.push({ x: Math.random(), y: -Math.random() * .3, vx: (Math.random() - .5) * .004, vy: .004 + Math.random() * .006, r: Math.random() * 6, vr: (Math.random() - .5) * .3, h: Math.random() * 360, s: 4 + Math.random() * 6 }); startPfx(); noise(0, .25, .25, 2500); tone('sine', 1200, 0, .15, .1); tone('sine', 1600, .1, .2, .1); },
     siren: function () { var oldTheme = P.theme; P.theme = 1; $('pThemeName').textContent = THEMES[1]; for (var k = 0; k < 4; k++) { tone('sawtooth', 700, k * .6, .3, .1, 1100); tone('sawtooth', 1100, k * .6 + .3, .3, .1, 700); } var n = 0, iv = setInterval(function () { beat(1); if (++n > 14) { clearInterval(iv); P.theme = oldTheme; $('pThemeName').textContent = THEMES[oldTheme]; } }, 170); },
-    shout: function () { var line = pick(SHOUTOUTS); flashTitle('SHOUTOUT'); stopTalking(); talkBusy = true; say(line).then(function () { talkBusy = false; }); beat(1); },
+    shout: function () { var line = egoLine('shout'); flashTitle('SHOUTOUT'); stopTalking(); talkBusy = true; sayLine(line, true).then(function () { talkBusy = false; }); beat(1); },
     scratch: function () { [0, .14, .3, .44].forEach(function (st, i) { noise(st, .12, .35, i % 2 ? 900 : 400); tone('sawtooth', i % 2 ? 300 : 160, st, .12, .1, i % 2 ? 120 : 420); }); setTimeout(function () { beat(1); }, 120); setTimeout(function () { beat(1); }, 440); },
     voice: function (btn) { P.voice = !P.voice; setPref('partyVoice', P.voice ? 'on' : 'off'); btn.querySelector('span').textContent = P.voice ? 'VOICE ON' : 'VOICE OFF'; btn.classList.toggle('on', P.voice); },
     strobe: function (btn) {
@@ -1047,7 +1324,7 @@
     prev: function () { music('prev'); }, next: function () { music('next'); }, toggle: function () { music('toggle'); },
     volup: function () { music('up'); }, voldown: function () { music('down'); },
     talk: function () { partyListen(); },
-    theme: function () { P.theme = (P.theme + 1) % THEMES.length; $('pThemeName').textContent = THEMES[P.theme]; beat(1); },
+    theme: function () { P.theme = (P.theme + 1) % THEMES.length; setPref('partyTheme', THEMES[P.theme]); $('pThemeName').textContent = THEMES[P.theme]; beat(1); },
     countdown: function () {
       if (P.counting) return; P.counting = true;
       var el = document.createElement('div'); el.id = 'pCount'; $('party').appendChild(el);
@@ -1201,7 +1478,7 @@
     $('tAfter').innerHTML = '<p>' + (ok ? '<span class="green">Correct.</span> ' : '<span class="red">Not quite.</span> ') + esc(q[3]) + '</p>' +
       '<span class="btn go" id="tNext">NEXT QUESTION</span>';
     $('tNext').addEventListener('click', function () { stopTalking(); nextQuestion(); });
-    say((ok ? pick(['Correct.', 'That\'s right.', 'Nailed it.']) : 'Not quite. The answer was ' + q[1][q[2]] + '.') + ' ' + q[3]);
+    say((ok ? egoReact(true) : egoReact(false) + ' The answer was ' + q[1][q[2]] + '.') + ' ' + q[3]);
   }
 
   // ---- Story mode
@@ -1223,6 +1500,7 @@
     var s = fresh ? null : storyData();
     var genre = s ? s.genre : pick(GENRES);
     var sys = 'You are NEXUS, narrating an ongoing audio story for people riding in a truck. Genre: ' + genre + '. ' +
+      (egoName !== 'nexus' ? 'Narrate it in the voice, words and attitude of your current character, adding their comments as you go: ' + EGOS[egoName].persona + ' ' : '') +
       'Write the next chapter in about 180 words of vivid, easy-to-follow spoken prose. No headings, no markdown, no lists. ' +
       'End on a hook that makes people want the next chapter. Keep it suitable for all ages.' +
       (s ? '' : ' On the very first line write TITLE: followed by a short story title, then the chapter on the next line.');
@@ -1272,35 +1550,49 @@
     }).catch(function () { return []; });
   }
 
+  // Headlines are fetched in the background ahead of time, so the briefing starts talking right away.
+  var NEWS = { items: [], at: 0, busy: null };
+  function refreshNews() {
+    if (NEWS.busy) return NEWS.busy;
+    NEWS.busy = Promise.all(FEEDS.map(loadFeed)).then(function (res) {
+      var all = [].concat.apply([], res); if (all.length) { NEWS.items = all; NEWS.at = Date.now(); }
+      NEWS.busy = null; return NEWS.items;
+    }, function () { NEWS.busy = null; return NEWS.items; });
+    return NEWS.busy;
+  }
+  setTimeout(refreshNews, 15000); setInterval(refreshNews, 20 * 60 * 1000);
+
   function openBriefing() {
-    openPanel('DAILY BRIEFING', '<div class="muted">Compiling your briefing: weather, world news, Canada…</div>');
-    say('Compiling your briefing. One moment.');
-    var lt = L();
     var dateLine = dateStr();
-    Promise.all([loadWeather()].concat(FEEDS.map(loadFeed))).then(function (res) {
-      var w = res[0], news = [].concat.apply([], res.slice(1));
-      var intro = 'Good ' + (lt.h < 12 ? 'morning' : lt.h < 17 ? 'afternoon' : 'evening') + ', Nathan. Here is your briefing for ' + dateLine + '.';
-      var wx = w ? ('Weather in ' + w.city + ': ' + w.temp + ' degrees and ' + w.desc.toLowerCase() + ', feeling like ' + w.feels +
-        '. High of ' + w.hi + ', low of ' + w.lo + ', wind around ' + w.wind + ' kilometres an hour.') : 'Weather is unavailable right now.';
-      var list = news.map(function (n, i) { return (i + 1) + '. [' + n.section + '] ' + n.title + (n.desc ? ' — ' + n.desc : ''); }).join('\n');
-      var sys = PERSONA + ' You are reading a radio-style news briefing. Use ONLY the headlines provided; do not add facts that are not in them. ' +
-        'Write it in your own words, neutral and factual, no opinions. About 250 words. Cover the most important world stories first, then Canada, then one business item. ' +
-        'Use short spoken sentences and smooth transitions like "In Canada," and "In business news,". Finish with one interesting "on this day in history" fact for ' + dateLine + '. No markdown, no lists.';
-      var aiPart = news.length ? askAI([{ role: 'user', parts: [{ text: 'Headlines:\n' + list }] }], sys, { maxTokens: 2048, temperature: 0.4, smart: true })
-        .catch(function () { return null; }) : Promise.resolve(null);
-      return aiPart.then(function (txt) {
-        var spoken = txt ? txt.replace(/[*#_`]/g, '') :
-          (news.length ? 'Here are the top headlines. ' + news.slice(0, 8).map(function (n) { return n.section + ': ' + n.title + '.'; }).join(' ') : 'I couldn\'t reach the news right now.');
-        var outro = 'That\'s your briefing. All systems are online. Drive safe.';
-        var html = '<p class="green">' + esc(dateLine.toUpperCase()) + '</p><p>' + esc(wx) + '</p>' +
-          spoken.split(/\n+/).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('') +
-          (news.length ? '<p class="muted" style="margin-top:3vmin">HEADLINES</p>' + news.map(function (n) {
-            return '<p class="muted" style="margin:.6vmin 0">' + esc(n.section.toUpperCase()) + ' · ' + esc(n.title) + ' <span style="opacity:.6">(' + n.src + ')</span></p>';
-          }).join('') : '') +
-          '<span class="btn" id="brStop">STOP READING</span>';
-        $('panelBody').innerHTML = html;
-        $('brStop').addEventListener('click', stopTalking);
-        return say(intro + ' ' + wx + ' ' + spoken + ' ' + outro);
+    var w = weatherNow;
+    var wx = w ? ('Weather in ' + w.city + ': ' + w.temp + ' degrees and ' + w.desc.toLowerCase() + ', feeling like ' + w.feels +
+      '. High of ' + w.hi + ', low of ' + w.lo + '.') : '';
+    openPanel('DAILY BRIEFING', '<p class="green">' + esc(dateLine.toUpperCase()) + '</p>' + (wx ? '<p>' + esc(wx) + '</p>' : '') +
+      '<div id="brBody"><p class="muted">Pulling the latest headlines…</p></div><span class="btn" id="brStop">STOP READING</span>');
+    $('brStop').addEventListener('click', stopTalking);
+    stopTalking();
+    // 1) talks instantly: the Alter Ego's opener (recorded) …
+    var opener = sayLine(egoLine('briefIn'), true);
+    // 2) … while the headlines are ready (or fetched fast) and the AI writes the rest in character, spoken as it streams in
+    var fresh = NEWS.items.length && Date.now() - NEWS.at < 30 * 60 * 1000;
+    var news = fresh ? Promise.resolve(NEWS.items) : Promise.race([refreshNews(), wait(6000).then(function () { return NEWS.items; })]);
+    news.then(function (items) {
+      items = items || [];
+      if ($('brBody')) $('brBody').innerHTML = items.length ? '<p class="muted" style="margin-top:2vmin">HEADLINES</p>' + items.map(function (n) {
+        return '<p class="muted" style="margin:.6vmin 0">' + esc(n.section.toUpperCase()) + ' · ' + esc(n.title) + ' <span style="opacity:.6">(' + n.src + ')</span></p>';
+      }).join('') : '<p class="muted">I couldn\'t reach the news right now.</p>';
+      var list = items.map(function (n, i) { return (i + 1) + '. [' + n.section + '] ' + n.title + (n.desc ? ' — ' + n.desc : ''); }).join('\n');
+      var sys = persona() + ' Right now you are reading Nathan a short spoken news briefing, fully in character. ' +
+        (wx ? 'Start with the weather: ' + wx + ' ' : '') +
+        'Then cover the most important world stories, then Canada, then one business item, using ONLY the headlines provided: do not invent facts, and keep the facts themselves accurate and neutral even though your delivery is in character. ' +
+        'About 150 words, short spoken sentences, no markdown, no lists. Do not greet him again and do not sign off; that is already done.';
+      if (!items.length && !wx) return opener.then(function () { return sayLine(egoLine('briefOut')); });
+      return opener.then(function () {
+        return streamAnswer([{ role: 'user', parts: [{ text: items.length ? 'Headlines:\n' + list : 'No headlines available. Just give the weather.' }] }], sys,
+          { maxTokens: 700, temperature: egoName !== 'nexus' ? 1 : .5 });
+      }).then(function () { return sayLine(egoLine('briefOut')); }, function () {
+        var simple = (wx ? wx + ' ' : '') + (items.length ? 'Top headlines. ' + items.slice(0, 6).map(function (n) { return n.title + '.'; }).join(' ') : '');
+        return say(simple).then(function () { return sayLine(egoLine('briefOut')); });
       });
     });
   }
@@ -1407,7 +1699,7 @@
   // Experiences (loaded only when first opened, run only while on screen)
   // ------------------------------------------------------------------
   window.NX = {
-    say: say, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
+    say: say, sayLine: sayLine, egoLine: egoLine, sayEgo: sayEgo, egoName: function () { return egoName; }, egoTitle: function () { return EGOS[egoName].name; }, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
     pauseForTalk: pauseForTalk, resumeAfterTalk: resumeAfterTalk,
     getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
@@ -1459,7 +1751,7 @@
     var html = '<div class="playbar"><span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' +
       '<span class="btn' + (favRows.length ? ' go' : ' off') + '" id="vPlayFav">★ PLAY FAVORITES</span>' +
       '<span class="hint" style="margin:0 1vmin">SWITCH EVERY</span>' +
-      [[30, '30s'], [45, '45s'], [60, '1 MIN'], [120, '2 MIN']].map(function (o) { return '<span class="btn sm' + (secs === o[0] ? ' go' : '') + '" data-secs="' + o[0] + '">' + o[1] + '</span>'; }).join('') + '</div>' +
+      [[5, '5s'], [10, '10s'], [30, '30s'], [60, '1 MIN'], [120, '2 MIN']].map(function (o) { return '<span class="btn sm' + (secs === o[0] ? ' go' : '') + '" data-secs="' + o[0] + '">' + o[1] + '</span>'; }).join('') + '</div>' +
       (favRows.length ? '<div class="hint vsec">★ FAVORITES</div><div class="agrid">' + favRows.map(cell).join('') + '</div><div class="hint vsec">ALL VISUALS</div>' :
         '<div class="hint vsec">Tap ☆ on any visual to make it a favorite.</div>') +
       '<div class="agrid">' + VISUALS.map(cell).join('') + '</div>';
@@ -1484,9 +1776,18 @@
   }
   var play = null;
   function stopPlaythrough() { if (!play) return; clearTimeout(play.t); clearTimeout(play.hint); play = null; $('xpNext').classList.add('hidden'); }
+  function xpFade(on) { var f = $('xpFade'); if (!f) { f = document.createElement('div'); f.id = 'xpFade'; $('xp').appendChild(f); } f.style.opacity = on ? 1 : 0; }
   function playStep() {
     if (!play) return;
     var name = play.list[play.i % play.list.length];
+    if (play.started && window.XP && XP.active) {
+      // smooth hand-off: fade to black, swap visuals, fade back in
+      xpFade(true);
+      var me = play;
+      setTimeout(function () { if (play !== me) { xpFade(false); return; } play.started = false; playStep(); setTimeout(function () { xpFade(false); }, 120); }, 330);
+      return;
+    }
+    play.started = true;
     openExperience(name);
     $('xpNext').classList.remove('hidden');
     clearTimeout(play.hint);
@@ -1520,7 +1821,7 @@
     var el = $('sUpdateMsg'); if (el) el.textContent = m;
   };
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
-  Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (window.XP && XP.active) XP.close(); closePanel(); };
+  Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
   Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
@@ -1534,6 +1835,7 @@
   // ------------------------------------------------------------------
   try { if (!pref('gemini_key') && window.NEXUS_DEFAULT_KEY) setPref('gemini_key', window.NEXUS_DEFAULT_KEY); } catch (e) {}
   applyEgo(false);
+  setTimeout(precacheEgo, 6000);
   applyStyle();
   renderTiles();
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }

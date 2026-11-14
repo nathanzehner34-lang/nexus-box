@@ -252,3 +252,9 @@ body.style-sharp .tile .lb { font-family: monospace; }
 #pButtons .pbtn { width: 7.4vw; font-size: 4.2vmin; padding: 1.5vh 0; border-radius: 12px; }
 #pButtons .pbtn span { font-size: 1.5vmin; letter-spacing: .15vmin; }
 #pfx { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* 10 small party controls fit across the screen */
+#pControls { gap: .8vw; }
+#pControls .pbtn.sm { width: 8.6vw; }
+#pControls .pbtn.sm span { font-size: 1.45vmin; letter-spacing: .12vmin; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#xpFade { position: absolute; inset: 0; background: #000; opacity: 0; transition: opacity .33s ease; pointer-events: none; z-index: 5; }
