@@ -2425,7 +2425,7 @@
         var up = s2 > 0; q.la = up ? [-2.4, .1] : [2.3, -1.6]; q.ra = up ? [.9, 1.5] : [-.7, -.1]; q.la[0] = 1.9 + (q.la[0] - 1.9) * amp; q.ra[0] = 1.25 + (q.ra[0] - 1.25) * amp;
         q.sway = (up ? -.3 : .3) * amp; q.lean = (up ? -.1 : .1) * amp; q.head = (up ? -.12 : .12) * amp; }
       else if (m === 2) { // robot: snaps to positions on every beat
-        var stp = Math.floor(ph / 3.1416) % 4; var P2 = [[[3.14, 1.57], [0, -1.57]], [[3.14, -1.57], [0, 1.57]], [[1.57, 0], [1.57, 0]], [[-2.4, .2], [-.7, -.2]]][stp];
+        var stp = ((Math.floor(ph / 3.1416) % 4) + 4) % 4; var P2 = [[[3.14, 1.57], [0, -1.57]], [[3.14, -1.57], [0, 1.57]], [[1.57, 0], [1.57, 0]], [[-2.4, .2], [-.7, -.2]]][stp];
         q.la = [1.9 + (P2[0][0] - 1.9) * amp, P2[0][1] * amp]; q.ra = [1.25 + (P2[1][0] - 1.25) * amp, P2[1][1] * amp]; q.head = (stp % 2 ? .2 : -.2) * amp; q.bob = 0; }
       else { // side step + swinging arms
         q.la = [1.9 + s * .9 * amp, -.9 * amp]; q.ra = [1.25 - s * .9 * amp, .9 * amp]; q.sway = s * .8 * amp; q.kneeL = Math.max(0, s) * .5 * amp; q.kneeR = Math.max(0, -s) * .5 * amp; }
