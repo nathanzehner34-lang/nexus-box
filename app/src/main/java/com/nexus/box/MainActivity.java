@@ -193,7 +193,9 @@ public class MainActivity extends Activity {
                     @Override public void onError(String id) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
                 });
                 ttsReady = true;
+                try { Bundle wb = new Bundle(); wb.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f); tts.speak("Ready.", TextToSpeech.QUEUE_ADD, wb, "warmup"); } catch (Exception ignored) {}
                 ui.postDelayed(MainActivity.this::cacheGreetings, 3000);
+                ui.postDelayed(MainActivity.this::warmRecognizer, 5000);
                 synchronized (pendingSpeech) {
                     for (String[] p : pendingSpeech) doSpeak(p[0], p[1]);
                     pendingSpeech.clear();
@@ -372,12 +374,29 @@ public class MainActivity extends Activity {
 
     // ---------- Speech recognition ----------
 
+    private void warmRecognizer() {
+        try { if (recognizer == null && SpeechRecognizer.isRecognitionAvailable(this)) makeRecognizer(); } catch (Exception ignored) {}
+    }
+
     private void startListening() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             js("Nexus._heardError('unavailable')");
             return;
         }
-        if (recognizer == null) {
+        if (recognizer == null) makeRecognizer();
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
+        i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 700L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 600L);
+        i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        try { recognizer.startListening(i); } catch (Exception e) { js("Nexus._heardError('start')"); }
+    }
+
+    private void makeRecognizer() {
+        {
             recognizer = SpeechRecognizer.createSpeechRecognizer(this);
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) { js("Nexus._listening(true)"); }
@@ -398,15 +417,6 @@ public class MainActivity extends Activity {
                 @Override public void onEvent(int eventType, Bundle params) {}
             });
         }
-        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
-        i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 700L);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 600L);
-        i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
-        try { recognizer.startListening(i); } catch (Exception e) { js("Nexus._heardError('start')"); }
     }
 
     // ---------- Apps ----------
@@ -508,7 +518,6 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 code = -1;
                 text = String.valueOf(e.getMessage());
-            } finally {
                 if (c != null) c.disconnect();
             }
             js("Nexus._http(" + JSONObject.quote(id) + "," + code + "," + JSONObject.quote(text) + ")");

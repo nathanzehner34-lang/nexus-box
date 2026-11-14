@@ -203,11 +203,6 @@ body[class*="ego-"] .tile { border-color: var(--ego); box-shadow: inset 0 0 1.5v
 body[class*="ego-"] .tile .ic { color: var(--ego); text-shadow: 0 0 1vmin var(--ego); }
 body[class*="ego-"] #clock { text-shadow: 0 0 2vmin var(--ego); }
 body[class*="ego-"] #caption { color: var(--ego); }
-body.ego-demon #photo { filter: hue-rotate(140deg) saturate(1.6) brightness(.8); }
-body.ego-alien #photo { filter: hue-rotate(-80deg) saturate(1.4); }
-body.ego-robot #photo { filter: grayscale(.7) contrast(1.2) brightness(.9); }
-body.ego-butler #photo { filter: sepia(.6) saturate(1.2); }
-body.ego-gangster #photo { filter: hue-rotate(60deg) saturate(1.5) contrast(1.1); }
 body.ego-glitch #home { animation: egoGlitch .7s steps(7); }
 @keyframes egoGlitch { 0% { transform: translate(0); filter: none; } 20% { transform: translate(-1.5vw, .5vh) skewX(8deg); filter: hue-rotate(90deg); }
   40% { transform: translate(1vw, -.5vh); filter: invert(1); } 60% { transform: translate(-.5vw, 0) skewX(-6deg); filter: hue-rotate(-90deg); } 100% { transform: none; filter: none; } }
@@ -231,3 +226,29 @@ body.ego-glitch #home { animation: egoGlitch .7s steps(7); }
 .btn.hb { min-width: 7vmin; text-align: center; margin: 0; }
 /* more than 16 buttons: three rows */
 #tiles[data-n] .tile .lb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 95%; }
+
+/* Backgrounds panel */
+.bggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(22vmin, 1fr)); gap: 1.6vmin; }
+.bgcell { position: relative; height: 15vmin; border-radius: 1.2vmin; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,.15); overflow: hidden; }
+.bgcell span { position: absolute; left: 0; right: 0; bottom: 0; padding: .6vmin 1vmin; font-size: 1.8vmin; letter-spacing: .2vmin; background: linear-gradient(transparent, rgba(0,0,0,.8)); }
+.bgcell.on { border-color: #3dff9a; box-shadow: 0 0 2vmin rgba(61,255,154,.6); }
+
+/* Home button styles */
+body.style-neon .tile { background: rgba(0,0,0,.25); border: 2px solid var(--ego, #3dff9a); box-shadow: 0 0 1.4vmin var(--ego, #3dff9a), inset 0 0 1.4vmin rgba(61,255,154,.15); }
+body.style-neon .tile .ic { color: var(--ego, #3dff9a); text-shadow: 0 0 1.2vmin var(--ego, #3dff9a); }
+body.style-minimal .tile { background: transparent; border-color: transparent; }
+body.style-minimal .tile .ic { font-size: 6.5vmin; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
+body.style-minimal .tile .lb { text-shadow: 0 1px 4px rgba(0,0,0,1); }
+body.style-bold .tile { background: rgba(5,10,25,.82); border: 1px solid rgba(255,255,255,.25); }
+body.style-bold .tile .ic { font-size: 7.5vmin; }
+body.style-bold .tile .lb { font-weight: 700; font-size: 2.2vmin; }
+body.style-sharp .tile { border-radius: 0; background: linear-gradient(135deg, rgba(0,255,220,.12), rgba(255,0,200,.08)); border: 1px solid rgba(0,255,220,.5);
+  clip-path: polygon(0 0, calc(100% - 2.4vmin) 0, 100% 2.4vmin, 100% 100%, 2.4vmin 100%, 0 calc(100% - 2.4vmin)); }
+body.style-sharp .tile .ic { color: #00ffd5; }
+body.style-sharp .tile .lb { font-family: monospace; }
+
+/* party: more buttons fit in one row, effects layer */
+#pButtons { gap: .7vw; }
+#pButtons .pbtn { width: 7.4vw; font-size: 4.2vmin; padding: 1.5vh 0; border-radius: 12px; }
+#pButtons .pbtn span { font-size: 1.5vmin; letter-spacing: .15vmin; }
+#pfx { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }

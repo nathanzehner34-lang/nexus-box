@@ -137,7 +137,6 @@
     moon: { file: 'bg_moon.jpg', pos: 'center 18%', label: 'MOONLIGHT' },
     truck: { file: 'bg_truck.jpg', pos: 'center 72%', label: 'TRUCK' },
     outrun: { file: 'bg_outrun.jpg', pos: 'center 55%', label: 'OUTRUN HIGHWAY' },
-    tokyo: { file: 'bg_tokyo.jpg', pos: 'center 40%', label: 'NEON TOKYO' },
     cyber: { file: 'bg_cyber.jpg', pos: 'center 45%', label: 'CYBER CITY' },
     mountains: { file: 'bg_mountains.jpg', pos: 'center 50%', label: 'NEON MOUNTAINS' },
     miami: { file: 'bg_miami.jpg', pos: 'center 45%', label: 'MIAMI NIGHT' },
@@ -148,8 +147,11 @@
     hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' }
   };
   var bgName = BGS[pref('background')] ? pref('background') : 'moon';
+  var EGO_BGS = { robot: 'bg_ego_robot.jpg', demon: 'bg_ego_demon.jpg', alien: 'bg_ego_alien.jpg', butler: 'bg_ego_butler.jpg', gangster: 'bg_ego_gangster.jpg' };
   function applyBackground() {
     var b = BGS[bgName] || BGS.moon;
+    var eg = (typeof egoName !== 'undefined' && egoName) ? egoName : (pref('ego') || 'nexus');
+    if (EGO_BGS[eg]) b = { file: EGO_BGS[eg], pos: 'center center' };
     var ph = $('photo');
     document.body.classList.toggle('photo', !!b.file);
     if (b.file) {
@@ -372,6 +374,7 @@
     var e = EGOS[egoName];
     Object.keys(EGOS).forEach(function (k) { document.body.classList.toggle('ego-' + k, k === egoName && k !== 'nexus'); });
     document.documentElement.style.setProperty('--ego', e.col);
+    try { applyBackground(); } catch (er) {}
     if (flashIt) {
       var f = $('flash'); f.style.background = e.col; f.style.transition = 'none'; f.style.opacity = .6;
       document.body.classList.add('ego-glitch');
@@ -416,7 +419,10 @@
     if (opts.json) body.generationConfig.responseMimeType = 'application/json';
     function attempt(i) {
       if (i >= models.length) return Promise.reject(new Error('models'));
-      return http('POST', 'https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', body,
+      var b2 = JSON.parse(JSON.stringify(body));
+      // fast answers: switch off the model's "thinking" pause on models that support it
+      if (!opts.smart && /2\.5|latest/.test(models[i])) b2.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      return http('POST', 'https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', b2,
         { 'Content-Type': 'application/json', 'x-goog-api-key': key }).then(function (r) {
         var detail = '';
         try { detail = (JSON.parse(r.text).error || {}).message || ''; } catch (x) { detail = String(r.text || '').slice(0, 120); }
@@ -424,6 +430,7 @@
         if (r.status === 401 || r.status === 403 || (r.status === 400 && /API key|credential|auth/i.test(r.text))) {
           var be = new Error('badkey'); be.detail = detail; throw be;
         }
+        if (r.status === 400 && b2.generationConfig.thinkingConfig && /thinking/i.test(r.text)) { body.generationConfig.noThink = true; return attemptPlain(i); }
         if (r.status === 400) return attempt(i + 1);
         if (r.status === 429) throw new Error('limit');
         if (r.status === -1) { var ne = new Error('network'); ne.detail = detail; throw ne; }
@@ -436,8 +443,12 @@
         return text;
       });
     }
+    function attemptPlain(i) { var keep = body.generationConfig.noThink; delete body.generationConfig.noThink; var saved = opts.smart; opts.smart = true; var p = attempt(i); opts.smart = saved; return p; }
     return attempt(0);
   }
+  // Warm up the line to Google right after start so the first answer isn't slow.
+  function warmAI() { var k = aiKey(); if (!k || !online()) return; http('GET', 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', null, { 'x-goog-api-key': k }).catch(function () {}); }
+  setTimeout(warmAI, 2500); setInterval(warmAI, 4 * 60 * 1000);
 
   function aiErrorLine(e) {
     var m = e && e.message;
@@ -640,7 +651,9 @@
       case 'party': toggleParty(); break;
       case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
       case 'ego': openEgo(); break;
-      default: if (name && name.indexOf('vis:') === 0) openExperience(name.slice(4)); break;
+      case 'bgs': openBackgrounds(); break;
+      case 'livecam': openExperience('livecam'); break;
+      default: if (name && name.indexOf('vis:') === 0) { fromVisuals = false; openExperience(name.slice(4)); } break;
       case 'visuals': openVisuals(); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
@@ -657,6 +670,7 @@
     CATALOG.push([el.getAttribute('data-act'), el.querySelector('.ic').textContent, el.querySelector('.lb').textContent]);
   });
   var DEFAULT_TILES = CATALOG.map(function (c) { return c[0]; });
+  if (pref('homeVer') !== '2') { setPref('homeTiles', ''); setPref('homeVer', '2'); }
   function fullCatalog() {
     var out = CATALOG.slice(), have = {};
     out.forEach(function (c) { have[c[0]] = 1; });
@@ -741,6 +755,29 @@
   var HYPE = ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'Passengers, this one\'s for you.', 'Nexus in the building!', 'Volume to the max. Let\'s ride.', 'Hands up in the truck!',
     'This truck is officially a club!', 'Somebody turn this song up!', 'I can feel the bass in my circuits!', 'Party mode! No sleeping in this truck!',
     'Who picked this song? Great choice!', 'Everybody in the truck, make some noise!', 'Louder! I can\'t hear you!', 'This is the best party on the road!'];
+  var SHOUTOUTS = ['Shout out to everybody in the truck tonight!', 'Big shout out to the driver. Legend!', 'Shout out to the passengers. You guys are the real VIPs!',
+    'Shout out to whoever picked this song. Absolute fire!', 'Shout out to the crew. Best ride in town!', 'This one goes out to everybody riding with Nathan!'];
+  function flashTitle(txt) { var el = $('pTitle'); if (!el) return; var old = el.getAttribute('data-orig') || el.textContent; el.setAttribute('data-orig', old); el.textContent = txt; el.style.transform = 'scale(1.15)'; clearTimeout(el._t); el._t = setTimeout(function () { el.textContent = old; el.style.transform = ''; }, 1800); }
+  var pfx = { conf: [], lasers: 0, running: false };
+  function startPfx() {
+    if (pfx.running) return; pfx.running = true;
+    var c = $('pfx'), g = c.getContext('2d');
+    function f() {
+      var W2 = c.width = c.clientWidth >> 1, H2 = c.height = c.clientHeight >> 1, now = performance.now(), any = false;
+      g.clearRect(0, 0, W2, H2); g.globalCompositeOperation = 'lighter';
+      if (pfx.lasers && now - pfx.lasers < 4500) {
+        any = true; var t = (now - pfx.lasers) / 1000;
+        for (var s = 0; s < 4; s++) { var ox = W2 * (.15 + s * .23), base = Math.sin(t * 2.2 + s) * .8;
+          for (var l = 0; l < 7; l++) { var ang = -Math.PI / 2 + base + (l - 3) * .12, col = 'hsla(' + ((s * 90 + t * 120) % 360) + ',100%,60%,.7)';
+            g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(ox, H2); g.lineTo(ox + Math.cos(ang) * H2 * 2, H2 + Math.sin(ang) * H2 * 2); g.stroke(); } }
+      }
+      g.globalCompositeOperation = 'source-over';
+      pfx.conf = pfx.conf.filter(function (p) { p.x += p.vx; p.y += p.vy; p.r += p.vr; return p.y < 1.1; });
+      pfx.conf.forEach(function (p) { any = true; g.save(); g.translate(p.x * W2, p.y * H2); g.rotate(p.r); g.fillStyle = 'hsl(' + p.h + ',100%,60%)'; g.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); g.restore(); });
+      if (any && P.on) requestAnimationFrame(f); else { pfx.running = false; g.clearRect(0, 0, W2, H2); }
+    }
+    requestAnimationFrame(f);
+  }
   var SHOUTS = ['Ohhh!', 'Let\'s go!', 'Drop it!', 'Yeah!', 'Party mode!', 'Turn it up!'];
   var PARTY_IN = ['Party mode activated! Let\'s get this party started!', 'Party mode! Turn it up and let\'s go!', 'It\'s party time! Hands up in the truck!',
     'Party mode engaged! This truck just became a club!', 'Attention passengers, party mode is now in effect! Let\'s go!'];
@@ -751,7 +788,7 @@
     if (!force && !P.voice) return;
     if (talkBusy) return; talkBusy = true; say(line).then(function () { talkBusy = false; });
   }
-  function beep(freq, at, dur) { tone('square', freq, at, dur, 0.05); }
+  function beep(freq, at, dur) { tone('square', freq, at, dur, 0.22); tone('sine', freq * 2, at, dur, 0.12); }
 
   function buildBars() {
     ['pTop', 'pBottom'].forEach(function (id) {
@@ -902,7 +939,7 @@
     horn: function () {
       [0, 0.32, 0.64].forEach(function (st, k) {
         var d = k === 2 ? 0.9 : 0.24;
-        [466, 587, 698].forEach(function (f) { tone('sawtooth', f, st, d, 0.06); });
+        [466, 587, 698].forEach(function (f) { tone('sawtooth', f, st, d, 0.13); });
       });
       for (var i = 0; i < 6; i++) setTimeout(function () { beat(1); }, i * 160);
     },
@@ -916,7 +953,18 @@
       noise(1.85, 1.2, 0.3, 3000);
       setTimeout(function () { beat(1); }, 1850);
     },
-    hype: function () { partyTalk(pick(HYPE), true); beat(1); },
+    hype: function () {
+      var line = pick(HYPE);
+      flashTitle(line.replace(/[!.]$/, '').toUpperCase());
+      tone('sawtooth', 220, 0, .6, 0.08, 880); tone('square', 110, 0, .6, 0.05, 440);
+      stopTalking(); talkBusy = true; say(line).then(function () { talkBusy = false; });
+      for (var i = 0; i < 4; i++) setTimeout(function () { beat(1); }, i * 180);
+    },
+    lasers: function () { pfx.lasers = performance.now(); startPfx(); tone('sawtooth', 1400, 0, .25, 0.06, 300); tone('sawtooth', 1200, .3, .25, 0.06, 250); },
+    confetti: function () { for (var i = 0; i < 160; i++) pfx.conf.push({ x: Math.random(), y: -Math.random() * .3, vx: (Math.random() - .5) * .004, vy: .004 + Math.random() * .006, r: Math.random() * 6, vr: (Math.random() - .5) * .3, h: Math.random() * 360, s: 4 + Math.random() * 6 }); startPfx(); noise(0, .25, .25, 2500); tone('sine', 1200, 0, .15, .1); tone('sine', 1600, .1, .2, .1); },
+    siren: function () { var oldTheme = P.theme; P.theme = 1; $('pThemeName').textContent = THEMES[1]; for (var k = 0; k < 4; k++) { tone('sawtooth', 700, k * .6, .3, .1, 1100); tone('sawtooth', 1100, k * .6 + .3, .3, .1, 700); } var n = 0, iv = setInterval(function () { beat(1); if (++n > 14) { clearInterval(iv); P.theme = oldTheme; $('pThemeName').textContent = THEMES[oldTheme]; } }, 170); },
+    shout: function () { var line = pick(SHOUTOUTS); flashTitle('SHOUTOUT'); stopTalking(); talkBusy = true; say(line).then(function () { talkBusy = false; }); beat(1); },
+    scratch: function () { [0, .14, .3, .44].forEach(function (st, i) { noise(st, .12, .35, i % 2 ? 900 : 400); tone('sawtooth', i % 2 ? 300 : 160, st, .12, .1, i % 2 ? 120 : 420); }); setTimeout(function () { beat(1); }, 120); setTimeout(function () { beat(1); }, 440); },
     voice: function (btn) { P.voice = !P.voice; setPref('partyVoice', P.voice ? 'on' : 'off'); btn.querySelector('span').textContent = P.voice ? 'VOICE ON' : 'VOICE OFF'; btn.classList.toggle('on', P.voice); },
     strobe: function (btn) {
       if (P.strobe) { clearInterval(P.strobe); P.strobe = null; btn.classList.remove('on'); return; }
@@ -939,12 +987,12 @@
       var chain = Promise.resolve();
       steps.forEach(function (n, k) {
         chain = chain.then(function () {
-          el.textContent = n; beat(.4 + k * .3); beep(660 + k * 110, 0, .18);
+          el.textContent = n; beat(.4 + k * .3); beep(660 + k * 110, 0, .22); stopTalking(); say(words[k], { rate: 1.1, pitch: .85 });
           return wait(900);
         });
       });
       chain.then(function () {
-        el.textContent = 'DROP!'; beep(1320, 0, .3); FX.drop();
+        el.textContent = 'DROP!'; beep(1320, 0, .3); say('Drop it!', { rate: 1.05, pitch: .8 }); FX.drop();
         return wait(1900);
       }).then(function () { el.parentNode.removeChild(el); P.counting = false; });
     }
@@ -1295,16 +1343,39 @@
     weather: function () { return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
-    ['webcams', '📹', 'WEBCAM WALL'], ['ego', '🎭', 'ALTER EGO'],
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
     ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🎨', 'SONG AURA']
   ];
+  // ---- BACKGROUNDS button: big picture grid, tap to apply instantly, plus home screen styles ----
+  var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER']];
+  function applyStyle() { var s = pref('homeStyle') || 'glass'; STYLES.forEach(function (x) { document.body.classList.toggle('style-' + x[0], x[0] === s); }); }
+  function openBackgrounds() {
+    var keys = Object.keys(BGS), cur = pref('homeStyle') || 'glass';
+    var html = '<div class="playbar"><span class="btn go" id="bgPrev">◀ PREVIOUS</span><span class="btn go" id="bgNext">NEXT ▶</span>' +
+      '<span class="hint" style="margin:0 1vmin 0 2vmin">BUTTON STYLE</span>' +
+      STYLES.map(function (s) { return '<span class="btn sm' + (s[0] === cur ? ' go' : '') + '" data-style="' + s[0] + '">' + s[1] + '</span>'; }).join('') + '</div>' +
+      ((typeof egoName !== 'undefined' && egoName !== 'nexus') ? '<div class="hint" style="margin-bottom:1vmin">Alter Ego ' + EGOS[egoName].name + ' is on, so its own picture is showing. Switch Alter Ego back to NEXUS to see these.</div>' : '') +
+      '<div class="bggrid">' + keys.map(function (k) {
+        return '<div class="bgcell' + (k === bgName ? ' on' : '') + '" data-bgpick="' + k + '" style="background-image:url(' + BGS[k].file + ')"><span>' + BGS[k].label + '</span></div>';
+      }).join('') + '</div>';
+    var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
+    openPanel('BACKGROUNDS', html);
+    $('panelBody').scrollTop = keep;
+    function pick(k) { bgName = k; setPref('background', k); applyBackground(); openBackgrounds(); }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-bgpick]'), function (el) { el.addEventListener('click', function () { pick(el.getAttribute('data-bgpick')); }); });
+    $('bgPrev').addEventListener('click', function () { var i = keys.indexOf(bgName); pick(keys[(i - 1 + keys.length) % keys.length]); });
+    $('bgNext').addEventListener('click', function () { var i = keys.indexOf(bgName); pick(keys[(i + 1) % keys.length]); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-style]'), function (el) { el.addEventListener('click', function () { setPref('homeStyle', el.getAttribute('data-style')); applyStyle(); openBackgrounds(); }); });
+  }
+
   // ---- Visuals menu with favourites (★) and Play All / Play Favourites (auto-switches visuals) ----
   function favList() { return (pref('favVis') || '').split(',').filter(Boolean); }
   var PLAYABLE = function () { return VISUALS.filter(function (v) { return v[0] !== 'webcams' && v[0] !== 'ego'; }).map(function (v) { return v[0]; }); };
+  var fromVisuals = false, visScroll = 0;
+  function backToVisuals() { if (!fromVisuals) return false; fromVisuals = false; setTimeout(function () { openVisuals(); $('panelBody').scrollTop = visScroll; }, 30); return true; }
   function openVisuals() {
     var favs = favList(), secs = +(pref('playSecs') || 45);
     function cell(v) {
@@ -1333,10 +1404,10 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-secs]'), function (el) {
       el.addEventListener('click', function () { setPref('playSecs', el.getAttribute('data-secs')); openVisuals(); });
     });
-    $('vPlayAll').addEventListener('click', function () { closePanel(); startPlaythrough(PLAYABLE(), 'PLAY ALL'); });
-    $('vPlayFav').addEventListener('click', function () { var f = favList().filter(function (k) { return PLAYABLE().indexOf(k) >= 0; }); if (!f.length) return; closePanel(); startPlaythrough(f, 'FAVORITES'); });
+    $('vPlayAll').addEventListener('click', function () { visScroll = 0; closePanel(); fromVisuals = true; startPlaythrough(PLAYABLE(), 'PLAY ALL'); });
+    $('vPlayFav').addEventListener('click', function () { var f = favList().filter(function (k) { return PLAYABLE().indexOf(k) >= 0; }); if (!f.length) return; visScroll = 0; closePanel(); fromVisuals = true; startPlaythrough(f, 'FAVORITES'); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-vis]'), function (el) {
-      el.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-fav]')) return; var n = el.getAttribute('data-vis'); closePanel(); if (n === 'ego') { setTimeout(openEgo, 50); return; } openExperience(n); });
+      el.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-fav]')) return; var n = el.getAttribute('data-vis'); visScroll = $('panelBody').scrollTop; closePanel(); fromVisuals = true; openExperience(n); });
     });
   }
   var play = null;
@@ -1352,7 +1423,7 @@
     play.t = setTimeout(function () { if (!play) return; play.i++; playStep(); }, (+(pref('playSecs') || 45)) * 1000);
   }
   function startPlaythrough(list, label) { stopPlaythrough(); if (!list.length) return; play = { list: list, i: 0, label: label }; playStep(); }
-  window.onXpUserClose = stopPlaythrough;
+  window.onXpUserClose = function () { stopPlaythrough(); backToVisuals(); };
   $('xpNext').addEventListener('click', function (e) { e.stopPropagation(); if (play) { play.i++; playStep(); } });
 
   var xpLoaded = false;
@@ -1369,10 +1440,10 @@
   // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
-  Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
-  Nexus.home = function () { stopPlaythrough(); if (window.XP && XP.active) XP.close(); closePanel(); };
+  Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
+  Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
-  Nexus.paused = function () { stopPlaythrough(); awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
     if (awaySince && Date.now() - awaySince > 10 * 60 * 1000 && !booting) {
       setTimeout(function () { closePanel(); runBoot(); }, 300);
@@ -1383,6 +1454,7 @@
   // Start
   // ------------------------------------------------------------------
   applyEgo(false);
+  applyStyle();
   renderTiles();
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
   else { $('boot').classList.add('hidden'); showHome(); stopAnim(); }
