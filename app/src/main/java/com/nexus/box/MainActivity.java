@@ -189,8 +189,9 @@ public class MainActivity extends Activity {
                 applyVoice();
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String id) { js("Nexus._speakStart(" + JSONObject.quote(id) + ")"); }
-                    @Override public void onDone(String id) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
-                    @Override public void onError(String id) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
+                    @Override public void onDone(String id) { if (id != null) { spokenText.remove(id); retried.remove(id); } js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
+                    @Override public void onError(String id) { onSpeakError(id); }
+                    @Override public void onError(String id, int code) { onSpeakError(id); }
                 });
                 ttsReady = true;
                 try { Bundle wb = new Bundle(); wb.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f); tts.speak("Ready.", TextToSpeech.QUEUE_ADD, wb, "warmup"); } catch (Exception ignored) {}
@@ -400,6 +401,15 @@ public class MainActivity extends Activity {
 
     // ---------- Voice ----------
 
+    // A voice is only usable if it works offline AND is actually downloaded on the box.
+    private boolean usable(Voice v) {
+        try {
+            if (v.isNetworkConnectionRequired()) return false;
+            Set<String> f = v.getFeatures();
+            return f == null || !f.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED);
+        } catch (Exception e) { return true; }
+    }
+
     private void applyVoice() {
         if (tts == null) return;
         tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
@@ -410,22 +420,49 @@ public class MainActivity extends Activity {
         if (voices != null) {
             if (!chosen.isEmpty()) {
                 String local = chosen.replace("-network", "-local");
-                for (Voice v : voices) if (v.getName().equals(local) && !v.isNetworkConnectionRequired()) { tts.setVoice(v); return; }
-                for (Voice v : voices) if (v.getName().equals(chosen) && !v.isNetworkConnectionRequired()) { tts.setVoice(v); return; }
+                for (Voice v : voices) if (v.getName().equals(local) && usable(v)) { tts.setVoice(v); return; }
+                for (Voice v : voices) if (v.getName().equals(chosen) && usable(v)) { tts.setVoice(v); return; }
             }
             String[] preferred = {"en-gb-x-rjs", "en-gb-x-gbd", "en-gb-x-gbb", "en-us-x-iom", "en-us-x-iol", "en-us-x-tpd"};
             for (String p : preferred) {
                 for (Voice v : voices) {
-                    if (v.getName().startsWith(p) && !v.isNetworkConnectionRequired()) { tts.setVoice(v); return; }
+                    if (v.getName().startsWith(p) && usable(v)) { tts.setVoice(v); return; }
                 }
             }
         }
+        if (voices != null) for (Voice v : voices) if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && usable(v)) { tts.setVoice(v); return; }
         tts.setLanguage(Locale.UK);
+    }
+
+    // If a line fails to speak (voice missing/broken), say it again right away with a safe voice.
+    private final java.util.Map<String, String> spokenText = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<String> retried = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private void onSpeakError(String id) {
+        String text = id == null ? null : spokenText.get(id);
+        if (text != null && !retried.contains(id) && tts != null) {
+            retried.add(id);
+            ui.post(() -> {
+                try {
+                    Voice safe = null;
+                    try { safe = tts.getDefaultVoice(); } catch (Exception ignored) {}
+                    if (safe == null || !usable(safe)) { Set<Voice> vs = tts.getVoices(); if (vs != null) for (Voice v : vs) if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && usable(v)) { safe = v; break; } }
+                    if (safe != null) tts.setVoice(safe); else tts.setLanguage(Locale.UK);
+                    Bundle b = new Bundle();
+                    tts.speak(text, TextToSpeech.QUEUE_ADD, b, id);
+                    js("Nexus._voiceFixed && Nexus._voiceFixed()");
+                } catch (Exception e) { js("Nexus._spoken(" + JSONObject.quote(id) + ")"); }
+            });
+            return;
+        }
+        if (id != null) { spokenText.remove(id); retried.remove(id); }
+        js("Nexus._spoken(" + JSONObject.quote(id) + ")");
     }
 
     private void doSpeak(String text, String id) {
         Bundle b = new Bundle();
-        tts.speak(text, TextToSpeech.QUEUE_ADD, b, id);
+        if (id != null) spokenText.put(id, text);
+        int r = tts.speak(text, TextToSpeech.QUEUE_ADD, b, id);
+        if (r != TextToSpeech.SUCCESS) onSpeakError(id);
     }
 
     // ---------- Speech recognition ----------
@@ -577,6 +614,40 @@ public class MainActivity extends Activity {
                 if (c != null) c.disconnect();
             }
             js("Nexus._http(" + JSONObject.quote(id) + "," + code + "," + JSONObject.quote(text) + ")");
+        });
+    }
+
+    // Streaming request: hands each piece of the AI answer to the page the moment it arrives.
+    private void httpStream(String id, String url, String body, String headersJson) {
+        pool.execute(() -> {
+            int code = 0; HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(url).openConnection();
+                c.setRequestMethod("POST"); c.setConnectTimeout(12000); c.setReadTimeout(30000);
+                if (headersJson != null && !headersJson.isEmpty()) {
+                    JSONObject h = new JSONObject(headersJson); Iterator<String> keys = h.keys();
+                    while (keys.hasNext()) { String k = keys.next(); c.setRequestProperty(k, h.getString(k)); }
+                }
+                c.setDoOutput(true);
+                try (OutputStream os = c.getOutputStream()) { os.write(body.getBytes(StandardCharsets.UTF_8)); }
+                code = c.getResponseCode();
+                if (code >= 400) {
+                    InputStream es = c.getErrorStream(); String t = "";
+                    if (es != null) { ByteArrayOutputStream bo = new ByteArrayOutputStream(); byte[] buf = new byte[4096]; int n; while ((n = es.read(buf)) > 0) bo.write(buf, 0, n); t = bo.toString("UTF-8"); es.close(); }
+                    js("Nexus._streamEnd(" + JSONObject.quote(id) + "," + code + "," + JSONObject.quote(t) + ")");
+                    return;
+                }
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+                String line;
+                while ((line = br.readLine()) != null) {
+                    if (line.startsWith("data:")) js("Nexus._streamChunk(" + JSONObject.quote(id) + "," + JSONObject.quote(line.substring(5).trim()) + ")");
+                }
+                br.close();
+                js("Nexus._streamEnd(" + JSONObject.quote(id) + ",200,'')");
+            } catch (Exception e) {
+                if (c != null) c.disconnect();
+                js("Nexus._streamEnd(" + JSONObject.quote(id) + ",-1," + JSONObject.quote(String.valueOf(e.getMessage())) + ")");
+            }
         });
     }
 
@@ -836,7 +907,7 @@ public class MainActivity extends Activity {
                 if (tts != null && tts.getVoices() != null) {
                     List<String> names = new ArrayList<>();
                     for (Voice v : tts.getVoices()) {
-                        if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && !v.isNetworkConnectionRequired()) names.add(v.getName());
+                        if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && usable(v)) names.add(v.getName());
                     }
                     Collections.sort(names);
                     for (String n : names) arr.put(n);
@@ -1028,6 +1099,9 @@ public class MainActivity extends Activity {
                 return true;
             } catch (Exception e) { return false; }
         }
+
+        @JavascriptInterface
+        public void httpStream(String id, String url, String body, String headersJson) { MainActivity.this.httpStream(id, url, body, headersJson); }
 
         @JavascriptInterface
         public boolean isOnline() {

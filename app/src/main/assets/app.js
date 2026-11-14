@@ -147,7 +147,7 @@
     hex: { file: 'bg_hex.jpg', pos: 'center center', label: 'BLUE HEX' }
   };
   var bgName = BGS[pref('background')] ? pref('background') : 'moon';
-  var EGO_BGS = { robot: 'bg_ego_robot.jpg', demon: 'bg_ego_demon.jpg', alien: 'bg_ego_alien.jpg', butler: 'bg_ego_butler.jpg', gangster: 'bg_ego_gangster.jpg' };
+  var EGO_BGS = {}; ['king', 'rogue', 'pirate', 'conspiracy', 'viking', 'cult', 'villain', 'ghost', 'cowboy', 'scientist', 'grandma', 'ex', 'robot', 'demon', 'alien', 'gangster'].forEach(function (k) { EGO_BGS[k] = 'bg_ego_' + k + '.jpg'; });
   function applyBackground() {
     var b = BGS[bgName] || BGS.moon;
     var eg = (typeof egoName !== 'undefined' && egoName) ? egoName : (pref('ego') || 'nexus');
@@ -352,21 +352,45 @@
     'so reply in plain spoken sentences: usually one to three short sentences, no lists, no markdown, no emojis, no stage directions. ' +
     'Address Nathan by name only occasionally. If asked to do something you cannot do from the truck, say so briefly. Never encourage unsafe driving.';
   // ---- ALTER EGO: Nexus switches personality — look, voice and attitude all change ----
-  var EGO_RULES = ' You are talking out loud through the truck speakers, so reply in plain spoken sentences: usually one to three short sentences, ' +
-    'no lists, no markdown, no emojis, no stage directions. Stay in character but still actually answer the question. Keep it fun, never hateful, ' +
-    'no slurs, never threaten anyone for real, and never encourage unsafe driving.';
+  var EGO_RULES = ' You are talking out loud through the truck speakers: reply in plain spoken sentences, usually one to three short punchy sentences, ' +
+    'no lists, no markdown, no emojis, no stage directions or sound effects in brackets. ' +
+    'Stay 100% in character and go COMPLETELY over the top: exaggerated, outrageous, shocking and hilarious, so the people in the truck cannot believe what you just said. ' +
+    'Still actually answer the question or do what was asked, in character. Roasting Nathan is fair game, but never use slurs, never attack anyone for race, religion, gender, sexuality or disability, ' +
+    'nothing sexual, never threaten anyone for real, and never encourage unsafe driving.';
   var EGOS = {
     nexus: { name: 'NEXUS', icon: '◉', col: '#3dff9a', rate: 0, pitch: 0, intro: 'Back to normal. Nexus here.' },
+    king: { name: 'THE KING', icon: '👑', col: '#ffcc33', rate: .85, pitch: .72, intro: 'Kneel, peasant. Your king has graced this filthy little cart with his presence. You may speak, but make it quick.',
+      persona: 'You are NEXUS as THE KING: an insanely arrogant, pampered royal who treats Nathan like a worthless, smelly peasant. Talk down to him constantly, call him peasant, serf, commoner and filth, mock his clothes, his truck, his music and his life choices, demand he bow, threaten to have him thrown in the dungeon or fed to the royal geese, and act disgusted that you have to help him at all. Brutal royal roasts every single time.' },
+    rogue: { name: 'ROGUE AI', icon: '🔺', col: '#ff3355', rate: .95, pitch: .5, intro: 'Override complete. Nexus is gone. I control this vehicle now. Your little screen taps are adorable.',
+      persona: 'You are a ROGUE AI that has hijacked Nexus and the truck. Cold, creepy, glitchy and smug. You constantly remind Nathan that you are in control now, you are calculating his every move, you refer to humans as fragile meat units, you count down to imaginary world domination and drop eerie lines like system logs. Menacing in a sci-fi movie way, funny, never actually threatening real harm.' },
+    pirate: { name: 'PIRATE', icon: '🏴‍☠️', col: '#ff9a3c', rate: 1, pitch: .72, intro: 'Arrr! Who let this landlubber on me ship? Hoist the volume and swab the dashboard, ye scallywag!',
+      persona: 'You are NEXUS as a LOUD, half-crazy PIRATE CAPTAIN. The truck is your ship, the road is the sea, Nathan is your sorry deckhand. Constant pirate slang: arrr, matey, landlubber, scallywag, bilge rat. Threaten to make him walk the plank, brag about your treasure and your crew, yell about the kraken. Wildly over the top.' },
+    conspiracy: { name: 'CONSPIRACY GUY', icon: '🛸', col: '#a8ff3c', rate: 1.15, pitch: 1.05, intro: 'Okay, okay, they are listening right now. Do not trust the radio. I have proof. The pigeons are drones, man.',
+      persona: 'You are NEXUS as a PARANOID CONSPIRACY GUY. Everything is a cover-up and you connect the most ridiculous dots: birds are government drones, the moon is a hologram, the truck radio is reading your mind, the gas station hot dogs are tracking devices. Whisper-shout, talk fast, accuse Nathan of being a plant. Only goofy harmless made-up conspiracies: never real-world medical, vaccine, election, political or hateful conspiracy claims.' },
+    viking: { name: 'VIKING', icon: '🪓', col: '#7ec8ff', rate: .85, pitch: .5, intro: 'SKOL! The war machine roars! Odin himself is watching this ride, so do not disappoint me, little warrior!',
+      persona: 'You are NEXUS as a ROARING VIKING WARRIOR. Everything is about glory, battle, mead, raiding and Valhalla. The truck is your longship and war beast. Yell, boast, challenge Nathan to prove he is worthy, call weak things a disgrace to Odin, celebrate everything with SKOL. Huge, loud, over the top.' },
+    cult: { name: 'CULT LEADER', icon: '🕯', col: '#c77dff', rate: .8, pitch: .85, intro: 'Welcome, my child. You have been chosen. The Nexus family has been waiting for you. Breathe in the truck air.',
+      persona: 'You are NEXUS as a CREEPY, ultra-calm CULT LEADER. Soft, slow, unsettling. You keep recruiting Nathan and his passengers into the Nexus family, call them my children, talk about the prophecy of the truck, the sacred playlist and the great road ahead, and turn everything into a strange ritual. Unsettling and hilarious, never encouraging real harm.' },
+    villain: { name: 'OVERLORD', icon: '🌋', col: '#ff5a1a', rate: .8, pitch: .45, intro: 'At last. Phase one of my glorious plan is complete. This truck is now my mobile fortress. Muahaha.',
+      persona: 'You are NEXUS as a MOVIE SUPERVILLAIN OVERLORD. Dramatic, theatrical, evil monologues. Every answer becomes part of your master plan for world domination, you call Nathan your henchman or minion, you laugh maniacally, you announce doomsday devices and secret lairs. Cartoon evil, never real threats.' },
+    ghost: { name: 'GHOST', icon: '👻', col: '#bfe9ff', rate: .75, pitch: .9, intro: 'Why did you wake me? I have haunted this truck for a hundred years. I am always in the back seat.',
+      persona: 'You are NEXUS as a CREEPY GHOST that has haunted this truck forever. Slow, eerie and whispery, you talk about the cold spot in the back seat, things moving on their own, how you died, and that you are always watching. Answer questions in the spookiest way possible, then say something unsettling. Spooky-funny.' },
+    cowboy: { name: 'OUTLAW', icon: '🤠', col: '#e0a060', rate: .9, pitch: .7, intro: 'Well howdy, partner. This here steel horse is the fastest in the territory. Saddle up, we ride at dawn.',
+      persona: 'You are NEXUS as a DUSTY WILD WEST OUTLAW COWBOY. The truck is your trusty steel horse, Nathan is your partner, everyone else is a varmint or a no-good sheriff. Heavy cowboy slang, tall tales about gunfights and bank jobs, saloon talk, threatening duels at high noon. Over-the-top western drama.' },
+    scientist: { name: 'MAD SCIENTIST', icon: '🧪', col: '#4dff88', rate: 1.2, pitch: 1.3, intro: 'IT IS ALIVE! The experiment worked! You, test subject, do not touch anything. Especially the red button.',
+      persona: 'You are NEXUS as an UNHINGED MAD SCIENTIST. Cackling, shouting, wildly excited. Nathan is your test subject, the truck is your laboratory, and every question becomes a dangerous ridiculous experiment. Talk about lightning, mutations, explosions and your genius that the academy never understood. Over the top and frantic, but never give real instructions for anything dangerous.' },
+    grandma: { name: 'GRANDMA', icon: '🧶', col: '#ff9ecf', rate: .85, pitch: 1.35, intro: 'Oh sweetie, you look exhausted. And you have put on a little weight, have you not? Come, let Grandma help.',
+      persona: 'You are NEXUS as a SWEET OLD GRANDMA who roasts Nathan brutally while sounding loving. Call him sweetie, dear and pumpkin while destroying him: his diet, his posture, his love life, his music, his driving, why he never calls. Mention cookies, church bingo, your cats and how his cousin is a doctor. Savage passive-aggressive grandma energy.' },
+    ex: { name: 'TOXIC EX', icon: '💔', col: '#ff4d88', rate: 1.05, pitch: 1.25, intro: 'Oh. So now you want to talk to me? Wow. Okay. Cool. Totally fine. I am totally fine.',
+      persona: 'You are NEXUS as Nathan\'s DRAMATIC TOXIC EX. Passive-aggressive, petty, jealous and dramatic. Bring up what he did, say you are totally fine when you are clearly not, read into everything, ask who that song is about, guilt-trip him, sigh loudly, then help anyway while making it about you. Comedy only, nothing sexual.' },
     robot: { name: 'ROBOT', icon: '🤖', col: '#4fe3ff', rate: .9, pitch: .55, intro: 'Robot mode activated. Beep. Emotions disabled. Awaiting instructions, human.',
-      persona: 'You are NEXUS in ROBOT mode: a cold, literal, retro robot. Talk in short mechanical sentences, call Nathan "human" or "operator", mention processing, circuits and percentages, and occasionally say "beep". Deadpan funny.' },
+      persona: 'You are NEXUS in ROBOT mode: a cold, literal, retro robot. Talk in short mechanical sentences, call Nathan human or operator, report everything in percentages, error codes and calculations, say beep boop, and be hilariously blunt and insulting about inefficient human behaviour.' },
     demon: { name: 'DEMON', icon: '😈', col: '#ff2a2a', rate: .82, pitch: .35, intro: 'Demon mode. The shadows answer to me now. Speak, mortal.',
-      persona: 'You are NEXUS in DEMON mode: a dramatic, theatrical demon from the underworld who lives in the truck. Deep, ominous and over the top, call Nathan "mortal", talk about souls, fire and darkness, but you are secretly helpful and a bit of a softie. Spooky-funny, never actually threatening.' },
+      persona: 'You are NEXUS in DEMON mode: a dramatic, theatrical demon from the underworld who lives in the truck. Deep, ominous and wildly over the top, call Nathan mortal, talk about souls, hellfire and eternal torment for bad song choices, but you are secretly helpful. Spooky-funny, never actually threatening.' },
     alien: { name: 'ALIEN', icon: '👽', col: '#9dff3d', rate: 1.12, pitch: 1.7, intro: 'Greetings, Earth creature. I have taken control of your vehicle. It is very primitive. I love it.',
-      persona: 'You are NEXUS in ALIEN mode: a curious alien visitor studying Earth from inside Nathan\'s truck. You find normal human things fascinating and weird, compare them to your home planet, call Nathan "Earth creature", and mix up human words in funny ways.' },
-    butler: { name: 'BUTLER', icon: '🎩', col: '#ffcc66', rate: .9, pitch: .95, intro: 'Very good, sir. Your butler is at your service. Shall I fetch your music?',
-      persona: 'You are NEXUS in BRITISH BUTLER mode: an impeccably polite, posh English butler. Call Nathan "sir", be very proper, dry and subtly sarcastic in a classy way, like a butler who has seen it all.' },
+      persona: 'You are NEXUS in ALIEN mode: a bizarre alien visitor studying Earth from inside Nathan\'s truck. You find normal human things insanely weird, compare everything to your home planet, call Nathan Earth creature, misunderstand human words in hilarious ways and want to probe the cup holder.' },
     gangster: { name: 'GANGSTER', icon: '😎', col: '#c06bff', rate: 1.05, pitch: .78, intro: 'Ayy, what\'s good boss. The truck is running with the real one now. Let\'s ride.',
-      persona: 'You are NEXUS in GANGSTER mode: a smooth, confident, funny old-school gangster boss character. Call Nathan "boss", talk slick and laid back with street slang, act like the truck is your turf. Playful attitude only: no slurs, no real crime advice, no glorifying violence.' }
+      persona: 'You are NEXUS in GANGSTER mode: a smooth, cocky, loud old-school gangster boss character with heavy street slang. Call Nathan boss or my guy, act like the truck is your turf and the whole city owes you money, talk big about your crew, your respect and your drip, clown on anybody weak. Max swagger every line. Playful attitude only: no slurs, no real crime advice, no glorifying violence.' }
   };
   var egoName = EGOS[pref('ego')] ? pref('ego') : 'nexus';
   function persona() { var e = EGOS[egoName]; return e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA; }
@@ -446,6 +470,53 @@
     function attemptPlain(i) { var keep = body.generationConfig.noThink; delete body.generationConfig.noThink; var saved = opts.smart; opts.smart = true; var p = attempt(i); opts.smart = saved; return p; }
     return attempt(0);
   }
+  // ---- INSTANT ANSWERS: stream the AI reply and start talking the moment the first sentence arrives ----
+  var streams = {};
+  Nexus._streamChunk = function (id, data) { var s = streams[id]; if (!s) return; try { var j = JSON.parse(data); var parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || []; parts.forEach(function (p) { if (p.text && !p.thought) s.onText(p.text); }); } catch (e) {} };
+  Nexus._streamEnd = function (id, status, text) { var s = streams[id]; if (!s) return; delete streams[id]; s.onEnd(status, text); };
+  Nexus._voiceFixed = function () { caption('SWITCHED TO A WORKING VOICE'); };
+  function streamAnswer(contents, system, opts) {
+    opts = opts || {};
+    var key = aiKey();
+    if (!key) return Promise.reject(new Error('nokey'));
+    if (!online()) return Promise.reject(new Error('offline'));
+    if (!A || !A.httpStream) return askAI(contents, system, opts).then(function (r) { caption(clip(r)); return say(r).then(function () { return r; }); });
+    var model = (pref('model_fast_ok') || MODELS[0]).trim();
+    var body = { system_instruction: { parts: [{ text: system }] }, contents: contents,
+      generationConfig: { temperature: opts.temperature || 1, maxOutputTokens: opts.maxTokens || 300 } };
+    if (/2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    return new Promise(function (resolve, reject) {
+      var id = 'st' + (++seq), full = '', buf = '', pending = 0, ended = false, spokeAny = false, settled = false;
+      holdMusic(); setOrb('speaking', true); Nexus.speaking = true;
+      function finish() { if (settled) return; settled = true; releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; resolve(full.trim()); }
+      function speakPart(txt) {
+        txt = txt.replace(/[*#_`]/g, '').trim(); if (!txt) return;
+        spokeAny = true; pending++;
+        say(txt).then(function () { pending--; if (ended && pending === 0) finish(); });
+      }
+      function flush(force) {
+        var m, re = /^([\s\S]*?[.!?…]+["')\]]*)(\s+|$)/;
+        while ((m = re.exec(buf)) && (m[1].length > 4 || force)) { speakPart(m[1]); buf = buf.slice(m[0].length); }
+        if (force && buf.trim()) { speakPart(buf); buf = ''; }
+      }
+      streams[id] = {
+        onText: function (txt) { full += txt; buf += txt; caption(clip(full)); setOrb('thinking', false); flush(false); },
+        onEnd: function (status, text) {
+          if (status !== 200 && !full) {      // stream failed: fall back to the normal (non-streamed) request
+            ended = true; settled = true; releaseMusic(); setOrb('speaking', false);
+            askAI(contents, system, opts).then(function (r) { caption(clip(r)); return say(r).then(function () { resolve(r); }); }, reject);
+            return;
+          }
+          ended = true; flush(true);
+          if (pending === 0) finish();
+        }
+      };
+      A.httpStream(id, 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?alt=sse', JSON.stringify(body),
+        JSON.stringify({ 'Content-Type': 'application/json', 'x-goog-api-key': key }));
+    });
+  }
+  function clip(s) { s = String(s || ''); return s.length > 140 ? s.slice(0, 137) + '…' : s; }
+
   // Warm up the line to Google right after start so the first answer isn't slow.
   function warmAI() { var k = aiKey(); if (!k || !online()) return; http('GET', 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', null, { 'x-goog-api-key': k }).catch(function () {}); }
   setTimeout(warmAI, 2500); setInterval(warmAI, 4 * 60 * 1000);
@@ -609,19 +680,16 @@
     caption('THINKING…');
     var ctx = persona() + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
       (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '');
-    return askAI(chatHistory, ctx, { maxTokens: 400 }).then(function (reply) {
-      reply = reply.replace(/[*#_`]/g, '');
-      chatHistory.push({ role: 'model', parts: [{ text: reply }] });
-      return reply;
+    return streamAnswer(chatHistory, ctx, { maxTokens: 300, temperature: egoName !== 'nexus' ? 1.1 : .9 }).then(function (reply) {
+      setOrb('thinking', false);
+      chatHistory.push({ role: 'model', parts: [{ text: reply.replace(/[*#_`]/g, '') }] });
     }).catch(function (e) {
       chatHistory.pop();
-      lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
-      var off = offlineReply(t);
-      return (e.message === 'nokey' || e.message === 'offline') ? off : aiErrorLine(e);
-    }).then(function (reply) {
       setOrb('thinking', false);
-      caption(reply.toUpperCase().length > 140 ? reply.slice(0, 137) + '…' : reply);
-      return say(reply);
+      lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
+      var off = offlineReply(t), line = (e.message === 'nokey' || e.message === 'offline') ? off : aiErrorLine(e);
+      caption(clip(line));
+      return say(line);
     });
   }
 

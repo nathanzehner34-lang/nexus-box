@@ -106,6 +106,7 @@
       size();
       XP.active = true;
       running = name;
+      GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
       ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait })[name]();
@@ -397,25 +398,31 @@
   // Shared beat input: B.e = energy (0-1), B.k = kick (bass hit, 0-1), B.hit = true on the frame a kick lands.
   // If no music signal is coming in, it falls back to a steady 120 BPM so visuals never sit still.
   function beatTracker() {
-    var B = window.BEAT, b = { e: 0, k: 0, hit: false, lastKicks: B ? B.kicks : 0, auto: 0 };
+    // Music playing  -> energy + kicks follow the real beat.
+    // No music       -> everything eases to calm (no fake beat, no pulsing, no flashes).
+    var B = window.BEAT, b = { e: 0, k: 0, hit: false, live: false, lastKicks: B ? B.kicks : 0, lastHit: 0, musicAt: 0 };
     XP.onMeter = function () {};
     try { if (A) A.meter(true); } catch (e) {}
+    var musicOn = !A, nextCheck = 0;
     b.tick = function (now) {
       now = now || performance.now();
       if (B) B.tick();
-      var live = B && Date.now() - B.live < 2000;
+      if (A && now > nextCheck) { nextCheck = now + 1000; try { musicOn = !!A.isMusicActive(); } catch (e) { musicOn = true; } }
+      var live = !!(B && Date.now() - B.live < 1500 && musicOn);
+      b.live = live;
       if (live) {
-        b.e = B.e; b.k = B.k;
-        b.hit = B.kicks !== b.lastKicks; b.lastKicks = B.kicks;
+        b.e += ((B.e || 0) - b.e) * .18;
+        b.k = B.k || 0;
+        var fresh = B.kicks !== b.lastKicks; b.lastKicks = B.kicks;
+        b.hit = fresh && now - b.lastHit > 230; if (b.hit) b.lastHit = now;
       } else {
-        var ph = (now % 500) / 500;
-        b.hit = ph < b.auto; b.auto = ph;
-        b.k = Math.pow(1 - ph, 3); b.e = .45 + .25 * Math.sin(now * .002);
+        b.e *= .9; b.k *= .8; b.hit = false; if (B) b.lastKicks = B.kicks;
       }
       return Math.max(b.e * .8, b.k);
     };
     return b;
   }
+
   function flash(col, a) { if (a > .02) { cx.fillStyle = col; cx.globalAlpha = Math.min(.6, a); cx.fillRect(0, 0, W, H); cx.globalAlpha = 1; } }
   function rnd(a, b2) { return a + Math.random() * (b2 - a); }
 
@@ -433,7 +440,8 @@
       g.addColorStop(0, '#090018'); g.addColorStop(.7, '#3a0d5c'); g.addColorStop(1, '#ff3d7f');
       cx.fillStyle = g; cx.fillRect(0, 0, W, H0);
       stars.forEach(function (s2) { cx.fillStyle = 'rgba(255,255,255,' + (.3 + .5 * Math.abs(Math.sin(now * .002 + s2[2]))) + ')'; cx.fillRect(s2[0] * W, s2[1] * H, S * 2, S * 2); });
-      var sr = H * (.2 + b.k * .04); cx.save(); cx.beginPath(); cx.arc(W / 2, H0, sr, Math.PI, 0); cx.clip();
+      outrun.sp = (outrun.sp || 0) + ((b.k * .015) - (outrun.sp || 0)) * .06;
+      var sr = H * (.2 + outrun.sp); cx.save(); cx.beginPath(); cx.arc(W / 2, H0, sr, Math.PI, 0); cx.clip();
       var sg = cx.createLinearGradient(0, H0 - sr, 0, H0); sg.addColorStop(0, '#ffe66d'); sg.addColorStop(1, '#ff3d7f'); cx.fillStyle = sg; cx.fillRect(W / 2 - sr, H0 - sr, sr * 2, sr);
       cx.fillStyle = '#3a0d5c'; for (var k = 0; k < 5; k++) cx.fillRect(W / 2 - sr, H0 - sr * .4 + k * sr * .09, sr * 2, 1 + k * sr * .015); cx.restore();
       cx.fillStyle = '#07000f'; cx.fillRect(0, H0, W, H - H0);
@@ -514,7 +522,7 @@
       cx.fillStyle = '#01cdfe'; cx.fillRect(0, H0, W, H - H0);
       cx.fillStyle = '#05ffa1'; cx.globalAlpha = .15; cx.fillRect(0, H0, W, H - H0); cx.globalAlpha = 1;
       cx.strokeStyle = 'rgba(255,113,206,' + (.6 + p * .4) + ')'; cx.lineWidth = Math.max(1, 1.5 * S * 2);
-      vapor.off = ((vapor.off || 0) + .011 + b.e * .006) % 1; var off = vapor.off;
+      vapor.off = ((vapor.off || 0) + .02 + b.e * .012) % 1; var off = vapor.off;
       for (var r = 0; r < 12; r++) { var z = (r + 1 - off) / 12, y = H0 + (H - H0) * z * z; cx.beginPath(); cx.moveTo(0, y); cx.lineTo(W, y); cx.stroke(); }
       for (var c2 = -10; c2 <= 10; c2++) { cx.beginPath(); cx.moveTo(W / 2 + c2 * W * .02, H0); cx.lineTo(W / 2 + c2 * W * .14, H); cx.stroke(); }
       $('xpMid').style.transform = 'translateY(' + (Math.sin(now * .001) * 6 - 40) + 'px) scale(' + (1 + vapor.sp * 1.5) + ')';
@@ -612,19 +620,6 @@
         cx.fillStyle = c; cx.fillRect(0, 0, W, H);
         cx.globalCompositeOperation = 'source-over';
       },
-      function lasers(now, hh, p) {           // sweeping laser fans like a club
-        cx.fillStyle = 'rgba(0,0,6,.4)'; cx.fillRect(0, 0, W, H);
-        cx.globalCompositeOperation = 'lighter';
-        for (var s2 = 0; s2 < 3; s2++) {
-          var ox = W * (.2 + s2 * .3), base = Math.sin(now * .0011 * (s2 + 1) + s2) * .7;
-          for (var l = 0; l < 9; l++) {
-            var ang = -Math.PI / 2 + base + (l - 4) * .13;
-            cx.strokeStyle = 'hsla(' + ((hh + s2 * 70) % 360) + ',100%,60%,' + (.35 + p * .5) + ')'; cx.lineWidth = Math.max(1, S * 3);
-            cx.beginPath(); cx.moveTo(ox, H); cx.lineTo(ox + Math.cos(ang) * H * 2, H + Math.sin(ang) * H * 2); cx.stroke();
-          }
-        }
-        cx.globalCompositeOperation = 'source-over';
-      },
       function warp(now, hh, p) {             // stars streaking past
         cx.fillStyle = 'rgba(0,0,8,.45)'; cx.fillRect(0, 0, W, H);
         cx.globalCompositeOperation = 'lighter';
@@ -693,8 +688,7 @@
       cx.restore();
       if (!shards) {
         if (b.hit && b.k > .2) { hits++; addCracks(1 + (b.k > .6 ? 1 : 0)); }
-        if (!b.hit && now - cycleStart > 1500 && Math.random() < .01) addCracks(1);
-        if (hits >= 10 || now - cycleStart > 14000) smash(now, hh);
+        if (hits >= 10 && b.live) smash(now, hh);
         // draw the cracks on the glass
         cx.globalCompositeOperation = 'lighter';
         [[S * 7, .12], [S * 3, .35], [S * 1.2, 1]].forEach(function (pass, i) {
@@ -955,32 +949,32 @@
     }
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit), t = now / 1000;
-      if (b.hit) { beats++; nod = 1; if (beats % 24 === 0) startMove('explode', now); else if (b.k > .6 && Math.random() < .25) startMove(['stretch', 'bulge', 'wave', 'twist'][Math.random() * 4 | 0], now); }
+      if (b.hit) { beats++; nod = 1; if (beats % 32 === 0) startMove('explode', now); else if (!move && b.k > .7 && Math.random() < .12) startMove(['stretch', 'bulge', 'tilt', 'spin'][Math.random() * 4 | 0], now); }
       nod *= .85;
-      if (!move && now > nextMove) startMove(null, now);
+      if (!move && now > nextMove && b.live) startMove(null, now);
       var mt = move ? (now - moveT) / 1000 : 0;
-      if (move && mt > DUR[move]) { move = null; nextMove = now + 1800 + Math.random() * 2600; }
+      if (move && mt > DUR[move]) { move = null; nextMove = now + 4000 + Math.random() * 5000; }
       var ease = move ? Math.sin(Math.min(1, mt / DUR[move]) * Math.PI) : 0;
       // constant gentle morphing + big morphs from moves and bass
       function to(k, v) { M[k] += (v - M[k]) * .12; }
-      to('stretch', .12 * Math.sin(t * .7) + (move === 'stretch' ? .9 * ease * Math.sin(mt * 6) : 0) + b.k * .25);
-      to('wave', .15 * Math.sin(t * .5) + (move === 'wave' ? 1 : 0) * ease);
-      to('twist', .1 * Math.sin(t * .37) + (move === 'twist' ? 1.1 * ease * Math.sin(mt * 3) : 0));
-      to('bulge', .15 * (.5 + .5 * Math.sin(t * .9)) + (move === 'bulge' ? 1.6 * ease : 0) + b.k * .3);
+      to('stretch', (move === 'stretch' ? .6 * ease : 0) + b.k * .12);
+      to('wave', (move === 'wave' ? .5 : 0) * ease);
+      to('twist', (move === 'twist' ? .6 * ease * Math.sin(mt * 2) : 0));
+      to('bulge', (move === 'bulge' ? 1 * ease : 0) + b.k * .15);
       to('melt', move === 'melt' ? ease * 1.2 : 0);
-      to('pinch', .2 * Math.max(0, Math.sin(t * .23)) + (move === 'laugh' ? .3 * ease : 0));
-      if (now > nextGaze) { gazeT = [(Math.random() - .5) * 2, (Math.random() - .5) * 1.4]; nextGaze = now + 500 + Math.random() * 2000; }
+      to('pinch', (move === 'laugh' ? .2 * ease : 0));
+      if (now > nextGaze) { var amp = b.live ? 1.4 : .6; gazeT = [(Math.random() - .5) * amp, (Math.random() - .5) * amp * .6]; nextGaze = now + (b.live ? 1500 : 3500) + Math.random() * 3000; }
       if (move === 'stare') gazeT = [0, 0];
-      gaze[0] += (gazeT[0] - gaze[0]) * .25; gaze[1] += (gazeT[1] - gaze[1]) * .25;
+      gaze[0] += (gazeT[0] - gaze[0]) * .04; gaze[1] += (gazeT[1] - gaze[1]) * .04;
       if (now > nextBlink) { blink = 1; nextBlink = now + 1800 + Math.random() * 4000; }
       blink = Math.max(0, blink - .18);
-      var yaw = gaze[0] * .25 + Math.sin(now * .0004) * .1, pitch = -.06 + gaze[1] * .1 - nod * .05, roll = Math.sin(now * .0003) * .04;
+      var yaw = gaze[0] * .2 + Math.sin(now * .00025) * .08, pitch = -.06 + gaze[1] * .08 - nod * .03, roll = Math.sin(now * .0002) * .03;
       if (move === 'spin') yaw += 6.2832 * (1 - Math.pow(1 - Math.min(1, mt / DUR.spin), 3));
       if (move === 'shake') yaw += Math.sin(mt * 40) * .25 * ease;
       if (move === 'tilt') { roll += .35 * ease; pitch += .12 * ease; }
       var scale = 1 + b.k * .03 + (move === 'stare' ? .25 * ease : 0);
       var ex = move === 'explode' ? Math.max(0, Math.sin(Math.min(1, mt / DUR.explode) * Math.PI)) : 0;
-      var gl2 = move === 'glitch' ? 1 : (Math.random() < .015 ? .5 : 0);
+      var gl2 = move === 'glitch' ? 1 : 0;
 
       cx.fillStyle = '#000308'; cx.fillRect(0, 0, W, H);
       var cxp = W / 2, cyp = H * .44, R = Math.min(W, H) * .32 * scale;
@@ -1071,13 +1065,13 @@
       'uniform float surge;\n' +
       'void main(){ vec2 uv = gl_FragCoord.xy / res; vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
       ' float t = time;\n' +
-      ' vec2 q = vec2(p.x * 2.4, uv.y * 2.2 - t * (1.3 + surge * 1.4));\n' +
-      ' float n = fbm(q + vec2(fbm(q * 1.4 + t * .25), fbm(q * 1.1 - t * .2)) * 1.3);\n' +
+      ' vec2 q = vec2(p.x * 2.4, uv.y * 2.2 - t * (.7 + surge * .6));\n' +
+      ' float n = fbm(q + vec2(fbm(q * 1.4 + t * .12), fbm(q * 1.1 - t * .1)) * 1.1);\n' +
       ' float flame = n * 1.6 - uv.y * (1.2 - surge * .5) - abs(p.x) * .2 * (1. - uv.y * .5) - .1;\n' +
       ' flame = clamp(flame * 1.9, 0., 1.);\n' +
       ' vec3 base = mix(vec3(.05, .35, 1.), pal(hue), .3);\n' +
       ' vec3 col = vec3(.0, .01, .05) + base * pow(flame, 1.5) * 1.05 + vec3(.7, .88, 1.) * pow(flame, 9.) * (.35 + surge * .5);\n' +
-      ' vec2 sc = vec2(p.x * 40., uv.y * 22. - t * 9.); vec2 id = floor(sc); float h = hash(id);\n' +
+      ' vec2 sc = vec2(p.x * 40., uv.y * 22. - t * 4.); vec2 id = floor(sc); float h = hash(id);\n' +
       ' float spark = step(.985 - surge * .02, h) * smoothstep(.35, .0, length(fract(sc) - .5)) * (1. - uv.y);\n' +
       ' col += mix(base, vec3(1.), .5) * spark * 2.;\n' +
       ' float ring = exp(-abs(length(vec2(p.x, (uv.y + .1) * 1.6)) - surge * 1.3) * 18.) * surge;\n' +
@@ -1088,7 +1082,7 @@
     text('xpTop', 'BLUE FIRE');
     loop(function (now) {
       b.tick(now); var hh = hue.tick(b.hit);
-      surge += ((b.k * .9 + b.e * .4) - surge) * (b.k > surge ? .5 : .08);
+      surge += ((b.k * .55 + b.e * .25) - surge) * (b.k > surge ? .25 : .05);
       g.f('surge', surge); g.draw(now, b, hh);
     }, 30);
   }
@@ -1335,11 +1329,11 @@
     every(function () { try { var np = A && JSON.parse(A.nowPlaying() || '{}'); var s2 = np && np.title ? np.title : ''; if (s2 && s2 !== lastSong) { if (lastSong) blink = 1.0001; lastSong = s2; } } catch (e) {} }, 3000);
     loop(function (now) {
       b.tick(now); var hh = hue.tick(b.hit);
-      if (now > nextGaze) { gazeT = [(Math.random() - .5) * 2, (Math.random() - .5) * 1.6]; if (Math.random() < .3) gazeT = [0, 0]; nextGaze = now + 500 + Math.random() * 2500; }
-      gaze[0] += (gazeT[0] - gaze[0]) * .3; gaze[1] += (gazeT[1] - gaze[1]) * .3;
-      if (now > nextBlink) { blink = 1.0001; nextBlink = now + 3000 + Math.random() * 5000; }
+      if (now > nextGaze) { var amp = b.live ? 1.6 : .25; gazeT = [(Math.random() - .5) * amp, (Math.random() - .5) * amp * .8]; if (Math.random() < .3) gazeT = [0, 0]; nextGaze = now + (b.live ? 900 : 3500) + Math.random() * 2500; }
+      var gs = b.live ? .15 : .025; gaze[0] += (gazeT[0] - gaze[0]) * gs; gaze[1] += (gazeT[1] - gaze[1]) * gs;
+      if (now > nextBlink) { blink = 1.0001; nextBlink = now + 4000 + Math.random() * 6000; }
       if (blink > 0) blink = Math.max(0, blink - .14);
-      spin += .02 + b.e * .08 + (b.hit ? .6 : 0);
+      spin += .006 + b.e * .05 + (b.hit ? .35 : 0);
       dil += ((b.k * .9 + b.e * .3) - dil) * .3;
       g.v2('gaze', gaze[0], gaze[1]); g.f('blink', Math.min(1, blink > 1 ? 1 : (blink > .5 ? (1 - blink) * 2 : blink * 2))); g.f('dilate', dil); g.f('spin', spin);
       g.draw(now, b, hh);
@@ -1489,10 +1483,10 @@
     text('xpTop', 'NEON SKULL');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      jaw += ((b.k * .1 + b.e * .02) - jaw) * .45;
+      jaw += ((b.live ? b.k * .09 : 0) - jaw) * (b.k > jaw ? .5 : .12);
       cx.fillStyle = 'rgba(0,0,6,.55)'; cx.fillRect(0, 0, W, H);
-      var R = H * .6 * (1 + b.k * .035), X = W / 2 + Math.sin(now * .0007) * W * .015, Y = H * .45;
-      cx.save(); cx.translate(X, Y); cx.rotate(Math.sin(now * .0009) * .04); cx.translate(-X, -Y);
+      var R = H * .6 * (1 + b.k * .02), X = W / 2 + Math.sin(now * .0004) * W * .01, Y = H * .45;
+      cx.save(); cx.translate(X, Y); cx.rotate(Math.sin(now * .0005) * .025); cx.translate(-X, -Y);
       // solid dark bone so it reads as a real skull
       var bone = cx.createRadialGradient(X - R * .1, Y - R * .3, R * .05, X, Y, R * .8);
       bone.addColorStop(0, 'hsla(' + hh + ',40%,14%,.95)'); bone.addColorStop(1, 'hsla(' + hh + ',50%,4%,.95)');
@@ -1508,7 +1502,7 @@
         var gl3 = cx.createRadialGradient(ex, ey, 0, ex, ey, R * .14);
         gl3.addColorStop(0, 'hsla(' + ((hh + 180) % 360) + ',100%,75%,' + (.6 + p * .4) + ')'); gl3.addColorStop(1, 'hsla(' + ((hh + 180) % 360) + ',100%,50%,0)');
         cx.fillStyle = gl3; cx.fillRect(ex - R * .16, ey - R * .16, R * .32, R * .32);
-        var n = 3 + (b.e * 4 | 0) + (b.hit ? 9 : 0);
+        var n = 2 + (b.e * 3 | 0) + (b.hit ? 7 : 0);
         for (var f = 0; f < n; f++) fire.push({ x: ex + (Math.random() - .5) * R * .16, y: ey + (Math.random() - .2) * R * .08, vx: (Math.random() - .5) * R * .004, vy: -(R * (.006 + Math.random() * .01) * (1 + b.k * 1.4)), life: 1, s: R * (.03 + Math.random() * .035), h: (hh + 180 + (Math.random() - .5) * 50 + 360) % 360, ph: Math.random() * 6 });
       });
       fire = fire.filter(function (q) { q.x += q.vx + Math.sin(now * .008 + q.ph) * R * .0025; q.y += q.vy; q.vy *= .985; q.life -= .028; q.s *= .975; return q.life > 0; });
@@ -1637,33 +1631,44 @@
   // ==================================================================
   var FBM3 = 'float fbm3(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 3; i++) { v += a * noise(p); p = p * 2.07 + vec2(3.1, 1.7); a *= .5; } return v; }\n';
 
-  // 20. ALIEN WORLDS — fly low over glowing alien mountains with neon contour lines
+  // 20. ALIEN WORLDS — glide over glowing alien mountains: ringed giant planet, two moons, light orbs, neon lakes
   function worlds() {
     var b = beatTracker(), hue = beatHue(280, 40), fly = 0;
+    GLX = .7;
     var g = glStart('worlds', FBM3 +
       'uniform float fly;\n' +
-      'float ht(vec2 p){ float m = fbm3(p * .22); return m * m * 9. + fbm3(p * 1.1 + 4.) * .5; }\n' +
+      'float ht(vec2 p){ float m = noise(p * .22) * .65 + noise(p * .5) * .35; return m * m * 8.5 + noise(p * 1.3 + 4.) * .35; }\n' +
+      'vec3 skyCol(vec3 rd){ vec3 sunD = normalize(vec3(.25, .12, 1.));\n' +
+      ' vec3 sky = mix(pal(hue + .55) * .3, vec3(.01, .0, .03), smoothstep(-.02, .45, rd.y));\n' +
+      ' sky += pal(hue) * pow(max(dot(rd, sunD), 0.), 6.) * .35;\n' +
+      ' vec2 sp = rd.xy / max(rd.z, .1) * 140.; sky += vec3(1.) * step(.996, hash(floor(sp))) * smoothstep(.0, .3, rd.y);\n' +
+      ' vec2 pc = rd.xy / max(rd.z, .1) - vec2(-.55, .3); float pd = length(pc);\n' +
+      ' if (pd < .22) { vec3 n = vec3(pc / .22, 0.); n.z = sqrt(max(0., 1. - dot(n.xy, n.xy))); float band = .5 + .5 * sin(n.y * 18. + noise(n.xy * 6.) * 3.);\n' +
+      '  sky = pal(hue + .15 + band * .1) * (.15 + .85 * max(dot(n, normalize(vec3(.6, .3, .6))), 0.)); }\n' +
+      ' vec2 rp = mat2(.94, -.34, .34, .94) * pc; float re = length(vec2(rp.x, rp.y * 4.2));\n' +
+      ' if (re > .3 && re < .45 && !(pd < .22 && rp.y > 0.)) sky += pal(hue + .2) * (.25 + .25 * sin(re * 90.)) * smoothstep(.3, .32, re) * smoothstep(.45, .42, re);\n' +
+      ' vec2 m1 = rd.xy / max(rd.z, .1) - vec2(.62, .42); sky += vec3(.9, .95, 1.) * smoothstep(.05, .045, length(m1));\n' +
+      ' vec2 m2 = rd.xy / max(rd.z, .1) - vec2(.35, .55); sky += pal(hue + .4) * smoothstep(.028, .024, length(m2));\n' +
+      ' return sky; }\n' +
       'void main(){ vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
-      ' vec3 ro = vec3(sin(fly * .05) * 3., 4.4, fly); vec3 rd = normalize(vec3(uv.x, uv.y - .28, 1.1));\n' +
-      ' float c = cos(sin(fly * .05) * .25), s = sin(sin(fly * .05) * .25); rd.xz = mat2(c, -s, s, c) * rd.xz;\n' +
-      ' vec3 sunD = normalize(vec3(0., .18, 1.));\n' +
-      ' vec3 sky = mix(pal(hue + .55) * .28, vec3(.01, .0, .03), smoothstep(-.02, .45, rd.y));\n' +
-      ' sky += pal(hue) * pow(max(dot(rd, sunD), 0.), 30.) * 1.6 + pal(hue + .1) * pow(max(dot(rd, sunD), 0.), 4.) * .3;\n' +
-      ' vec2 sp = rd.xy / max(rd.z, .1) * 120.; sky += vec3(1.) * step(.995, hash(floor(sp))) * smoothstep(.0, .3, rd.y);\n' +
+      ' vec3 ro = vec3(sin(fly * .04) * 3., 4.6, fly); vec3 rd = normalize(vec3(uv.x, uv.y - .26, 1.1));\n' +
+      ' float c = cos(sin(fly * .04) * .2), s = sin(sin(fly * .04) * .2); rd.xz = mat2(c, -s, s, c) * rd.xz;\n' +
+      ' vec3 col = skyCol(rd);\n' +
       ' float t = .5; bool hit = false; vec3 p;\n' +
-      ' for (int i = 0; i < 60; i++) { p = ro + rd * t; float d = p.y - ht(p.xz); if (d < .004 * t) { hit = true; break; } t += max(d * .65, .03); if (t > 60.) break; }\n' +
+      ' for (int i = 0; i < 42; i++) { p = ro + rd * t; float d = p.y - ht(p.xz); if (d < .006 * t) { hit = true; break; } t += max(d * .7, .05); if (t > 55.) break; }\n' +
       ' if (!hit && rd.y < .02) hit = true;\n' +
-      ' vec3 col = sky;\n' +
-      ' if (hit) { vec2 e = vec2(.08, 0.); vec3 n = normalize(vec3(ht(p.xz - e.xy) - ht(p.xz + e.xy), 2. * e.x, ht(p.xz - e.yx) - ht(p.xz + e.yx)));\n' +
-      '  float dif = max(dot(n, sunD), 0.);\n' +
-      '  col = vec3(.02, .01, .04) + pal(hue + .6) * .08 * dif;\n' +
-      '  float cl = smoothstep(.06, .0, .5 - abs(fract(p.y * 2.2 - fly * .02) - .5)) + .35 * smoothstep(.03, .0, .5 - abs(fract(p.x * .8) - .5));\n' +
-      '  col += pal(hue + p.y * .08) * cl * (1. + kick * 1.4);\n' +
-      '  col = mix(pal(hue + .55) * .1, col, exp(-t * .035)); }\n' +
-      ' col = pow(col, vec3(.9)); gl_FragColor = vec4(col, 1.); }');
+      ' if (hit) { float h = ht(p.xz);\n' +
+      '  vec3 g2 = vec3(.02, .01, .04);\n' +
+      '  float cl = smoothstep(.06, .0, .5 - abs(fract(h * 2.2) - .5)) + .3 * smoothstep(.03, .0, .5 - abs(fract(p.x * .8) - .5));\n' +
+      '  g2 += pal(hue + h * .08) * cl * (1. + kick * .8);\n' +
+      '  float lake = smoothstep(.55, .2, h); g2 = mix(g2, pal(hue + .5) * .35 + skyCol(reflect(rd, vec3(0., 1., 0.))) * .4, lake);\n' +
+      '  col = mix(pal(hue + .55) * .08, g2, exp(-t * .035)); }\n' +
+      ' vec2 op = uv * 6. + vec2(fly * .3, 0.); vec2 oi = floor(op); float oh = hash(oi);\n' +
+      ' if (oh > .93) { vec2 oc = fract(op) - .5 + vec2(sin(time + oh * 20.) * .2, cos(time * .7 + oh * 9.) * .2); col += pal(hue + oh) * .5 * smoothstep(.12, .0, length(oc)) * smoothstep(-.4, .1, uv.y); }\n' +
+      ' gl_FragColor = vec4(col, 1.); }');
     if (!g) return synth();
     text('xpTop', 'ALIEN WORLDS');
-    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); fly += .08 + b.e * .1 + b.k * .08; g.f('fly', fly); g.draw(now, b, hh); }, 30);
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); fly += .05 + b.e * .08; g.f('fly', fly); g.draw(now, b, hh); }, 30);
   }
 
   // 21. LIQUID GOLD — molten metal rippling in slow motion; bass sends waves through it
@@ -1708,19 +1713,20 @@
       '  float cur = fbm3(vec2(a * 2.2 + fl * 1.7 + sin(d * .3 + fl) * .6, d * .45 - time * .05));\n' +
       '  float sheet = pow(smoothstep(.22, .72, cur), 1.6) * (.55 + .45 * sin(a * 9. + d * 2. + fl));\n' +
       '  col += pal(hue + fl * .14 + d * .02) * sheet * 1.25; }\n' +
-      ' col *= smoothstep(.02, .3, r) * (1. + kick * .5);\n' +
+      ' col *= smoothstep(.02, .3, r) * (1. + energy * .25);\n' +
       ' col += pal(hue + .3) * exp(-r * 9.) * .4;\n' +
       ' vec2 sp = vec2(a * 70., d * 14.); col += vec3(.8) * step(.997, hash(floor(sp))) * smoothstep(.15, .5, r) * smoothstep(.45, .2, length(fract(sp) - .5));\n' +
       ' gl_FragColor = vec4(col, 1.); }');
     if (!g) return hyper();
     text('xpTop', 'AURORA TUNNEL');
-    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); z += .012 + b.e * .02; g.f('travel', z); g.draw(now, b, hh); }, 30);
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); z += .008 + b.e * .012; g.f('travel', z); g.draw(now, b, hh); }, 30);
   }
 
   // 23. INK IN WATER — clouds of coloured ink burst and swirl; every drop lands on a beat
   function ink() {
     var b = beatTracker(), hue = beatHue(330, 80), slots = [], next = 0, start = performance.now(), last = 0;
     for (var i = 0; i < 8; i++) slots.push([0, 0, -99, 0, 0, 0, 0]);
+    GLX = .85;
     var g = glStart('ink', FBM3 +
       'uniform vec4 R[8]; uniform vec3 RC[8];\n' +
       'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y;\n' +
@@ -1769,44 +1775,52 @@
       '  vec3 rf = refract(rd, n, .7);\n' +
       '  col = pal(hue + rf.x * .6 + rf.y * .4 + dot(n, vec3(.3, .5, .2))) * (.25 + .75 * fr) * 1.3;\n' +
       '  col += vec3(1.) * pow(max(dot(reflect(rd, n), normalize(vec3(.4, .6, -.6))), 0.), 40.) * 1.5;\n' +
-      '  col += pal(hue + .5) * kick * .4; }\n' +
-      ' col += pal(hue) * .15 / (1. + length(uv) * 6.) * (1. + kick);\n' +
+      '  col += pal(hue + .5) * kick * .12; }\n' +
+      ' col += pal(hue) * .15 / (1. + length(uv) * 6.);\n' +
       ' gl_FragColor = vec4(col, 1.); }');
     if (!g) return kaleido();
     text('xpTop', 'CRYSTAL GEOMETRY');
     loop(function (now) {
       b.tick(now); var hh = hue.tick(b.hit);
-      spin += .008 + b.e * .02; split += ((b.k > .55 ? 1 : 0) - split) * (b.k > .55 ? .3 : .04);
+      spin += .005 + b.e * .012; split += ((b.live && b.k > .6 ? 1 : 0) - split) * .05;
       g.f('spin', spin); g.f('split', split); g.draw(now, b, hh);
     }, 30);
   }
 
-  // 25. BLACK HOLE — light bends around it, a glowing disk spins, stars get pulled in
+  // 25. BLACK HOLE — movie-style black hole: thin blazing accretion disk, light bent over the top and under,
+  //     a razor photon ring, lensed galaxy behind. Disk spins faster with the music; no pulsing.
   function blackhole() {
-    var b = beatTracker(), hue = beatHue(25, 30);
+    var b = beatTracker(), hue = beatHue(25, 20), spin = 0;
     var g = glStart('blackhole', FBM3 +
-      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; float r = length(p); vec2 dir = p / max(r, .0001);\n' +
-      ' float rs = .1 * (1. + kick * .06);\n' +
-      ' vec2 q = p - dir * (rs * rs * 2.2) / max(r, rs * .9);\n' +
-      ' float ang = atan(q.y, q.x) + time * .02;\n' +
-      ' vec3 col = pal(hue + .6) * pow(fbm3(q * 3. + 2.), 3.) * .5 + pal(hue + .2) * pow(fbm3(q * 6. - 1.), 4.) * .3;\n' +
-      ' vec2 sq = q * 140.; col += vec3(1.) * step(.993, hash(floor(sq))) * (1. + 2. * smoothstep(.5, .1, r));\n' +
-      ' vec2 dk = vec2(p.x, p.y / .22); float dr = length(dk) / rs; float da = atan(dk.y, dk.x);\n' +
-      ' float diskMask = smoothstep(1.6, 2., dr) * smoothstep(5.5, 3.2, dr);\n' +
-      ' float swirl = fbm3(vec2(da * 3. - time * 1.6 + 6. / dr, dr * 1.6));\n' +
-      ' float dop = 1. + .75 * (p.x / max(length(dk), .001)) * sign(1.);\n' +
-      ' vec3 disk = mix(pal(hue), vec3(1., .9, .7), smoothstep(3.5, 1.8, dr)) * (.4 + 1.4 * swirl) * dop * (1. + kick * .8);\n' +
-      ' float front = step(0., -p.y);\n' +
-      ' float arcR = r / rs; float arc = exp(-abs(arcR - 1.55) * 9.) * smoothstep(-.02, .06, p.y) * (.6 + .6 * fbm3(vec2(atan(p.y, p.x) * 4. - time, 1.)));\n' +
-      ' vec3 arcCol = mix(pal(hue), vec3(1., .85, .6), .5) * arc * 1.6;\n' +
+      'uniform float spin;\n' +
+      'vec3 diskCol(float dr, float ang, float side){ float heat = pow(clamp(2. / dr, 0., 1.), 1.4);\n' +
+      ' float turb = fbm3(vec2(ang * 5. - spin * 3. / dr, dr * 2.5)) * .8 + fbm3(vec2(ang * 13. - spin * 6. / dr, dr * 6.)) * .4;\n' +
+      ' vec3 c = mix(vec3(1., .35, .08), vec3(1., .92, .8), heat); c = mix(c, pal(hue), .22);\n' +
+      ' float dop = 1. + .65 * side;\n' +
+      ' return c * heat * (.35 + turb) * dop * 1.6; }\n' +
+      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y * 1.05; float r = length(p); float rs = .1;\n' +
+      ' vec2 dir = p / max(r, 1e-4);\n' +
+      ' vec2 q = p * (1. - rs * rs * 2.4 / max(r * r, rs * rs * .9));\n' +
+      ' float ca = cos(.45), sa = sin(.45); vec2 gq = vec2(ca * q.x - sa * q.y, sa * q.x + ca * q.y);\n' +
+      ' vec3 col = pal(hue + .6) * fbm3(gq * 3. + 5.) * exp(-abs(gq.y) * 5.) * .35 + vec3(.9, .8, 1.) * pow(fbm3(gq * 7.), 3.) * exp(-abs(gq.y) * 7.) * .3;\n' +
+      ' vec2 sp = q * 160.; float st = hash(floor(sp)); col += vec3(1.) * step(.994, st) * smoothstep(.45, .1, length(fract(sp) - .5)) * (1. + 2. * smoothstep(.4, .12, r));\n' +
+      ' float ang = atan(p.y, p.x);\n' +
+      ' float ar = r / rs;\n' +
+      ' float upper = exp(-abs(ar - 1.75) * 3.2) * smoothstep(-.35, .25, p.y / r) ;\n' +
+      ' float lower = exp(-abs(ar - 1.35) * 7.) * smoothstep(.1, -.6, p.y / r) * .5;\n' +
+      ' col += diskCol(1.8 + abs(ar - 1.75) * 2., ang * .5, -cos(ang) * .5) * (upper + lower);\n' +
       ' if (r < rs) col = vec3(0.);\n' +
-      ' col += arcCol * step(rs, r);\n' +
-      ' col = mix(col, disk, diskMask * (front + (1. - front) * step(rs * 1.05, r)) * .95);\n' +
-      ' col += vec3(1., .85, .6) * exp(-abs(r - rs * 1.02) * 160.) * 1.2;\n' +
+      ' col += vec3(1., .9, .75) * exp(-abs(ar - 1.04) * 55.) * 1.4;\n' +
+      ' vec2 dk = vec2(p.x, p.y / .16); float dr = length(dk) / rs; float da = atan(dk.y, dk.x);\n' +
+      ' float dm = smoothstep(1.7, 2.1, dr) * smoothstep(7., 4.5, dr);\n' +
+      ' vec3 disk = diskCol(dr, da, p.x / max(length(dk), 1e-4));\n' +
+      ' float front = step(p.y, 0.);\n' +
+      ' col = mix(col, col + disk, dm * mix(step(rs * 1.02, r), 1., front));\n' +
+      ' col = 1. - exp(-col * 1.3);\n' +
       ' gl_FragColor = vec4(col, 1.); }');
     if (!g) return zoom();
     text('xpTop', 'BLACK HOLE');
-    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); g.draw(now, b, hh); }, 30);
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); spin += .01 + b.e * .03; g.f('spin', spin); g.draw(now, b, hh); }, 30);
   }
 
   // 26. LAVA LAMP 3D — big glossy blobs rise, merge and split
@@ -1816,8 +1830,8 @@
       'uniform float pulse;\n' +
       'float field(vec2 p){ float f = 0.;\n' +
       ' for (int i = 0; i < 8; i++) { float fi = float(i);\n' +
-      '  vec2 c = vec2(sin(time * (.13 + fi * .021) + fi * 2.1) * .65, sin(time * (.09 + fi * .017) + fi * 1.3) * .42);\n' +
-      '  float rr = .11 + .05 * sin(fi * 1.7) + pulse * .03; f += rr * rr / max(dot(p - c, p - c), .0001); }\n' +
+      '  vec2 c = vec2(sin(pulse * (.13 + fi * .021) + fi * 2.1) * .65, sin(pulse * (.09 + fi * .017) + fi * 1.3) * .42);\n' +
+      '  float rr = .11 + .05 * sin(fi * 1.7); f += rr * rr / max(dot(p - c, p - c), .0001); }\n' +
       ' return f; }\n' +
       'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y; float f = field(p);\n' +
       ' vec3 col = mix(vec3(.02, .0, .03), pal(hue + .5) * .12, gl_FragCoord.y / res.y);\n' +
@@ -1832,103 +1846,158 @@
       ' gl_FragColor = vec4(col, 1.); }');
     if (!g) return water();
     text('xpTop', 'LAVA LAMP');
-    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); pulse += (b.k - pulse) * .2; g.f('pulse', pulse); g.draw(now, b, hh); }, 30);
+    var clock = 0, lastT = performance.now();
+    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); clock += (now - lastT) / 1000 * (.6 + b.e * .8); lastT = now; g.f('pulse', clock); g.draw(now, b, hh); }, 30);
   }
 
-  // 27. NEURAL NETWORK — a giant web of light nodes; thoughts fire through it to the music
+  // 27. NEURAL NETWORK — a living brain of light: hundreds of neurons in 3D, thoughts racing along
+  //     the connections, synapses flaring where they land; calm drifting thoughts without music, storms with it.
   function neural() {
-    var b = beatTracker(), hue = beatHue(190, 50), nodes = [], edges = [], pulses = [], rotA = 0;
-    for (var i = 0; i < 140; i++) { var u = Math.random() * 6.283, v = Math.acos(2 * Math.random() - 1), rr = .6 + Math.random() * .45;
-      nodes.push([Math.sin(v) * Math.cos(u) * rr, Math.cos(v) * rr * .8, Math.sin(v) * Math.sin(u) * rr, Math.random()]); }
-    nodes.forEach(function (a2, i) { var ds = nodes.map(function (b2, j) { return [Math.hypot(a2[0] - b2[0], a2[1] - b2[1], a2[2] - b2[2]), j]; }).sort(function (x, y) { return x[0] - y[0]; });
-      for (var k = 1; k <= 3; k++) if (ds[k][1] > i) edges.push([i, ds[k][1]]); });
-    var adj = nodes.map(function () { return []; }); edges.forEach(function (e, k) { adj[e[0]].push([e[1], k]); adj[e[1]].push([e[0], k]); });
-    function fireFrom(n, depth) { adj[n].forEach(function (x) { if (Math.random() < .8) pulses.push({ a: n, b: x[0], t: 0, sp: .03 + Math.random() * .03, depth: depth }); }); }
+    var b = beatTracker(), hue = beatHue(190, 45), nodes = [], edges = [], pulses = [], flares = [], rotA = 0, rotB = 0, dust = [];
+    for (var i = 0; i < 260; i++) {
+      var lobe = i % 2 ? 1 : -1, u = Math.random() * 6.283, v = Math.acos(2 * Math.random() - 1), rr = Math.pow(Math.random(), .35);
+      nodes.push([Math.sin(v) * Math.cos(u) * rr * .55 + lobe * .38, Math.cos(v) * rr * .6, Math.sin(v) * Math.sin(u) * rr * .75, Math.random(), 0]);
+    }
+    for (var d2 = 0; d2 < 120; d2++) dust.push([Math.random(), Math.random(), Math.random()]);
+    nodes.forEach(function (a2, i) {
+      var ds = []; nodes.forEach(function (b2, j) { if (j !== i) ds.push([Math.hypot(a2[0] - b2[0], a2[1] - b2[1], a2[2] - b2[2]), j]); });
+      ds.sort(function (x, y) { return x[0] - y[0]; });
+      for (var k = 0; k < 4; k++) if (ds[k][1] > i) edges.push([i, ds[k][1]]);
+    });
+    var adj = nodes.map(function () { return []; }); edges.forEach(function (e) { adj[e[0]].push(e[1]); adj[e[1]].push(e[0]); });
+    function fire(n, depth, hot) { adj[n].forEach(function (m) { if (Math.random() < (hot ? .9 : .55)) pulses.push({ a: n, b: m, t: 0, sp: (hot ? .045 : .02) + Math.random() * .02, depth: depth, hot: hot }); }); nodes[n][4] = 1; }
     text('xpTop', 'NEURAL NETWORK');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      rotA += .002 + b.e * .006;
-      if (b.hit) for (var f = 0; f < 3; f++) fireFrom(Math.random() * nodes.length | 0, 4);
-      if (Math.random() < .08) fireFrom(Math.random() * nodes.length | 0, 2);
-      cx.fillStyle = 'rgba(0,1,8,.45)'; cx.fillRect(0, 0, W, H);
-      var cxp = W / 2, cyp = H / 2, R = Math.min(W, H) * .55, c = Math.cos(rotA), s2 = Math.sin(rotA);
-      var P = nodes.map(function (n) { var x = n[0] * c + n[2] * s2, z = -n[0] * s2 + n[2] * c, f2 = 2.6 / (2.6 + z); return [cxp + x * R * f2 * 1.3, cyp + n[1] * R * f2, z]; });
+      rotA += .0016 + b.e * .004; rotB = Math.sin(now * .00012) * .35;
+      if (b.hit) for (var f = 0; f < 4; f++) fire(Math.random() * nodes.length | 0, 5, true);
+      if (Math.random() < (b.live ? .1 : .035)) fire(Math.random() * nodes.length | 0, 3, false);
+      cx.fillStyle = 'rgba(0,1,8,.4)'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H / 2, R = Math.min(W, H) * .62, ca = Math.cos(rotA), sa = Math.sin(rotA), cb = Math.cos(rotB), sb = Math.sin(rotB);
+      cx.fillStyle = 'rgba(160,200,255,.25)';
+      dust.forEach(function (q) { q[1] -= .0003; if (q[1] < 0) q[1] = 1; cx.fillRect(q[0] * W, q[1] * H, S * 1.5 * (1 + q[2]), S * 1.5 * (1 + q[2])); });
+      var P = nodes.map(function (n) { var x = n[0] * ca + n[2] * sa, z = -n[0] * sa + n[2] * ca, y = n[1] * cb - z * sb; z = n[1] * sb + z * cb; var f2 = 2.6 / (2.6 + z); return [cxp + x * R * f2, cyp + y * R * f2, z]; });
       cx.globalCompositeOperation = 'lighter';
-      cx.strokeStyle = 'hsla(' + hh + ',80%,55%,.14)'; cx.lineWidth = Math.max(1, S * 1.2); cx.beginPath();
-      edges.forEach(function (e) { cx.moveTo(P[e[0]][0], P[e[0]][1]); cx.lineTo(P[e[1]][0], P[e[1]][1]); }); cx.stroke();
-      pulses = pulses.filter(function (q) { q.t += q.sp * (1 + b.e); if (q.t >= 1) { if (q.depth > 0 && pulses.length < 400) fireFrom(q.b, q.depth - 1); return false; } return true; });
-      pulses.forEach(function (q) { var A2 = P[q.a], B2 = P[q.b], x = A2[0] + (B2[0] - A2[0]) * q.t, y = A2[1] + (B2[1] - A2[1]) * q.t, x0 = A2[0] + (B2[0] - A2[0]) * Math.max(0, q.t - .25), y0 = A2[1] + (B2[1] - A2[1]) * Math.max(0, q.t - .25);
-        cx.strokeStyle = 'hsla(' + ((hh + 40) % 360) + ',100%,70%,.9)'; cx.lineWidth = Math.max(1, S * 3); cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(x, y); cx.stroke(); });
-      P.forEach(function (q, i) { var z = (q[2] + 1.2) / 2.4, sz = (1.5 + z * 3) * S * 2 * (1 + p * .5); cx.fillStyle = 'hsla(' + ((hh + nodes[i][3] * 60) % 360) + ',100%,' + (55 + z * 25) + '%,' + (.3 + z * .7) + ')'; cx.fillRect(q[0] - sz / 2, q[1] - sz / 2, sz, sz); });
+      // connections, in two depth layers
+      [[-9, 0, .07], [0, 9, .16]].forEach(function (L) {
+        cx.strokeStyle = 'hsla(' + hh + ',80%,58%,' + L[2] + ')'; cx.lineWidth = Math.max(1, S * 1.2); cx.beginPath();
+        edges.forEach(function (e) { var z = (P[e[0]][2] + P[e[1]][2]) / 2; if (z >= L[0] && z < L[1]) { cx.moveTo(P[e[0]][0], P[e[0]][1]); cx.lineTo(P[e[1]][0], P[e[1]][1]); } }); cx.stroke();
+      });
+      pulses = pulses.filter(function (q) { q.t += q.sp * (1 + b.e * .8); if (q.t >= 1) { nodes[q.b][4] = Math.max(nodes[q.b][4], q.hot ? 1 : .6); flares.push([q.b, 1]); if (q.depth > 0 && pulses.length < 500) fire(q.b, q.depth - 1, q.hot); return false; } return true; });
+      pulses.forEach(function (q) {
+        var A2 = P[q.a], B2 = P[q.b], t1 = q.t, t0 = Math.max(0, q.t - .3);
+        var x1 = A2[0] + (B2[0] - A2[0]) * t1, y1 = A2[1] + (B2[1] - A2[1]) * t1, x0 = A2[0] + (B2[0] - A2[0]) * t0, y0 = A2[1] + (B2[1] - A2[1]) * t0;
+        var gr = cx.createLinearGradient(x0, y0, x1, y1); gr.addColorStop(0, 'hsla(' + ((hh + 40) % 360) + ',100%,70%,0)'); gr.addColorStop(1, 'hsla(' + ((hh + 40) % 360) + ',100%,80%,.95)');
+        cx.strokeStyle = gr; cx.lineWidth = Math.max(1, S * (q.hot ? 3.4 : 2.2)); cx.beginPath(); cx.moveTo(x0, y0); cx.lineTo(x1, y1); cx.stroke();
+      });
+      flares = flares.filter(function (f2) { f2[1] -= .05; if (f2[1] <= 0) return false; var q = P[f2[0]], r2 = R * .05 * (1.2 - f2[1]);
+        var g2 = cx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r2); g2.addColorStop(0, 'hsla(' + ((hh + 60) % 360) + ',100%,85%,' + f2[1] * .7 + ')'); g2.addColorStop(1, 'hsla(' + hh + ',100%,60%,0)');
+        cx.fillStyle = g2; cx.fillRect(q[0] - r2, q[1] - r2, r2 * 2, r2 * 2); return true; });
+      if (flares.length > 200) flares.splice(0, flares.length - 200);
+      P.forEach(function (q, i) { var n = nodes[i]; n[4] *= .94; var z = (q[2] + 1.2) / 2.4, sz = (1.4 + z * 3 + n[4] * 4) * S * 2;
+        cx.fillStyle = 'hsla(' + ((hh + n[3] * 70) % 360) + ',100%,' + (55 + z * 20 + n[4] * 25) + '%,' + (.25 + z * .6 + n[4] * .3) + ')'; cx.fillRect(q[0] - sz / 2, q[1] - sz / 2, sz, sz); });
       cx.globalCompositeOperation = 'source-over';
     }, 30);
   }
 
-  // 28. DATA STORM — streams of glowing code fly past; they lock into NEXUS on the drop
+  // 28. DATA STORM — streams of glowing code fly past; they lock into NEXUS on a big drop
   function datastorm() {
-    var b = beatTracker(), hue = beatHue(140, 40), glyphs = [], form = 0, formT = 0, targets = [];
+    var b = beatTracker(), hue = beatHue(140, 40), glyphs = [], form = 0, formT = 0, targets = [], atlas = null, CS = 48;
     var CH = 'ｱｲｳｴｵｶｷｸｹｺ0123456789ABCDEFNEXUS$#@%&*';
-    for (var i = 0; i < 260; i++) glyphs.push({ x: (Math.random() - .5) * 3, y: (Math.random() - .5) * 2, z: Math.random() * 3 + .2, c: CH[Math.random() * CH.length | 0], tx: 0, ty: 0 });
-    (function () { var c = document.createElement('canvas'); c.width = 160; c.height = 40; var g2 = c.getContext('2d'); g2.fillStyle = '#fff'; g2.font = '900 34px sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('NEXUS', 80, 21);
-      var d = g2.getImageData(0, 0, 160, 40).data; for (var y = 0; y < 40; y += 2) for (var x = 0; x < 160; x += 2) if (d[(y * 160 + x) * 4 + 3] > 128) targets.push([(x - 80) / 80, (y - 20) / 80]); })();
+    function buildAtlas(hh) {           // all characters pre-drawn once, in white + glow, tinted by colour bucket
+      atlas = document.createElement('canvas'); atlas.width = CS * CH.length; atlas.height = CS; var g2 = atlas.getContext('2d');
+      g2.font = '700 ' + (CS * .78 | 0) + 'px monospace'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
+      g2.shadowColor = 'hsl(' + hh + ',100%,55%)'; g2.shadowBlur = CS * .25; g2.fillStyle = 'hsl(' + hh + ',100%,78%)';
+      for (var i = 0; i < CH.length; i++) g2.fillText(CH[i], i * CS + CS / 2, CS / 2 + 2);
+      atlas.hue = hh;
+    }
+    for (var i = 0; i < 360; i++) glyphs.push({ x: (Math.random() - .5) * 3, y: (Math.random() - .5) * 2, z: Math.random() * 3 + .2, c: Math.random() * CH.length | 0, tx: 0, ty: 0 });
+    (function () { var c = document.createElement('canvas'); c.width = 200; c.height = 60; var g2 = c.getContext('2d'); g2.fillStyle = '#fff'; g2.font = '900 46px sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillText('NEXUS', 100, 31);
+      var d = g2.getImageData(0, 0, 200, 60).data; for (var y = 0; y < 60; y += 2) for (var x = 0; x < 200; x += 2) if (d[(y * 200 + x) * 4 + 3] > 128) targets.push([(x - 100) / 100, (y - 30) / 100]); })();
     text('xpTop', 'DATA STORM');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      if (b.hit && b.k > .6 && form === 0 && now - formT > 6000) { form = 1; formT = now; }
-      if (form === 1 && now - formT > 3500) { form = 0; formT = now; }
-      cx.fillStyle = 'rgba(0,4,2,.35)'; cx.fillRect(0, 0, W, H);
-      var cxp = W / 2, cyp = H / 2, F = Math.min(W, H) * .5;
-      cx.textAlign = 'center'; cx.textBaseline = 'middle';
-      glyphs.forEach(function (g3, i) {
-        var sx2, sy2, sz;
-        if (form) { var tg = targets[i % targets.length]; g3.tx += (tg[0] * W * .42 + cxp - g3.tx) * .12; g3.ty += (tg[1] * W * .42 + cyp - g3.ty) * .12; sx2 = g3.tx; sy2 = g3.ty; sz = W * .016; }
-        else { g3.z -= .02 + b.e * .05 + b.k * .05; if (g3.z < .15) { g3.z = 3.2; g3.x = (Math.random() - .5) * 3; g3.y = (Math.random() - .5) * 2; g3.c = CH[Math.random() * CH.length | 0]; }
-          sx2 = cxp + g3.x / g3.z * F; sy2 = cyp + g3.y / g3.z * F; sz = Math.max(4, F * .06 / g3.z); g3.tx = sx2; g3.ty = sy2; }
-        if (Math.random() < .03) g3.c = CH[Math.random() * CH.length | 0];
-        var near = form ? 1 : Math.min(1, 1.2 / g3.z);
-        cx.font = '700 ' + (sz | 0) + 'px monospace';
-        cx.fillStyle = 'hsla(' + hh + ',100%,' + (50 + near * 40) + '%,' + (.25 + near * .75) + ')';
-        cx.fillText(g3.c, sx2, sy2);
-      });
+      if (!atlas || Math.abs(((atlas.hue - hh + 540) % 360) - 180) > 20) buildAtlas(Math.round(hh));
+      if (b.hit && b.k > .6 && form === 0 && now - formT > 8000) { form = 1; formT = now; }
+      if (form === 1 && now - formT > 4000) { form = 0; formT = now; }
+      cx.fillStyle = 'rgba(0,4,2,.4)'; cx.fillRect(0, 0, W, H);
+      var cxp = W / 2, cyp = H / 2, F = Math.min(W, H) * .5, N = glyphs.length;
+      for (var i = 0; i < N; i++) {
+        var g3 = glyphs[i], sx2, sy2, sz;
+        if (form) { var tg = targets[Math.floor(i * targets.length / N)]; g3.tx += (tg[0] * W * .4 + cxp - g3.tx) * .1; g3.ty += (tg[1] * W * .4 + cyp - g3.ty) * .1; sx2 = g3.tx; sy2 = g3.ty; sz = W * .02; }
+        else { g3.z -= .012 + b.e * .03; if (g3.z < .15) { g3.z = 3.2; g3.x = (Math.random() - .5) * 3; g3.y = (Math.random() - .5) * 2; g3.c = Math.random() * CH.length | 0; }
+          sx2 = cxp + g3.x / g3.z * F; sy2 = cyp + g3.y / g3.z * F; sz = Math.max(4, F * .07 / g3.z); g3.tx = sx2; g3.ty = sy2; }
+        if (Math.random() < .02) g3.c = Math.random() * CH.length | 0;
+        cx.globalAlpha = form ? .95 : Math.min(1, .25 + 1 / g3.z * .6);
+        cx.drawImage(atlas, g3.c * CS, 0, CS, CS, sx2 - sz / 2, sy2 - sz / 2, sz, sz);
+      }
+      cx.globalAlpha = 1;
     }, 30);
   }
 
-  // 29. PARTICLE PORTRAIT — thousands of glowing particles form a shape, explode on the drop, reform as the next
+  // 29. PARTICLE PORTRAIT — thousands of fine glowing particles flow into clean shapes and slowly morph to the next
   function portrait() {
-    var b = beatTracker(), hue = beatHue(200, 50), parts = [], SHAPES = ['NEXUS', '💀', '🐺', '❤️', '👽', '🔥', '🦅', '⚡'], si = 0, lastSwap = performance.now(), boom = 0;
-    var N2 = 1400;
-    for (var i = 0; i < N2; i++) parts.push({ x: Math.random(), y: Math.random(), vx: 0, vy: 0, tx: .5, ty: .5, o: Math.random() });
-    function sample(sh) {
-      var c = document.createElement('canvas'), w = 200, h = 110; c.width = w; c.height = h; var g2 = c.getContext('2d');
-      g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillStyle = '#fff';
-      g2.font = (sh.length > 2 ? '900 58px sans-serif' : '96px sans-serif'); g2.fillText(sh, w / 2, h / 2 + 4);
-      var d = g2.getImageData(0, 0, w, h).data, pts = [];
-      for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 120) pts.push([x / w, y / h]);
-      if (!pts.length) pts.push([.5, .5]);
-      return pts;
+    var b = beatTracker(), hue = beatHue(200, 40), parts = [], si = 0, lastSwap = performance.now(), sprite = null;
+    var SHAPES = [['text', 'NEXUS'], ['path', 'skull'], ['path', 'wolf'], ['path', 'crown'], ['path', 'heart'], ['path', 'bolt'], ['path', 'star'], ['path', 'moon']];
+    var N2 = 1800;
+    for (var i = 0; i < N2; i++) parts.push({ x: Math.random(), y: Math.random(), vx: 0, vy: 0, tx: .5, ty: .5, o: Math.random(), edge: 0 });
+    var sprites = {};
+    function spr(h) { var k = (Math.round(h / 12) * 12 + 360) % 360; if (sprites[k]) return sprites[k];
+      var c = document.createElement('canvas'); c.width = c.height = 16; var g2 = c.getContext('2d'), gr = g2.createRadialGradient(8, 8, 0, 8, 8, 8);
+      gr.addColorStop(0, 'hsla(' + k + ',100%,92%,1)'); gr.addColorStop(.35, 'hsla(' + k + ',100%,62%,.6)'); gr.addColorStop(1, 'hsla(' + k + ',100%,50%,0)'); g2.fillStyle = gr; g2.fillRect(0, 0, 16, 16); sprites[k] = c; return c; }
+    function drawShape(g2, n, w, h) {       // clean hand-drawn silhouettes (no fonts needed)
+      var cxp = w / 2, cyp = h / 2, U = h / 2 * .9;
+      function poly(pts) { g2.beginPath(); pts.forEach(function (q, i) { var X = cxp + q[0] * U, Y = cyp + q[1] * U; if (i) g2.lineTo(X, Y); else g2.moveTo(X, Y); }); g2.closePath(); g2.fill(); }
+      g2.fillStyle = '#fff';
+      if (n === 'heart') { g2.beginPath(); g2.moveTo(cxp, cyp + U * .9); g2.bezierCurveTo(cxp - U * 1.5, cyp - U * .1, cxp - U * .7, cyp - U * 1.2, cxp, cyp - U * .45); g2.bezierCurveTo(cxp + U * .7, cyp - U * 1.2, cxp + U * 1.5, cyp - U * .1, cxp, cyp + U * .9); g2.fill(); }
+      else if (n === 'star') { var pts = []; for (var i = 0; i < 10; i++) { var a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? .42 : 1; pts.push([Math.cos(a) * r, Math.sin(a) * r + .08]); } poly(pts); }
+      else if (n === 'bolt') poly([[.15, -1], [-.45, .1], [-.02, .1], [-.18, 1], [.45, -.15], [.03, -.15], [.25, -1]]);
+      else if (n === 'moon') { g2.beginPath(); g2.arc(cxp, cyp, U * .95, 0, 6.283); g2.fill(); g2.globalCompositeOperation = 'destination-out'; g2.beginPath(); g2.arc(cxp + U * .42, cyp - U * .2, U * .82, 0, 6.283); g2.fill(); g2.globalCompositeOperation = 'source-over'; }
+      else if (n === 'crown') { poly([[-1, .7], [-1.05, -.55], [-.55, .05], [0, -.85], [.55, .05], [1.05, -.55], [1, .7]]); [[-1.05, -.6], [0, -.9], [1.05, -.6]].forEach(function (q) { g2.beginPath(); g2.arc(cxp + q[0] * U, cyp + q[1] * U, U * .13, 0, 6.283); g2.fill(); }); g2.fillRect(cxp - U, cyp + U * .75, U * 2, U * .22); }
+      else if (n === 'skull') {
+        g2.beginPath(); g2.ellipse(cxp, cyp - U * .2, U * .78, U * .72, 0, 0, 6.283); g2.fill(); g2.fillRect(cxp - U * .48, cyp + U * .25, U * .96, U * .55);
+        g2.globalCompositeOperation = 'destination-out';
+        [-1, 1].forEach(function (sd) { g2.beginPath(); g2.ellipse(cxp + sd * U * .32, cyp - U * .05, U * .22, U * .2, sd * .25, 0, 6.283); g2.fill(); });
+        g2.beginPath(); g2.moveTo(cxp, cyp + U * .12); g2.lineTo(cxp - U * .1, cyp + U * .32); g2.lineTo(cxp + U * .1, cyp + U * .32); g2.closePath(); g2.fill();
+        for (var t2 = 0; t2 < 5; t2++) g2.fillRect(cxp - U * .4 + t2 * U * .19, cyp + U * .52, U * .05, U * .28);
+        g2.globalCompositeOperation = 'source-over';
+      }
+      else if (n === 'wolf') {   // howling wolf head in profile
+        poly([[-.85, .95], [-.75, .2], [-.62, -.1], [-.55, -.75], [-.32, -.3], [-.12, -.5], [.05, -.95], [.12, -.35], [.42, -.22], [.95, -.55], [1.02, -.42], [.6, -.02], [.72, .05], [.4, .2], [.18, .35], [.1, .62], [-.05, .95]]);
+        g2.globalCompositeOperation = 'destination-out'; g2.beginPath(); g2.ellipse(cxp + U * .12, cyp - U * .2, U * .07, U * .035, -.4, 0, 6.283); g2.fill(); g2.globalCompositeOperation = 'source-over';
+      }
     }
-    function assign() { var pts = sample(SHAPES[si]); parts.forEach(function (q, k) { var t = pts[(k * 7919) % pts.length]; q.tx = .2 + t[0] * .6; q.ty = .12 + t[1] * .76; }); }
+    function sample(sh) {
+      var w = 360, h = 200, c = document.createElement('canvas'); c.width = w; c.height = h; var g2 = c.getContext('2d');
+      g2.textAlign = 'center'; g2.textBaseline = 'middle'; g2.fillStyle = '#fff';
+      if (sh[0] === 'text') { g2.font = '900 112px sans-serif'; g2.fillText(sh[1], w / 2, h / 2 + 6); } else drawShape(g2, sh[1], w, h);
+      var d = g2.getImageData(0, 0, w, h).data, fill = [], edge = [];
+      function A2(x, y) { return x < 0 || y < 0 || x >= w || y >= h ? 0 : d[(y * w + x) * 4 + 3]; }
+      for (var y = 0; y < h; y += 2) for (var x = 0; x < w; x += 2) if (A2(x, y) > 128) { ((A2(x - 3, y) < 128 || A2(x + 3, y) < 128 || A2(x, y - 3) < 128 || A2(x, y + 3) < 128) ? edge : fill).push([x / w, y / h]); }
+      return { fill: fill.length ? fill : [[.5, .5]], edge: edge.length ? edge : [[.5, .5]] };
+    }
+    function assign() {
+      var s2 = sample(SHAPES[si]), ne = Math.floor(N2 * .45);
+      parts.forEach(function (q, k) { var src = k < ne ? s2.edge : s2.fill, t = src[Math.floor(Math.random() * src.length)]; q.tx = .14 + t[0] * .72; q.ty = .06 + t[1] * .88; q.edge = k < ne ? 1 : 0; });
+    }
     assign();
     text('xpTop', 'PARTICLE PORTRAIT');
     loop(function (now) {
       var p = b.tick(now), hh = hue.tick(b.hit);
-      if ((b.hit && b.k > .6 && now - lastSwap > 5000) || now - lastSwap > 12000) {
-        boom = 1; lastSwap = now;
-        parts.forEach(function (q) { var a = Math.random() * 6.283, sp = .01 + Math.random() * .03; q.vx += Math.cos(a) * sp; q.vy += Math.sin(a) * sp; });
-        setTimeout(function () { si = (si + 1) % SHAPES.length; assign(); }, 350);
-      }
-      boom *= .95;
-      cx.fillStyle = 'rgba(0,0,8,.32)'; cx.fillRect(0, 0, W, H);
+      if ((b.live && b.hit && b.k > .7 && now - lastSwap > 7000) || now - lastSwap > 14000) { lastSwap = now; si = (si + 1) % SHAPES.length; assign(); }
+      cx.fillStyle = 'rgba(0,0,8,.35)'; cx.fillRect(0, 0, W, H);
       cx.globalCompositeOperation = 'lighter';
-      var sz = Math.max(1.5, S * 3.2);
-      parts.forEach(function (q) {
-        q.vx += (q.tx - q.x) * .02; q.vy += (q.ty - q.y) * .02; q.vx *= .86; q.vy *= .86;
-        q.x += q.vx + Math.sin(now * .002 + q.o * 20) * .0006 * (1 + p * 4); q.y += q.vy + Math.cos(now * .0023 + q.o * 20) * .0006 * (1 + p * 4);
-        cx.fillStyle = 'hsla(' + ((hh + q.o * 70) % 360) + ',100%,' + (55 + p * 25) + '%,.85)';
-        cx.fillRect(q.x * W - sz / 2, q.y * H - sz / 2, sz, sz);
-      });
+      var sz = Math.max(3, S * 7), t = now * .001;
+      for (var i = 0; i < N2; i++) {
+        var q = parts[i];
+        q.vx += (q.tx - q.x) * .012; q.vy += (q.ty - q.y) * .012; q.vx *= .88; q.vy *= .88;
+        var sw = .0007 * (1 + b.e * 2);
+        q.x += q.vx + Math.sin(t * .8 + q.o * 30) * sw; q.y += q.vy + Math.cos(t * .7 + q.o * 30) * sw;
+        cx.globalAlpha = q.edge ? .85 : .4 + q.o * .25;
+        cx.drawImage(spr(hh + q.x * 70 + q.o * 15), q.x * W - sz / 2, q.y * H - sz / 2, sz * (q.edge ? 1 : .8), sz * (q.edge ? 1 : .8));
+      }
+      cx.globalAlpha = 1;
       cx.globalCompositeOperation = 'source-over';
-      if (boom > .9) flash('#fff', .25);
     }, 30);
   }
 
