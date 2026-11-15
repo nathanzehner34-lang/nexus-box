@@ -48,7 +48,8 @@
       var eg = (typeof EGOS !== 'undefined' && EGOS[egoName]) || {};
       if (!opts.rate && !opts.pitch && eg.rate) { opts.rate = eg.rate; opts.pitch = eg.pitch; }
       if (A) {
-        if (opts.line && A.speakLine) A.speakLine(text, id, opts.rate || 0, opts.pitch || 0, !!opts.flush);
+        if (eg.voiceHint && A.speakAs) A.speakAs(text, id, opts.rate || eg.rate || 0, opts.pitch || eg.pitch || 0, eg.voiceHint);
+        else if (opts.line && A.speakLine) A.speakLine(text, id, opts.rate || 0, opts.pitch || 0, !!opts.flush);
         else if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id);
       }
       else if (window.speechSynthesis) {
@@ -605,6 +606,8 @@
   };
   // ---- ALTER EGO ENGINE: the 7 personas from personas.js (assets/personas.json) ----
   var EGO_ORDER = ['king', 'ex', 'conspiracy', 'mob_boss', 'rogue', 'cult'];
+  // Built-in Android voice picked per persona, so each one sounds different (no extra downloads needed).
+  var VOICE_HINTS = { king: 'male_deep', mob_boss: 'male_gravel', rogue: 'male_cold', cult: 'male_soft', ex: 'female_sharp', conspiracy: 'male_gravel' };
   var PMAP = { nexus: 'nexus', the_king: 'king', toxic_ex: 'ex', conspiracy_guy: 'conspiracy', mob_boss: 'mob_boss', rogue_ai: 'rogue', cult_leader: 'cult' };
   var SKIP_QUIPS = {}, EGO_OFFLINE = {}, egoLevel = 1;
   (function loadPersonas() {
@@ -616,6 +619,7 @@
       ex = ex.split('|').map(function (s) { return s.trim().replace(/^'|'$/g, ''); }).filter(Boolean);
       var e = EGOS[k] || (EGOS[k] = { icon: '◉', rate: .8, pitch: .6, intro: ex[0] || p.name + ' here.' });
       e.name = p.name.toUpperCase(); e.col = p.orbColor; e.tts = p.tts;
+      e.voiceHint = VOICE_HINTS[k];
       if (k !== 'nexus') e.persona = p.systemPrompt;
       SKIP_QUIPS[k] = PD.skipSongQuips[p.id] || [];
       EGO_OFFLINE[k] = ex.concat(SKIP_QUIPS[k]);
