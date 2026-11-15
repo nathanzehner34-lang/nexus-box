@@ -603,6 +603,27 @@
       briefOut: 'That\'s the word on the street, boss. Stay up.',
       show: 'Yo, look at this. Cleanest ride on the block. Nobody\'s touching this, boss. Nobody.' }
   };
+  // ---- ALTER EGO ENGINE: the 7 personas from personas.js (assets/personas.json) ----
+  var EGO_ORDER = ['king', 'ex', 'conspiracy', 'mob_boss', 'rogue', 'cult'];
+  var PMAP = { nexus: 'nexus', the_king: 'king', toxic_ex: 'ex', conspiracy_guy: 'conspiracy', mob_boss: 'mob_boss', rogue_ai: 'rogue', cult_leader: 'cult' };
+  var SKIP_QUIPS = {}, EGO_OFFLINE = {}, egoLevel = 1;
+  (function loadPersonas() {
+    var PD = window.NEXUS_PERSONAS; if (!PD) return;
+    EGO_RULES = ' ' + PD.globalRules;
+    PD.personas.forEach(function (p) {
+      var k = PMAP[p.id]; if (!k) return;
+      var ex = p.systemPrompt.split('EXAMPLES:')[1] || '';
+      ex = ex.split('|').map(function (s) { return s.trim().replace(/^'|'$/g, ''); }).filter(Boolean);
+      var e = EGOS[k] || (EGOS[k] = { icon: '◉', rate: .8, pitch: .6, intro: ex[0] || p.name + ' here.' });
+      e.name = p.name.toUpperCase(); e.col = p.orbColor; e.tts = p.tts;
+      if (k !== 'nexus') e.persona = p.systemPrompt;
+      SKIP_QUIPS[k] = PD.skipSongQuips[p.id] || [];
+      EGO_OFFLINE[k] = ex.concat(SKIP_QUIPS[k]);
+    });
+    if (!EGO_BGS.mob_boss) EGO_BGS.mob_boss = 'bg_ego_gangster.jpg';
+  })();
+  function skipQuip() { var q = SKIP_QUIPS[egoName]; return q && q.length ? pick(q) : 'Skipping.'; }
+  function egoOffline() { var q = EGO_OFFLINE[egoName]; return q && q.length ? pick(q) : ''; }
   function tod() { var h = L().h; return h >= 4 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening'; }
   function egoLine(kind, g) {
     var pack = EGO_LINES[egoName] || {}, v = pack[kind] !== undefined ? pack[kind] : NEXUS_LINES[kind];
@@ -648,7 +669,7 @@
     Object.keys(EGOS).forEach(function (k) { var x = EGOS[k]; list.push([x.intro, x.rate || 0, x.pitch || 0]); });
     try { if (A && A.precache) A.precache(JSON.stringify(list)); } catch (er) {}
   }
-  function persona() { var e = EGOS[egoName]; return e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA; }
+  function persona() { var e = EGOS[egoName]; return (e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA) + ' LEVEL=' + egoLevel + '. Reply in plain text, under 30 words.'; }
   function applyEgo(flashIt) {
     var e = EGOS[egoName];
     Object.keys(EGOS).forEach(function (k) { document.body.classList.toggle('ego-' + k, k === egoName && k !== 'nexus'); });
@@ -663,24 +684,27 @@
   }
   function setEgo(k) {
     stopTalking();
-    egoName = k; setPref('ego', k); chatHistory = [];
+    egoName = k; setPref('ego', k); chatHistory = []; egoLevel = 1;
     sayLine(EGOS[k].intro, true);          // talks the instant you tap
     applyEgo(true);
     caption(EGOS[k].name === 'NEXUS' ? 'NEXUS' : EGOS[k].name + ' MODE');
     setTimeout(precacheEgo, 4000);
   }
+  function egoCard(k, top) {
+    var e = EGOS[k];
+    return '<div class="app egocard' + (top ? ' egoTop' : '') + (k === egoName ? ' egoOn' : '') + '" data-ego="' + k + '" style="border-color:' + e.col + '">' +
+      '<span class="ering" style="border-color:' + e.col + ';box-shadow:0 0 2.2vmin ' + e.col + ', inset 0 0 1.6vmin ' + e.col + '"></span>' +
+      '<span style="color:' + e.col + ';text-shadow:0 0 1vmin ' + e.col + '">' + e.name + '</span></div>';
+  }
   function openEgo() {
     openPanel('ALTER EGO', '<div class="hint" style="margin-bottom:2vmin">Pick who Nexus is. The look, the voice and the attitude all change. Talk to the orb to hear it.</div>' +
-      '<div class="agrid">' + Object.keys(EGOS).filter(function (k) { return !EGOS[k].secret || pref('secretEgo') === '1'; }).map(function (k) {
-        var e = EGOS[k];
-        return '<div class="app egocard' + (k === egoName ? ' egoOn' : '') + '" data-ego="' + k + '" style="border-color:' + e.col + '"><span style="font-size:7vmin;line-height:1.2">' + e.icon + '</span><span style="color:' + e.col + '">' + e.name + '</span></div>';
-      }).join('') + '</div>');
+      egoCard('nexus', true) + '<div class="egrid">' + EGO_ORDER.map(function (k) { return egoCard(k, false); }).join('') + '</div>');
     Array.prototype.forEach.call(document.querySelectorAll('[data-ego]'), function (el) {
       el.addEventListener('click', function () { var k = el.getAttribute('data-ego'); closePanel(); setEgo(k); });
     });
   }
 
-  var MODELS = ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+  var MODELS = ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
   var SMART_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
 
   function aiKey() { return (pref('gemini_key') || window.NEXUS_DEFAULT_KEY || '').trim(); }
@@ -702,7 +726,7 @@
       if (i >= models.length) return Promise.reject(new Error('models'));
       var b2 = JSON.parse(JSON.stringify(body));
       // fast answers: switch off the model's "thinking" pause on models that support it
-      if (!opts.smart && /2\.5|latest/.test(models[i])) b2.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      if (!opts.smart && /3\.|2\.5|latest/.test(models[i])) b2.generationConfig.thinkingConfig = { thinkingBudget: 0 };
       return http('POST', 'https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', b2,
         { 'Content-Type': 'application/json', 'x-goog-api-key': key }).then(function (r) {
         var detail = '';
@@ -769,7 +793,7 @@
         var model = models[i], id = 'st' + (++seq);
         var body = { system_instruction: { parts: [{ text: system }] }, contents: contents,
           generationConfig: { temperature: opts.temperature || 1, maxOutputTokens: opts.maxTokens || 300 } };
-        if (/2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        if (/3\.|2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
         clearTimeout(first);
         // if nothing at all comes back quickly, don't leave Nathan hanging
         first = setTimeout(function () { if (!raw && !settled) { delete streams[id]; var e = new Error('network'); e.detail = 'timeout'; fail(e); } }, 9000);
@@ -989,7 +1013,7 @@
     var rm = /^remember (that )?(.{4,140})$/.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
     if (/open the vault/.test(t)) { setPref('vault', '1'); caption('🔓 SECRET UNLOCKED · GOLD STYLE'); return say('Vault open. You just unlocked the gold home screen. Find it in Backgrounds.'); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
-      if (MUSIC_CMDS[mi][0].test(t)) { var mcmd = MUSIC_CMDS[mi][1]; caption(MUSIC_CMDS[mi][2].toUpperCase()); setTimeout(function () { music(mcmd); }, 600); return Promise.resolve(); }
+      if (MUSIC_CMDS[mi][0].test(t)) { var mcmd = MUSIC_CMDS[mi][1]; caption(MUSIC_CMDS[mi][2].toUpperCase()); if (mcmd === 'next') { egoLevel = Math.min(5, egoLevel + 1); sayLine(skipQuip()); } setTimeout(function () { music(mcmd); }, 600); return Promise.resolve(); }
     }
     if (/what('s| is) (this|the) song|what song/.test(t) && A) {
       var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
@@ -1003,11 +1027,12 @@
     if (quick) { caption(quick); return say(quick); }
 
     chatHistory.push({ role: 'user', parts: [{ text: raw }] });
-    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+    if (chatHistory.length > 9) chatHistory = chatHistory.slice(-9);   // last 4 turns + this message
+    if (egoLevel > 1) egoLevel--;
     setOrb('thinking', true);
     caption('THINKING…');
     var ctx = aiContext();
-    return streamAnswer(chatHistory, ctx, { maxTokens: 300, temperature: egoName !== 'nexus' ? 1.1 : .9, onRaw: function (raw) {
+    return streamAnswer(chatHistory, ctx, { maxTokens: 75, temperature: egoName !== 'nexus' ? 1.1 : .9, onRaw: function (raw) {
       var re = /\[\[\s*remember\s*:\s*([^\]]+)\]\]/gi, m; while ((m = re.exec(raw))) remember(m[1]);
     } }).then(function (reply) {
       setOrb('thinking', false);
@@ -1016,7 +1041,7 @@
       chatHistory.pop();
       setOrb('thinking', false);
       lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
-      var off = offlineReply(t), line = e.message === 'offline' ? off : aiErrorLine(e);
+      var off = offlineReply(t), line = (e.message === 'offline' || e.message === 'limit' || e.message === 'network') ? (egoOffline() || off || aiErrorLine(e)) : aiErrorLine(e);
       if (e.message === 'nokey') { caption('AI KEY MISSING · SETTINGS → AI KEY'); return say(line); }
       caption(clip(line));
       return say(line);
@@ -1178,11 +1203,11 @@
   function unprompted(what, tokens) {
     if (!aiKey() || Nexus.speaking || heardResolve || booting || awaySince) return;
     var sys = aiContext() + ' You are speaking first, without being asked. ' + what + ' One short sentence, two at the very most. Do not ask a question that needs an answer.';
-    streamAnswer([{ role: 'user', parts: [{ text: '(go)' }] }], sys, { maxTokens: tokens || 70, temperature: 1.1 }).catch(function () {});
+    streamAnswer([{ role: 'user', parts: [{ text: '(go)' }] }], sys, { maxTokens: Math.min(tokens || 75, 75), temperature: 1.1 }).catch(function () {});
   }
   setInterval(function () {
     var now = Date.now();
-    if (pref('talkFirst') !== '0' && now - lastRemark > 25 * 60000 && now - lastTouchAt > 3 * 60000 && now - lastTouchAt < 45 * 60000 && homeIdle()) {
+    if (pref('talkFirst') !== '0' && now - lastRemark > 15 * 60000 && now - lastTouchAt > 3 * 60000 && now - lastTouchAt < 45 * 60000 && homeIdle()) {
       lastRemark = now; unprompted('Make a quick passing remark to Nathan about the time of day, the weather, the drive, or something you remember about him.');
     }
     if (pref('saver') !== '0' && !saverOn && homeIdle() && !Nexus.speaking && now - lastTouchAt > 5 * 60000) { saverOn = true; openExperience('clockface'); }

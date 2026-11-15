@@ -74,7 +74,7 @@ body.night #vig { background: radial-gradient(ellipse at center, rgba(0,0,0,.2) 
 
 /* ---------- Panel ---------- */
 #panel { display: flex; align-items: center; justify-content: center; background: rgba(1,3,15,.55); }
-#panelBox { width: 94vw; max-width: 1100px; height: 90vh; background: rgba(8,14,40,.88); border: 1px solid rgba(160,200,255,.22);
+#panelBox { width: 94vw; max-width: 1100px; height: 90vh; background: rgba(8,14,40,.95); /* #080E28F2 */ border: 1px solid rgba(160,200,255,.22);
   border-radius: 20px; display: flex; flex-direction: column; overflow: hidden; }
 #panelHead { display: flex; justify-content: space-between; align-items: center; padding: 2vmin 3vmin;
   border-bottom: 1px solid rgba(160,200,255,.12); }
@@ -300,3 +300,14 @@ body.style-gold .tile { background: linear-gradient(145deg, rgba(60,45,10,.75), 
 body.style-gold .tile .ic, body.style-gold .tile .lb { color: #f6dc94; text-shadow: 0 0 1vmin rgba(255,200,80,.5); }
 #tshow { position: fixed; inset: 0; z-index: 190; background: #000; transition: opacity .6s; }
 #tshow canvas { width: 100%; height: 100%; display: block; }
+
+/* Alter Ego popup: Nexus on top, 3x2 grid of glowing rings */
+.egoTop { width: 34%; margin: 0 auto 3vmin; padding: 2vmin; border: 1px solid; }
+.egrid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, auto); gap: 2.5vmin; }
+.egrid .egocard { border: 1px solid; padding: 2vmin 1vmin; }
+.ering { display: block; width: 9vmin; height: 9vmin; border-radius: 50%; border: .8vmin solid; margin: .5vmin auto 1vmin;
+  animation: eringPulse 2.4s ease-in-out infinite; }
+.egoTop .ering { width: 12vmin; height: 12vmin; }
+.egocard span:last-child { font-size: 2.4vmin; letter-spacing: 2px; max-height: none; }
+.app.egoOn .ering { animation-duration: 1s; }
+@keyframes eringPulse { 0%,100% { opacity: .75; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.04); } }
