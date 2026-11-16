@@ -478,62 +478,131 @@ public class MainActivity extends Activity {
     }
     private Runnable bootGreetPending = null;
 
-    // ---------- UPDATE NEXUS: download the newest build and open the install screen ----------
-    private static final String UPDATE_URL = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk";
-    // The Nexus 23 test app (package ends in .nexus23) updates from its own test download, never from Nexus 22's.
-    private static final String UPDATE_URL_N23 = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/nexus-23-dev/nexus23.apk";
-    private String updateUrl() { return getPackageName().endsWith(".nexus23") ? UPDATE_URL_N23 : UPDATE_URL; }
+    // ---------- NEXUS SYSTEM UPDATE ----------
     private long updateId = -1;
+    private String updateDigest = "";
+    private long updateExpectedSize = -1;
+    private volatile boolean updateVerified = false;
     private BroadcastReceiver updateReceiver;
 
-    private void startUpdate() {
+    private void startUpdate(String url, long size, String digest) {
         try {
-            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-                Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
-                s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(s);
-                js("Nexus._update && Nexus._update('allow')");
-                return;
+            Uri uri = Uri.parse(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || !"github.com".equalsIgnoreCase(uri.getHost()) ||
+                    uri.getPath() == null || !uri.getPath().contains("/releases/download/nexus-23-dev/")) {
+                js("Nexus._update && Nexus._update('failed','Invalid update source')"); return;
+            }
+            if (size <= 0 || digest == null || !digest.matches("(?i)[0-9a-f]{64}")) {
+                js("Nexus._update && Nexus._update('failed','Missing APK integrity data')"); return;
             }
             android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            File f = new File(getExternalFilesDir(null), "nexus-update.apk");
-            if (f.exists()) f.delete();
-            android.app.DownloadManager.Request r = new android.app.DownloadManager.Request(android.net.Uri.parse(updateUrl()));
-            r.setDestinationUri(android.net.Uri.fromFile(f));
-            r.setTitle("Nexus update");
-            r.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE);
+            if (dm == null) throw new IllegalStateException("Download service unavailable");
+            File f = new File(getExternalFilesDir(null), "nexus23-update.apk");
+            if (f.exists() && !f.delete()) throw new IllegalStateException("Could not clear previous download");
+            android.app.DownloadManager.Request req = new android.app.DownloadManager.Request(uri);
+            req.setDestinationUri(Uri.fromFile(f));
+            req.setTitle("Nexus system update"); req.setDescription("Downloading and verifying Nexus");
+            req.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE);
+            req.setAllowedOverMetered(true); req.setAllowedOverRoaming(false);
             if (updateReceiver == null) {
                 updateReceiver = new BroadcastReceiver() {
                     @Override public void onReceive(Context c, Intent i) {
                         long id = i.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                        if (id != updateId) return;
-                        installDownloaded(id);
+                        if (id == updateId) verifyDownloaded(id);
                     }
                 };
                 registerReceiver(updateReceiver, new IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE));
             }
-            updateId = dm.enqueue(r);
+            updateDigest = digest.toLowerCase(Locale.ROOT); updateExpectedSize = size; updateVerified = false;
+            updateId = dm.enqueue(req); prefs.edit().putLong("nexusUpdateId", updateId).apply();
             js("Nexus._update && Nexus._update('downloading')");
         } catch (Exception e) {
-            js("Nexus._update && Nexus._update('failed')");
+            js("Nexus._update && Nexus._update('failed'," + JSONObject.quote(e.getMessage() == null ? "Could not start download" : e.getMessage()) + ")");
         }
     }
 
-    private void installDownloaded(long id) {
+    private String sha256(File file) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        try (InputStream in = new java.io.FileInputStream(file)) {
+            byte[] buf = new byte[16384]; int n;
+            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
+        }
+        StringBuilder out = new StringBuilder();
+        for (byte b : md.digest()) out.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+        return out.toString();
+    }
+
+    private String signerFingerprint(android.content.pm.PackageInfo info) throws Exception {
+        android.content.pm.Signature[] sigs;
+        if (Build.VERSION.SDK_INT >= 28) {
+            if (info.signingInfo == null) return "";
+            sigs = info.signingInfo.getApkContentsSigners();
+        } else { sigs = info.signatures; }
+        if (sigs == null || sigs.length == 0) return "";
+        byte[] hash = java.security.MessageDigest.getInstance("SHA-256").digest(sigs[0].toByteArray());
+        StringBuilder out = new StringBuilder();
+        for (byte b : hash) out.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+        return out.toString();
+    }
+
+    private void verifyDownloaded(long id) {
+        pool.execute(() -> {
+            String failure = "Download failed";
+            try {
+                android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                android.database.Cursor cur = dm.query(new android.app.DownloadManager.Query().setFilterById(id));
+                boolean ok = false;
+                if (cur != null) { if (cur.moveToFirst()) ok = cur.getInt(cur.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS)) == android.app.DownloadManager.STATUS_SUCCESSFUL; cur.close(); }
+                if (!ok) throw new IllegalStateException("Download did not finish");
+                File apk = new File(getExternalFilesDir(null), "nexus23-update.apk");
+                if (!apk.isFile() || apk.length() != updateExpectedSize) throw new IllegalStateException("Downloaded file size does not match");
+                if (!sha256(apk).equalsIgnoreCase(updateDigest)) throw new IllegalStateException("APK checksum verification failed");
+                int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+                android.content.pm.PackageInfo archive = getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
+                android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), flags);
+                if (archive == null || !getPackageName().equals(archive.packageName)) throw new IllegalStateException("APK is for a different Nexus app");
+                long newCode = Build.VERSION.SDK_INT >= 28 ? archive.getLongVersionCode() : archive.versionCode;
+                long oldCode = Build.VERSION.SDK_INT >= 28 ? installed.getLongVersionCode() : installed.versionCode;
+                if (newCode <= oldCode) throw new IllegalStateException("No newer compatible version was found");
+                if (!signerFingerprint(installed).equals(signerFingerprint(archive))) throw new IllegalStateException("APK signing identity does not match this installation");
+                updateVerified = true; ui.post(() -> js("Nexus._update && Nexus._update('verified')")); return;
+            } catch (Exception e) { failure = e.getMessage() == null ? failure : e.getMessage(); }
+            updateVerified = false; final String message = failure;
+            ui.post(() -> js("Nexus._update && Nexus._update('failed'," + JSONObject.quote(message) + ")"));
+        });
+    }
+
+    private String updateProgressJson() {
         try {
+            if (updateId < 0) updateId = prefs.getLong("nexusUpdateId", -1);
+            if (updateId < 0) return "{\"state\":\"idle\",\"percent\":0}";
             android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            android.database.Cursor cur = dm.query(new android.app.DownloadManager.Query().setFilterById(id));
-            boolean ok = false;
-            if (cur != null) { if (cur.moveToFirst()) ok = cur.getInt(cur.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS)) == android.app.DownloadManager.STATUS_SUCCESSFUL; cur.close(); }
-            if (!ok) { js("Nexus._update && Nexus._update('failed')"); return; }
-            android.net.Uri u = dm.getUriForDownloadedFile(id);
-            Intent i = new Intent(Intent.ACTION_VIEW);
-            i.setDataAndType(u, "application/vnd.android.package-archive");
-            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-            js("Nexus._update && Nexus._update('ready')");
+            android.database.Cursor c = dm.query(new android.app.DownloadManager.Query().setFilterById(updateId));
+            if (c == null || !c.moveToFirst()) { if (c != null) c.close(); return "{\"state\":\"idle\",\"percent\":0}"; }
+            int status = c.getInt(c.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS));
+            long total = c.getLong(c.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+            long done = c.getLong(c.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)); c.close();
+            int percent = total > 0 ? (int) Math.min(100, done * 100 / total) : 0;
+            String state = updateVerified ? "verified" : status == android.app.DownloadManager.STATUS_RUNNING || status == android.app.DownloadManager.STATUS_PENDING ? "downloading" : status == android.app.DownloadManager.STATUS_SUCCESSFUL ? "verifying" : status == android.app.DownloadManager.STATUS_FAILED ? "failed" : "idle";
+            JSONObject o = new JSONObject(); o.put("state", state); o.put("percent", percent); return o.toString();
+        } catch (Exception e) { return "{\"state\":\"idle\",\"percent\":0}"; }
+    }
+
+    private void installUpdate() {
+        try {
+            if (!updateVerified) { js("Nexus._update && Nexus._update('failed','Download must finish verification first')"); return; }
+            if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()));
+                startActivity(s); js("Nexus._update && Nexus._update('allow')"); return;
+            }
+            android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            Uri u = dm.getUriForDownloadedFile(updateId);
+            if (u == null) throw new IllegalStateException("Verified APK is no longer available");
+            Intent i = new Intent(Intent.ACTION_VIEW); i.setDataAndType(u, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i);
+            js("Nexus._update && Nexus._update('installing')");
         } catch (Exception e) {
-            js("Nexus._update && Nexus._update('failed')");
+            js("Nexus._update && Nexus._update('failed'," + JSONObject.quote(e.getMessage() == null ? "Could not open Android installer" : e.getMessage()) + ")");
         }
     }
 
@@ -1557,7 +1626,13 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void updateNexus() { ui.post(MainActivity.this::startUpdate); }
+        public void updateDownload(String url, long size, String digest) { ui.post(() -> MainActivity.this.startUpdate(url, size, digest)); }
+
+        @JavascriptInterface
+        public void installUpdate() { ui.post(MainActivity.this::installUpdate); }
+
+        @JavascriptInterface
+        public String updateProgress() { return MainActivity.this.updateProgressJson(); }
 
         // Download a picture (webcam snapshot) natively and hand it to the page as a data URL.
         @JavascriptInterface
@@ -1752,6 +1827,12 @@ public class MainActivity extends Activity {
                 if (town.isEmpty()) return region;
                 return region.isEmpty() ? town : town + ", " + region;
             } catch (Exception e) { return ""; }
+        }
+
+        @JavascriptInterface
+        public int versionCode() {
+            try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; }
+            catch (Exception e) { return 0; }
         }
 
         @JavascriptInterface
