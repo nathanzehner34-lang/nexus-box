@@ -260,17 +260,14 @@
   ];
   var booting = false;
 
-  // Startup: the home screen is usable IMMEDIATELY. The greeting plays over it with a
-  // welcome banner that fades away — it never blocks buttons or music.
-  // STARTUP: a short Nexus logo intro (about 3 seconds, tap to skip). Nexus does not talk at startup.
+  // Keep the Nexus logo intro brief and let the home screen accept input underneath it.
   function playIntro() {
     return new Promise(function (resolve) {
-      var o = document.createElement('div'); o.id = 'intro'; var c = document.createElement('canvas'); o.appendChild(c); document.body.appendChild(o);
+      var o = document.createElement('div'); o.id = 'intro'; o.style.pointerEvents = 'none'; o.style.transition = 'opacity .14s'; var c = document.createElement('canvas'); o.appendChild(c); document.body.appendChild(o);
       var g = c.getContext('2d'), W = c.width = Math.round(innerWidth * .75), H = c.height = Math.round(innerHeight * .75), U = Math.min(W, H);
-      var t0 = performance.now(), DUR = 3200, done = false, parts = [], LET = 'NEXUS'.split('');
-      for (var i = 0; i < 90; i++) { var a = Math.random() * 6.283, r = .5 + Math.random() * .7; parts.push({ a: a, r: r, s: .5 + Math.random(), h: 185 + Math.random() * 90 }); }
-      function end() { if (done) return; done = true; o.style.opacity = 0; setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 450); resolve(); }
-      o.addEventListener('click', end); o.addEventListener('touchstart', end, { passive: true });
+      var t0 = performance.now(), DUR = 850, done = false, parts = [], LET = 'NEXUS'.split('');
+      for (var i = 0; i < 36; i++) { var a = Math.random() * 6.283, r = .5 + Math.random() * .7; parts.push({ a: a, r: r, s: .5 + Math.random(), h: 185 + Math.random() * 90 }); }
+      function end() { if (done) return; done = true; o.style.opacity = 0; setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 140); resolve(); }
       try {   // deep rising hum, then a bright hit as the logo lands
         tone('sine', 55, 0, 1.5, 0.09, 110); tone('sawtooth', 110, 0.2, 1.3, 0.025, 440);
         tone('sine', 880, 1.45, .9, 0.05, 440); tone('triangle', 1320, 1.45, .6, 0.03, 660); tone('sine', 60, 1.45, 1.1, 0.12, 38);
@@ -312,15 +309,16 @@
           g.fillText('I N T E L L I G E N T   D R I V E', cx0, cy0 + fs * .72); g.globalAlpha = 1; }
         requestAnimationFrame(f);
       })(t0);
-      setTimeout(end, DUR + 400);
+      setTimeout(end, DUR + 80);
     });
   }
   function runBoot() {
-    booting = true;
+    booting = false;
     $('boot').classList.add('hidden');
     $('panel').classList.add('hidden');
     showHome();
-    return playIntro().then(function () { booting = false; wakeSchedule(1500); });
+    playIntro();
+    wakeSchedule(1500);
   }
 
   function showHome() {
@@ -688,6 +686,11 @@
   function sayLine(text, flush) { return say(text, { line: true, flush: !!flush }); }
   function sayEgo(kind, flush) { var t = egoLine(kind); return t ? sayLine(t, flush) : Promise.resolve(); }
   // Save this Alter Ego's greeting for the box's cold start, and record its lines so they play instantly.
+  var egoPrecacheTimer = null;
+  function scheduleEgoPrecache(delay) {
+    clearTimeout(egoPrecacheTimer);
+    egoPrecacheTimer = setTimeout(function () { egoPrecacheTimer = null; precacheEgo(); }, delay);
+  }
   function precacheEgo() {
     var e = EGOS[egoName], r = e.rate || 0, p = e.pitch || 0, list = [];
     ['Good morning', 'Good afternoon', 'Good evening'].forEach(function (g, i) {
@@ -699,7 +702,7 @@
     Object.keys(phrases).forEach(function (kind) { phrases[kind].forEach(function (t) { list.push([t, r, p, e.voiceHint || '']); }); });
     var bye = egoLine('bye'); setPref('bye', bye + '\u0001' + r + '\u0001' + p + '\u0001' + (e.voiceHint || '')); list.push([bye, r, p, e.voiceHint || '']);
     var pack = EGO_LINES[egoName] || {};
-    ['holo', 'partyIn', 'partyOut', 'hype', 'shout', 'show'].forEach(function (k) {
+    ['partyIn', 'partyOut', 'hype', 'shout', 'show'].forEach(function (k) {
       var v = pack[k] !== undefined ? pack[k] : NEXUS_LINES[k];
       (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, r, p, e.voiceHint || '']); });
     });
@@ -728,7 +731,7 @@
     sayLine(EGOS[k].intro, true);          // talks the instant you tap
     applyEgo(true);
     caption(EGOS[k].name === 'NEXUS' ? 'NEXUS' : EGOS[k].name + ' MODE');
-    setTimeout(precacheEgo, 4000);
+    scheduleEgoPrecache(1800);
   }
   function egoCard(k, top) {
     var e = EGOS[k];
@@ -738,9 +741,26 @@
   }
   function openEgo() {
     openPanel('ALTER EGO', '<div class="hint" style="margin-bottom:2vmin">Pick who Nexus is. The look, the voice and the attitude all change. Talk to the orb to hear it.</div>' +
-      egoCard('nexus', true) + '<div class="egrid">' + EGO_ORDER.map(function (k) { return egoCard(k, false); }).join('') + '</div>');
+      egoCard('nexus', true) + '<div class="egrid">' + EGO_ORDER.map(function (k) { return egoCard(k, false); }).join('') + '</div>' +
+      '<div style="margin-top:2vmin;text-align:center"><span class="btn go" id="egoSearchTalk">SEARCH TO TALK</span><div class="hint" id="egoTalkStatus">Tap, ask a question, and Nexus will answer in character.</div></div>');
     Array.prototype.forEach.call(document.querySelectorAll('[data-ego]'), function (el) {
       el.addEventListener('click', function () { var k = el.getAttribute('data-ego'); closePanel(); setEgo(k); });
+    });
+    var egoTalkBusy = false, talkButton = $('egoSearchTalk'), talkStatus = $('egoTalkStatus');
+    talkButton.addEventListener('click', function () {
+      if (egoTalkBusy) return;
+      egoTalkBusy = true; talkButton.classList.add('off'); talkStatus.textContent = 'Listening… ask your question.';
+      stopTalking();
+      listen().then(function (heard) {
+        if (typeof heard !== 'string' || !heard.trim()) {
+          resumeAfterTalk(); talkStatus.textContent = heard && heard.error === '9' ? 'Microphone permission is needed. Allow it for Nexus, then try again.' : 'I did not catch that. Tap Search to Talk and try again.';
+          return;
+        }
+        talkStatus.textContent = 'Searching and preparing an answer…';
+        return Promise.resolve(handleSpeech(heard)).then(function () { resumeAfterTalk(); talkStatus.textContent = 'Ready when you are. Tap Search to Talk again.'; });
+      }).catch(function () {
+        resumeAfterTalk(); talkStatus.textContent = 'Voice input failed. Tap Search to Talk to retry.';
+      }).then(function () { egoTalkBusy = false; talkButton.classList.remove('off'); });
     });
   }
 
@@ -1173,12 +1193,12 @@
       rec.start();
     });
   }
-  // Used by the hologram and other screens: same behaviour as before (music held; they call resumeAfterTalk()).
+  // Search to Talk and other voice screens share one speech session (music held until the answer finishes).
   function listen() { return openListen({ mode: 'cmd' }); }
 
   // ---- "Hey Nexus" (optional). Plain Android speech recognition run in short rounds while Nexus is on screen
   // and idle. It never pauses music, stops while Nexus talks (plus a short tail so it can't hear itself),
-  // during Party Mode, holograms and other apps, and backs off when the recognizer keeps failing.
+  // during Party Mode, visual experiences and other apps, and backs off when the recognizer keeps failing.
   var W = { on: false, timer: null, watch: null, fails: 0, startedAt: 0, lastSpeechEnd: 0, offline: true };
   function wakeAllowed() {
     return wakeOn() && A && A.listenWith && !booting && !orbBusy && !heardResolve && !LS && !Nexus.speaking &&
@@ -1423,7 +1443,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
-      case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
+      case 'synth': case 'zoom': case 'aura': openExperience(name); break;
       case 'ego': openEgo(); break;
       case 'bgs': openBackgrounds(); break;
       case 'phones': openPhones(); break;
@@ -1679,7 +1699,9 @@
     return out;
   }
   function homeTiles() {
-    var saved = (pref('homeTiles') || '').split(',').filter(Boolean), cat = {};
+    var saved = (pref('homeTiles') || '').split(',').filter(function (k) { return !!k && k !== 'holo'; }), cat = {};
+    var storedTiles = (pref('homeTiles') || '').split(',').filter(Boolean);
+    if (storedTiles.indexOf('holo') >= 0) setPref('homeTiles', saved.join(','));
     fullCatalog().forEach(function (c) { cat[c[0]] = c; });
     var list = saved.length ? saved.filter(function (k) { return cat[k]; }) : DEFAULT_TILES.slice();
     if (list.indexOf('settings') < 0) list.push('settings');
@@ -2639,7 +2661,7 @@
   // ------------------------------------------------------------------
   try { if (!pref('gemini_key') && window.NEXUS_DEFAULT_KEY) setPref('gemini_key', window.NEXUS_DEFAULT_KEY); } catch (e) {}
   applyEgo(false);
-  setTimeout(precacheEgo, 6000);
+  scheduleEgoPrecache(3500);
   var lastPer = 0; window.addEventListener('resize', function () { if (perPage() !== lastPer) { lastPer = perPage(); renderTiles(); } });
   applyStyle();
   renderTiles();
