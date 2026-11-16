@@ -73,11 +73,15 @@ assert.strictEqual(memory.getChatHistory()[0].parts[0].text, 'turn 2');
 for (let i = 0; i < 45; i++) memory.remember('Saved fact number ' + i);
 assert.strictEqual(memory.memories().length, 40, 'existing 40-fact capacity is preserved');
 
-// Verify the production handler takes local save/recall through native TTS before the API route.
+// Verify the production handler routes local save/recall through native TTS without calling AI.
 const localRoute = app.indexOf('var localMemory = localMemoryTurn(t, raw);');
-const apiRoute = app.indexOf('streamAnswer(chatHistory, ctx');
-assert(localRoute >= 0 && apiRoute > localRoute);
-assert(app.slice(localRoute, apiRoute).includes('return sayLine(localMemory.text)'));
+const speechStart = app.indexOf('  function handleSpeech(raw) {');
+const speechEnd = app.indexOf('\n  // ------------------------------------------------------------------\n  // Tiles / actions', speechStart);
+const speech = app.slice(speechStart, speechEnd);
+assert(localRoute >= 0 && speechStart >= 0 && speechEnd > speechStart);
+assert(speech.indexOf('localMemoryTurn(t, raw)') < speech.indexOf('contextualReply('));
+assert(!speech.includes('streamAnswer('), 'ordinary speech path does not call AI');
+assert(app.includes('return sayLine(line)'), 'local memory text uses native Alter Ego TTS');
 assert(android.includes('public void speakPersonaLine('), 'sayLine uses the Android TTS bridge');
 const localStart = memoryCode.indexOf('function localMemoryTurn(');
 assert(localStart >= 0 && !/askAI|streamAnswer|http\(/.test(memoryCode.slice(localStart)), 'local memory turn makes no network/API call');
