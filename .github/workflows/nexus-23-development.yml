@@ -2,6 +2,9 @@ name: Nexus 23 Development APK
 
 on:
   workflow_dispatch:
+  # Any change pushed to nexus-23 (by Claude, Codex or by hand) builds and publishes the test app automatically.
+  push:
+    branches: [nexus-23]
 
 permissions:
   contents: write   # only to publish the separate nexus-23-dev download (never the 'latest' Nexus 22 release)
