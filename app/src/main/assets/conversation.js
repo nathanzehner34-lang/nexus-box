@@ -236,7 +236,7 @@
     orbit:["orbit","orbital","revolve"], plants:["plant","plants"], photosynthesis:["photosynthesis"], light:["light"],
     speed:["speed","fast"], binary:["binary"], "0":["0","zero"], "1":["1","one"], ram:["ram","memory"],
     temporary:["temporary"], wifi:["wifi","wi fi"], router:["router","wireless"], android:["android"],
-    "force stop":["force stop","close app","frozen app"], cache:["cache"], "temporary files":["temporary files","app cache"],
+    "force stop":["force stop","close app","frozen app"], cache:["cache","app cache","app files","temporary app files"], "temporary files":["temporary files","app cache","temporary app files"],
     "clear":["clear","remove"], restart:["restart","reboot"], device:["device","phone"],
     "four stroke":["four stroke","4 stroke","four-stroke","four engine strokes","four strokes"], engine:["engine","motor"], cycle:["cycle","strokes"],
     "car battery":["car battery","vehicle battery","12 volt"], voltage:["voltage","volt","volts"],
