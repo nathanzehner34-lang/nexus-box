@@ -203,7 +203,7 @@
     {category:"cooking_household", groups:[["teaspoon","teaspoons"],["tablespoon","tablespoons"],["how many","equal"]], aliases:["how many teaspoons in a tablespoon"], answer:"Three teaspoons equal one tablespoon."},
     {category:"cooking_household", groups:[["tablespoon","tablespoons"],["cup","cups"],["how many","equal"]], aliases:["how many tablespoons are in a us cup"], answer:"There are 16 US tablespoons in a US cup."},
     {category:"cooking_household", groups:[["chicken"],["safe temperature","internal temperature","165"]], aliases:["what temperature should chicken reach"], answer:"For food safety, cook chicken to an internal temperature of 74°C (165°F), measured with a food thermometer."},
-    {category:"cooking_household", groups:[["cup","cups"],["millilitre","millilitres","ml"],["us"]], aliases:["how many millilitres are in a us cup"], answer:"One US customary cup is about 237 millilitres."}
+    {category:"cooking_household", groups:[["cup","cups"],["millilitre","millilitres","ml"],["us"]], aliases:["how many millilitres are in a us cup"], answer:"One US customary cup is about 237 millilitres."},
     {category:"geography", groups:[["equator"],["earth","globe"]], aliases:["what is the equator","where is the equator"], answer:"The equator is an imaginary line around Earth halfway between the poles, at zero degrees latitude."},
     {category:"geography", groups:[["mount everest","everest"],["highest","tallest"],["mountain"]], aliases:["what is the tallest mountain"], answer:"Mount Everest is Earth's highest mountain above sea level."},
     {category:"history", groups:[["berlin wall"],["fell","fall","when"]], aliases:["when did the berlin wall fall"], answer:"The Berlin Wall opened on November 9, 1989."},
