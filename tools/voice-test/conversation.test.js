@@ -63,7 +63,8 @@ assert(!handler.includes('streamAnswer('), 'normal speech handler never calls th
 assert(handler.includes('localMemoryTurn(t, raw)'), 'existing local memory capture/retrieval is retained');
 assert(handler.indexOf('localMemoryTurn(t, raw)') < handler.indexOf('contextualReply('), 'memory is checked before conversation context');
 assert(handler.includes('engine.respond(t, egoName'), 'local personality dialogue and knowledge engine is called');
-assert(handler.includes('sayLine(line)'), 'local answers use the selected Alter Ego native TTS route');
+const speakStart = appText.indexOf('  function speakLocalConversation(userText, responseText) {');
+assert(speakStart >= 0 && appText.slice(speakStart, handlerStart).includes('return sayLine(line)'), 'local answers use the selected Alter Ego native TTS route');
 assert(handler.includes('engine.clarify(egoName)'), 'unknown requests get a local clarification');
 assert(appText.includes('function saveChatHistory() { setPref(\'chat_history\', JSON.stringify(chatHistory.slice(-12))); }'), 'existing 12-turn persistent conversation history remains in use');
 
