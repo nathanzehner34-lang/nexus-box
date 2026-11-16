@@ -36,9 +36,11 @@ for(const ego of egos){
   if(!SAY.sayings[ego].includes(first)||!SAY.sayings[ego].includes(second)||first===second||first.length>110||second.length>110)
     throw new Error(ego+' switch phrases were not short, bundled, varied lines');
 }
-const localRoute=app.indexOf('var talk = smallTalk(t);'), apiRoute=app.indexOf('streamAnswer(chatHistory, ctx');
-if(localRoute<0||apiRoute<localRoute||!app.slice(localRoute,apiRoute).includes('sayLine(talk)'))
-  throw new Error('local dialogue must return through native TTS before the API fallback');
+const localRoute=app.indexOf('var talk = smallTalk(t);');
+const speechStart=app.indexOf('  function handleSpeech(raw) {'), speechEnd=app.indexOf('\n  // ------------------------------------------------------------------\n  // Tiles / actions',speechStart);
+const speech=app.slice(speechStart,speechEnd);
+if(localRoute<0||speechStart<0||speechEnd<speechStart||speech.includes('streamAnswer(')||!app.includes('return sayLine(line)'))
+  throw new Error('ordinary local dialogue must use native TTS without an API call');
 if(!app.includes('sayLine(egoSwitchPhrase(k) || EGOS[k].intro, true)'))
   throw new Error('Alter Ego selection must speak its local phrase through the native TTS wrapper');
 console.log(bad?'FAILED '+bad:'small talk + local-first routing OK across all seven Alter Egos');

@@ -1551,6 +1551,21 @@
     if (/\b(weather|temperature|how cold|how hot)\b/.test(t) && weatherNow) return 'It\'s ' + weatherNow.temp + ' degrees and ' + weatherNow.desc.toLowerCase() + ' in ' + weatherNow.city + '.';
     return null;
   }
+  function recordLocalConversationTurn(userText, responseText) {
+    if (!userText || !responseText) return;
+    chatHistory.push({ role: 'user', parts: [{ text: String(userText) }] });
+    chatHistory.push({ role: 'model', parts: [{ text: String(responseText) }] });
+    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+    saveChatHistory();
+  }
+  function speakLocalConversation(userText, responseText) {
+    var line = String(responseText || '').trim();
+    if (!line) line = window.NEXUS_LOCAL_CONVERSATION.clarify(egoName);
+    recordLocalConversationTurn(userText, line);
+    caption(clip(line));
+    followUpOk = true;
+    return sayLine(line);
+  }
   function handleSpeech(raw) {
     var t = raw.toLowerCase().replace(/^(hey |ok |okay )?nexus[, ]*/, '').trim();
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
@@ -1560,58 +1575,44 @@
     if (cm) { correctMemory(cm[1], cm[2]); caption('MEMORY UPDATED'); return say('Updated. I\'ll use that version from now on.'); }
     var fm = /^forget (?:that )?(.{3,180})$/i.exec(t);
     if (fm) { var removed = forgetMemory(fm[1]); caption(removed ? 'MEMORY UPDATED' : 'NO MATCHING MEMORY'); return say(removed ? 'Forgotten.' : 'I could not find that exact memory.'); }
-    var rm = /^remember (that )?(.{4,180})$/i.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
-    var localMemory = localMemoryTurn(t, raw);
-    if (localMemory) { caption(clip(localMemory.text)); followUpOk = true; return sayLine(localMemory.text); }
+    var rm = /^remember (that )?(.{4,180})$/i.exec(t);
+    if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
+
+    // App navigation and media controls remain local, ahead of conversational routing.
     if (/open the vault/.test(t)) { setPref('vault', '1'); caption('🔓 SECRET UNLOCKED · GOLD STYLE'); return say('Vault open. You just unlocked the gold home screen. Find it in Backgrounds.'); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
       if (MUSIC_CMDS[mi][0].test(t)) { var mcmd = MUSIC_CMDS[mi][1]; caption(MUSIC_CMDS[mi][2].toUpperCase()); if (mcmd === 'next') { egoLevel = Math.min(5, egoLevel + 1); sayLine(skipQuip()); } setTimeout(function () { music(mcmd); }, 600); return Promise.resolve(); }
     }
     if (/what('s| is) (this|the) song|what song/.test(t) && A) {
       var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
-      var line = np.title && np.title !== 'null' ? 'This is ' + np.title + (np.artist && np.artist !== 'null' ? ' by ' + np.artist : '') + '.' :
+      var songLine = np.title && np.title !== 'null' ? 'This is ' + np.title + (np.artist && np.artist !== 'null' ? ' by ' + np.artist : '') + '.' :
         (np.access === false ? 'Allow song announcements in my Settings and I\'ll be able to tell you.' : 'Nothing is playing right now.');
-      caption(line); return say(line);
+      caption(songLine); return say(songLine);
     }
     var cmd = matchCommand(t);
     if (cmd) { act(cmd); return Promise.resolve(); }
-    var quick = quickAnswer(t);
-    if (quick) { caption(quick); followUpOk = true; return say(quick); }
-    var talk = smallTalk(t);
-    if (talk) { caption(clip(talk)); followUpOk = true; return sayLine(talk); }
 
-    if (chatBusy) { caption('I AM FINISHING YOUR LAST ANSWER'); return Promise.resolve(); }
-    chatBusy = true;
-    var userTurn = { role: 'user', parts: [{ text: raw }] };
-    chatHistory.push(userTurn);
-    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
-    saveChatHistory();
-    if (egoLevel > 1) egoLevel--;
-    setOrb('thinking', true);
-    caption('THINKING…');
-    var ctx = aiContext(t);
-    playPreface(prephrase(t)).catch(function () {});
-    return streamAnswer(chatHistory, ctx, { maxTokens: 75, temperature: egoName !== 'nexus' ? 1.1 : .9, onRaw: function (raw) {
-      var re = /\[\[\s*remember\s*:\s*([^\]]+)\]\]/gi, m; while ((m = re.exec(raw))) remember(m[1]);
-    } }).then(function (reply) {
-      chatBusy = false;
-      setOrb('thinking', false);
-      followUpOk = true;
-      chatHistory.push({ role: 'model', parts: [{ text: reply.replace(/[*#_`]/g, '') }] });
-      if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
-      saveChatHistory();
-    }).catch(function (e) {
-      var turnIndex = chatHistory.indexOf(userTurn); if (turnIndex >= 0) chatHistory.splice(turnIndex, 1);
-      saveChatHistory();
-      chatBusy = false;
-      if (e && e.message === 'cancelled') return;
-      setOrb('thinking', false);
-      lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
-      var off = offlineReply(t), line = (e.message === 'offline' || e.message === 'limit' || e.message === 'network') ? (egoOffline() || off || aiErrorLine(e)) : aiErrorLine(e);
-      if (e.message === 'nokey') { caption('AI KEY MISSING · SETTINGS → AI KEY'); return say(line); }
-      caption(clip(line));
-      return say(line);
-    });
+    // Personal memory capture and recall run on-device before any general conversation handling.
+    var localMemory = localMemoryTurn(t, raw);
+    if (localMemory) return speakLocalConversation(raw, localMemory.text);
+
+    var engine = window.NEXUS_LOCAL_CONVERSATION;
+    var contextReply = engine && engine.contextualReply(t, egoName, { history: chatHistory, memories: memories(), hour: L().h });
+    if (contextReply) return speakLocalConversation(raw, contextReply);
+
+    var quick = quickAnswer(t);
+    if (quick) return speakLocalConversation(raw, quick);
+
+    // Keep the existing saved Q&A phrases as the first personality dialogue source.
+    var talk = smallTalk(t);
+    if (talk) return speakLocalConversation(raw, talk);
+
+    // All other ordinary dialogue and factual Q&A is resolved from bundled offline packs.
+    var localReply = engine && engine.respond(t, egoName, { history: chatHistory, memories: memories(), hour: L().h });
+    if (localReply) return speakLocalConversation(raw, localReply);
+
+    // The normal conversation route intentionally stays offline; no API key or network is needed.
+    return speakLocalConversation(raw, engine ? engine.clarify(egoName) : 'I did not catch the question. Could you say it another way?');
   }
 
   // ------------------------------------------------------------------
