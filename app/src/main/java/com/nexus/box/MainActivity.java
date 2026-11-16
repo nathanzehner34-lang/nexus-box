@@ -194,17 +194,18 @@ public class MainActivity extends Activity {
             registerReceiver(spotifyReceiver, f);
         } catch (Exception ignored) {}
 
-        if (Build.VERSION.SDK_INT >= 23) {
-            List<String> need = new ArrayList<>();
-            for (String perm : new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}) {
-                if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) need.add(perm);
-            }
-            if (!need.isEmpty()) requestPermissions(need.toArray(new String[0]), 7);
-        }
-
-
         String page = "file:///android_asset/index.html";
         web.loadUrl(savedInstanceState == null ? page + "#boot" : page);
+        // Let the home screen render before Android shows first-run permission prompts.
+        ui.postDelayed(() -> {
+            if (Build.VERSION.SDK_INT >= 23) {
+                List<String> need = new ArrayList<>();
+                for (String perm : new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}) {
+                    if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) need.add(perm);
+                }
+                if (!need.isEmpty()) requestPermissions(need.toArray(new String[0]), 7);
+            }
+        }, 1200);
     }
 
     private void startTts() {
@@ -221,7 +222,7 @@ public class MainActivity extends Activity {
                 ttsReady = true;
                 if (bootGreetPending != null) { Runnable r = bootGreetPending; bootGreetPending = null; r.run(); }
                 else { /* TTS is ready; do not queue a hidden utterance ahead of the first reply. */ }
-                ui.postDelayed(MainActivity.this::cacheNext, 2500);
+                ui.post(MainActivity.this::cacheNext);
                 ui.postDelayed(MainActivity.this::warmRecognizer, 1500);
                 ui.post(this::playNextSpeech);
             }
@@ -812,20 +813,29 @@ public class MainActivity extends Activity {
     // change voice when the line really needs a different one.
     private Set<Voice> voiceList = null;
     private long voiceListAt = 0;
+    private final java.util.Map<String, Voice> personaVoiceCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<String> personaVoiceMisses = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile String loadedVoice = null;
     private Set<Voice> voices() {
         long now = System.currentTimeMillis();
         if (voiceList == null || now - voiceListAt > 600000) {
-            try { Set<Voice> v = tts.getVoices(); if (v != null) { voiceList = v; voiceListAt = now; } } catch (Exception ignored) {}
+            try { Set<Voice> v = tts.getVoices(); if (v != null) { voiceList = v; voiceListAt = now; personaVoiceCache.clear(); personaVoiceMisses.clear(); } } catch (Exception ignored) {}
         }
         return voiceList;
     }
     private Voice personaVoice(String hint) {
         if (tts == null || hint == null || hint.isEmpty()) return null;
+        Voice cached = personaVoiceCache.get(hint);
+        if (cached != null) return cached;
+        if (personaVoiceMisses.contains(hint)) return null;
         String[] names = PERSONA_VOICES.get(hint);
         Set<Voice> vs = voices();
         if (names == null || vs == null) return null;
-        for (String want : names) for (Voice v : vs) if (v.getName().equals(want) && usable(v)) return v;
+        for (String want : names) for (Voice v : vs) if (v.getName().equals(want) && usable(v)) {
+            personaVoiceCache.put(hint, v);
+            return v;
+        }
+        personaVoiceMisses.add(hint);
         return null;
     }
     private Voice defaultVoice() {
