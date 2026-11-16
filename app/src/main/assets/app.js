@@ -638,7 +638,26 @@
     if (!EGO_BGS.mob_boss) EGO_BGS.mob_boss = 'bg_ego_gangster.jpg';
   })();
   function skipQuip() { var q = SKIP_QUIPS[egoName]; return q && q.length ? pick(q) : 'Skipping.'; }
-  function egoOffline() { var q = EGO_OFFLINE[egoName]; return q && q.length ? pick(q) : ''; }
+  function egoOffline() { var q = EGO_OFFLINE[egoName]; var s = egoSayings(); return s.length && Math.random() < .5 ? freshPick(s) : (q && q.length ? pick(q) : ''); }
+  // ---- SAYINGS + INSTANT SMALL TALK (assets/sayings.js): no AI, no internet, recorded in the persona's voice ----
+  var SAY = window.NEXUS_SAYINGS || { sayings: {}, qa: [] }, recentSaid = [];
+  SAY.qa.forEach(function (q) { try { q.rx = new RegExp(q.re); } catch (e) { q.rx = null; } });
+  function egoSayings() { return SAY.sayings[egoName] || []; }
+  function freshPick(list) {   // never repeat one of the last 12 lines
+    var opts = list.filter(function (x) { return recentSaid.indexOf(x) < 0; }); if (!opts.length) opts = list;
+    var t = pick(opts); recentSaid.push(t); if (recentSaid.length > 12) recentSaid.shift(); return t;
+  }
+  function egoSaying() { var s = egoSayings(); return s.length ? freshPick(s) : ''; }
+  function smallTalk(t) {
+    var n = String(t || '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!n || !SAY.sayings[egoName]) return null;   // only the 7 main personalities have these
+    for (var i = 0; i < SAY.qa.length; i++) {
+      var q = SAY.qa[i]; if (!q.rx || !q.rx.test(n)) continue;
+      if (q.say) return egoSaying() || null;
+      var a = q.a && q.a[egoName]; return a && a.length ? freshPick(a) : null;
+    }
+    return null;
+  }
   function tod() { var h = L().h; return h >= 4 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening'; }
   function egoLine(kind, g) {
     var pack = EGO_LINES[egoName] || {}, v = pack[kind] !== undefined ? pack[kind] : NEXUS_LINES[kind];
@@ -683,6 +702,8 @@
       var v = pack[k] !== undefined ? pack[k] : NEXUS_LINES[k];
       (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, r, p, e.voiceHint || '']); });
     });
+    egoSayings().forEach(function (t) { list.push([t, r, p, e.voiceHint || '']); });
+    SAY.qa.forEach(function (q) { var a = q.a && q.a[egoName]; if (a) a.forEach(function (t) { list.push([t, r, p, e.voiceHint || '']); }); });
     // Only the personalities on the picker (not all 18), so the box isn't busy recording lines nobody uses.
     ['nexus'].concat(EGO_ORDER).forEach(function (k) { var x = EGOS[k]; if (x && x.intro) list.push([x.intro, x.rate || 0, x.pitch || 0, x.voiceHint || '']); });
     try { if (A && A.precache) A.precache(JSON.stringify(list)); } catch (er) {}
@@ -1333,6 +1354,8 @@
     if (cmd) { act(cmd); return Promise.resolve(); }
     var quick = quickAnswer(t);
     if (quick) { caption(quick); followUpOk = true; return say(quick); }
+    var talk = smallTalk(t);
+    if (talk) { caption(clip(talk)); followUpOk = true; return sayLine(talk); }
 
     if (chatBusy) { caption('I AM FINISHING YOUR LAST ANSWER'); return Promise.resolve(); }
     chatBusy = true;
@@ -1528,7 +1551,10 @@
   setInterval(function () {
     var now = Date.now();
     if (pref('talkFirst') !== '0' && now - lastRemark > 15 * 60000 && now - lastTouchAt > 3 * 60000 && now - lastTouchAt < 45 * 60000 && homeIdle()) {
-      lastRemark = now; unprompted('Make a quick passing remark to Nathan about the time of day, the weather, the drive, or something you remember about him.');
+      lastRemark = now;
+      var sx = (!aiKey() || Math.random() < .5) ? egoSaying() : '';
+      if (sx) sayLine(sx);
+      else unprompted('Make a quick passing remark to Nathan about the time of day, the weather, the drive, or something you remember about him.');
     }
     if (pref('saver') !== '0' && !saverOn && homeIdle() && !Nexus.speaking && now - lastTouchAt > 5 * 60000) { saverOn = true; openExperience('clockface'); }
     if (bgName === 'auto' && homeIdle()) applyBackground();
