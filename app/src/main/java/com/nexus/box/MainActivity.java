@@ -669,6 +669,7 @@ public class MainActivity extends Activity {
         pausedAt = System.currentTimeMillis();
         js("Nexus.paused && Nexus.paused()");
         stopMeter();
+        if (recognizer != null && recognizing && !"cmd".equals(listenMode)) { try { recognizer.cancel(); } catch (Exception ignored) {} recognizing = false; }
         dropListenFocus();
         audioHolds = 0;
         ui.removeCallbacks(releaseFocusRunnable);
@@ -792,48 +793,77 @@ public class MainActivity extends Activity {
         try { if (recognizer == null && SpeechRecognizer.isRecognitionAvailable(this)) makeRecognizer(); } catch (Exception ignored) {}
     }
 
-    private void startListening() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            js("Nexus._heardError('unavailable')");
-            return;
-        }
-        if (recognizer == null) makeRecognizer();
+    // Listening modes (one recognizer, one owner at a time):
+    //  "cmd"   - a request to Nexus; music pauses (exclusive focus) so the request is heard clearly.
+    //  "quiet" - follow-up window; music keeps playing until real words are heard (page calls listenFocus()).
+    //  "wake"  - "Hey Nexus" check; never touches music focus, no level meter, results go to the wake handlers.
+    // This is ordinary Android speech recognition, not a low-power wake-word chip; the page only runs "wake"
+    // while Nexus is on screen and idle, and backs off on repeated errors.
+    private volatile String listenMode = "cmd";
+    private volatile boolean recognizing = false;
+    private long lastRmsAt = 0;
+    private boolean wakeMode() { return "wake".equals(listenMode); }
+
+    private void startListening() { startListening("cmd", 2000, false); }
+
+    private void startListening(String mode, int silenceMs, boolean preferOffline) {
+        boolean wake = "wake".equals(mode);
+        String err = wake ? "Nexus._wakeError" : "Nexus._heardError";
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) { js(err + "('unavailable')"); return; }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { js(err + "('9')"); return; }
+        try { if (recognizer == null) makeRecognizer(); } catch (Exception e) { js(err + "('unavailable')"); return; }
+        if (recognizing) { try { recognizer.cancel(); } catch (Exception ignored) {} recognizing = false; }
+        listenMode = mode;
+        long silence = Math.max(800, Math.min(4000, silenceMs));
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
         i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 600L);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500L);
+        // Many recognizers ignore these hints and stop early; the page keeps listening for the rest of the
+        // pause in that case, so nobody gets cut off.
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, silence);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, silence);
         i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L);
+        if (preferOffline) i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
-        grabListenFocus();
-        try { recognizer.startListening(i); } catch (Exception e) { dropListenFocus(); js("Nexus._heardError('start')"); }
+        if ("cmd".equals(mode)) grabListenFocus();
+        try { recognizer.startListening(i); recognizing = true; }
+        catch (Exception e) { recognizing = false; if ("cmd".equals(mode)) dropListenFocus(); js(err + "('start')"); }
     }
 
     private void makeRecognizer() {
-        {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this);
-            recognizer.setRecognitionListener(new RecognitionListener() {
-                @Override public void onReadyForSpeech(Bundle params) { js("Nexus._listening(true)"); }
-                @Override public void onBeginningOfSpeech() { js("Nexus._speechBegan && Nexus._speechBegan()"); }
-                @Override public void onRmsChanged(float rmsdB) { js("Nexus._level(" + rmsdB + ")"); }
-                @Override public void onBufferReceived(byte[] buffer) {}
-                @Override public void onEndOfSpeech() { dropListenFocus(); js("Nexus._listening(false)"); }
-                @Override public void onError(int error) { dropListenFocus(); js("Nexus._heardError('" + error + "')"); }
-                @Override public void onResults(Bundle results) {
-                    dropListenFocus();
-                    ArrayList<String> r = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    String best = (r != null && !r.isEmpty()) ? r.get(0) : "";
-                    js("Nexus._heard(" + JSONObject.quote(best) + ")");
-                }
-                @Override public void onPartialResults(Bundle partial) {
-                    ArrayList<String> r = partial.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (r != null && !r.isEmpty()) js("Nexus._partial(" + JSONObject.quote(r.get(0)) + ")");
-                }
-                @Override public void onEvent(int eventType, Bundle params) {}
-            });
-        }
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        recognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) { if (!wakeMode()) js("Nexus._listening(true)"); }
+            @Override public void onBeginningOfSpeech() { if (!wakeMode()) js("Nexus._speechBegan && Nexus._speechBegan()"); }
+            @Override public void onRmsChanged(float rmsdB) {
+                if (wakeMode()) return;
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - lastRmsAt < 90) return;   // ~11 updates a second is plenty for the orb
+                lastRmsAt = now;
+                js("Nexus._level(" + rmsdB + ")");
+            }
+            @Override public void onBufferReceived(byte[] buffer) {}
+            // Focus is released by the page (listenDone) once the whole request is in, so a pause
+            // mid-sentence doesn't make the music jump back in.
+            @Override public void onEndOfSpeech() { if (!wakeMode()) js("Nexus._listening(false)"); }
+            @Override public void onError(int error) {
+                recognizing = false;
+                js((wakeMode() ? "Nexus._wakeError('" : "Nexus._heardError('") + error + "')");
+            }
+            @Override public void onResults(Bundle results) {
+                recognizing = false;
+                ArrayList<String> r = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                String best = (r != null && !r.isEmpty()) ? r.get(0) : "";
+                js((wakeMode() ? "Nexus._wakeResult(" : "Nexus._heard(") + JSONObject.quote(best) + ")");
+            }
+            @Override public void onPartialResults(Bundle partial) {
+                ArrayList<String> r = partial.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (r != null && !r.isEmpty()) js((wakeMode() ? "Nexus._wakePartial(" : "Nexus._partial(") + JSONObject.quote(r.get(0)) + ")");
+            }
+            @Override public void onEvent(int eventType, Bundle params) {}
+        });
     }
 
     // ---------- Apps ----------
@@ -1039,6 +1069,7 @@ public class MainActivity extends Activity {
     private final AudioManager.OnAudioFocusChangeListener listenListener = change -> {};
     private boolean listenFocus = false;
     private void grabListenFocus() {
+        ui.removeCallbacks(listenSafety); ui.postDelayed(listenSafety, 25000);
         if (listenFocus) return;
         try {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -1049,7 +1080,6 @@ public class MainActivity extends Activity {
                 am.requestAudioFocus(listenRequest);
             } else am.requestAudioFocus(listenListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
             listenFocus = true;
-            ui.removeCallbacks(listenSafety); ui.postDelayed(listenSafety, 12000);
         } catch (Exception ignored) {}
     }
     private final Runnable listenSafety = this::dropListenFocus;
@@ -1310,10 +1340,31 @@ public class MainActivity extends Activity {
         public void stopSpeaking() { stopSpeechQueue(true); }
 
         @JavascriptInterface
-        public void listen() { ui.post(MainActivity.this::startListening); }
+        public void listen() { ui.post(() -> startListening("cmd", 2000, false)); }
+
+        // mode: "cmd" | "quiet" | "wake" (see startListening)
+        @JavascriptInterface
+        public void listenWith(String mode, int silenceMs, boolean preferOffline) {
+            final String m = ("wake".equals(mode) || "quiet".equals(mode)) ? mode : "cmd";
+            ui.post(() -> startListening(m, silenceMs, preferOffline));
+        }
+
+        // Real words were heard (follow-up) or "Hey Nexus" was said: treat the rest as a request and pause music.
+        @JavascriptInterface
+        public void listenFocus() { ui.post(() -> { listenMode = "cmd"; grabListenFocus(); }); }
+
+        // The page has the whole request (or gave up): let the music come back.
+        @JavascriptInterface
+        public void listenDone() { ui.post(MainActivity.this::dropListenFocus); }
+
+        // True while Nexus itself is making speech, so the page never listens to its own voice.
+        @JavascriptInterface
+        public boolean speakingNow() {
+            try { return activeSpeech != null || linePlayer != null || (tts != null && tts.isSpeaking()); } catch (Exception e) { return false; }
+        }
 
         @JavascriptInterface
-        public void stopListening() { ui.post(() -> { dropListenFocus(); if (recognizer != null) recognizer.cancel(); }); }
+        public void stopListening() { ui.post(() -> { dropListenFocus(); if (recognizer != null) { try { recognizer.cancel(); } catch (Exception ignored) {} } recognizing = false; }); }
 
         @JavascriptInterface
         public String getVoices() {

@@ -43,12 +43,13 @@
 
   function say(text, opts) {
     opts = opts || {};
+    try { micYieldToSpeech(); } catch (e) {}
     return new Promise(function (resolve) {
       var id = 's' + (++seq);
       holdMusic();
       var fallback = setTimeout(function () { done(); }, 2500 + text.length * 90);
       var finished = false;
-      function done() { if (finished) return; finished = true; clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; Nexus._duckEffects(Nexus.speaking); releaseMusic(); resolve(); }
+      function done() { if (finished) return; finished = true; clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; Nexus._duckEffects(Nexus.speaking); releaseMusic(); try { W.lastSpeechEnd = Date.now(); if (!Nexus.speaking && !orbBusy) wakeSchedule(1200); } catch (e) {} resolve(); }
       speakWaiters[id] = done;
       setOrb('speaking', true);
       Nexus.speaking = true;
@@ -318,7 +319,7 @@
     $('boot').classList.add('hidden');
     $('panel').classList.add('hidden');
     showHome();
-    return playIntro().then(function () { booting = false; });
+    return playIntro().then(function () { booting = false; wakeSchedule(1500); });
   }
 
   function showHome() {
@@ -1016,43 +1017,131 @@
       o.connect(g); g.connect(out); o.start(t); o.stop(t + .2);
     } catch (e) {}
   }
-  Nexus._listening = function (on) { setOrb('listening', on); if (on) { caption('LISTENING…'); chime(true); } else chime(false); };
-  Nexus._level = function (db) { var s = 1 + Math.max(0, Math.min(10, db)) * .03; $('orb').style.transform = 'scale(' + s + ')'; };
-  // Listening stops on its own: if you say nothing it gives up after a few seconds, and once you talk
-  // it stops as soon as you pause (or after 8 seconds max), even with road noise or music in the cab.
-  var LS = null;
-  function lsClear() { if (!LS) return; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); clearTimeout(LS.still); clearTimeout(LS.grace); LS = null; }
-  function lsFinish() { if (!LS || LS.finishing) return; LS.finishing = true; try { if (A && A.finishListening) A.finishListening(); } catch (e) {}
-    var last = LS.partial; LS.grace = setTimeout(function () { if (heardResolve) { if (last) Nexus._heard(last); else Nexus._heardError('6'); } }, 700); }
-  Nexus._speechBegan = function () { if (!LS) return; LS.began = true; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); LS.cap = setTimeout(lsFinish, 8000); };
-  Nexus._partial = function (t) {
-    caption('“' + t + '”');
-    if (!LS) return; LS.partial = t; if (!LS.began) Nexus._speechBegan();
-    clearTimeout(LS.still); LS.still = setTimeout(lsFinish, 850);
+  // ------------------------------------------------------------------
+  // VOICE: listening, end-of-speech timing, "Hey Nexus", follow-up window
+  // ------------------------------------------------------------------
+  // How long a pause ends your request. Every new partial result restarts the clock.
+  var SILENCE_CHOICES = [1.5, 2, 2.5, 3];
+  function silenceMs() { var v = parseFloat(pref('silence_s')); return SILENCE_CHOICES.indexOf(v) >= 0 ? v * 1000 : 2000; }
+  function wakeOn() { return pref('wake') === '1'; }
+  var FOLLOW_UP_MS = 25000, WAKE_WAIT_MS = 6000, TAP_WAIT_MS = 5000, MAX_TALK_MS = 20000;
+  var WAKE_RE = /\b(?:hey|hi|okay|ok)[\s,]+(?:nexus|nexis|nexxus|nexes|next us)\b[\s,.!?]*/i;
+  function stripWake(t) { t = String(t || ''); var m = WAKE_RE.exec(t); return (m ? t.slice(m.index + m[0].length) : t).trim(); }
+
+  Nexus._listening = function (on) {
+    if (LS) { if (on && !LS.chimed) { LS.chimed = true; if (!LS.followup) caption('LISTENING…'); if (!LS.fromWake) chime(true); } return; }
+    setOrb('listening', on); if (on) { caption('LISTENING…'); chime(true); } else chime(false);
   };
-  var heardResolve = null;
-  Nexus._heard = function (t) { aiClock.start = performance.now(); lsClear(); setOrb('listening', false); $('orb').style.transform = ''; if (heardResolve) { var r = heardResolve; heardResolve = null; r(t); } };
+  Nexus._level = function (db) { if (!LS) return; var s = 1 + Math.max(0, Math.min(10, db)) * .03; $('orb').style.transform = 'scale(' + s + ')'; };
+
+  // One listening session (LS). Android's recognizer often stops on its own after well under a second of
+  // silence; when that happens before our pause has run out, we quietly start it again and join the pieces,
+  // so a normal pause mid-sentence never cuts you off.
+  var LS = null, heardResolve = null, listenHeld = false;
+  function lsText() {
+    if (!LS) return '';
+    var parts = LS.segments.slice(); if (LS.partial) parts.push(LS.partial);
+    var s = parts.join(' ').replace(/\s+/g, ' ').trim();
+    return LS.fromWake ? stripWake(s) : s;
+  }
+  function lsClear() { if (!LS) return; clearTimeout(LS.noSpeech); clearTimeout(LS.cap); clearTimeout(LS.still); clearTimeout(LS.grace); clearTimeout(LS.hard); LS = null; }
+  function lsResolve(val) {
+    var r = heardResolve, had = !!LS; heardResolve = null; lsClear();
+    try { if (A && A.listenDone) A.listenDone(); } catch (e) {}
+    setOrb('listening', false); setOrb('followup', false); $('orb').style.transform = '';
+    if (had && typeof val === 'string') chime(false);
+    if (r) r(val);
+  }
+  function lsDone() {
+    if (!LS) return;
+    var t = lsText(), began = LS.began;
+    if (t) { aiClock.start = performance.now(); lsResolve(t); } else lsResolve({ error: began ? '7' : '6' });
+  }
+  function lsCancel() { if (!LS && !heardResolve) return; try { if (A) A.stopListening(); } catch (e) {} lsResolve({ error: 'cancelled' }); }
+  function lsFinish() {   // the pause ran out: ask the recognizer for its final words, then hand them over
+    if (!LS || LS.finishing) return; LS.finishing = true;
+    clearTimeout(LS.still); clearTimeout(LS.cap);
+    try { if (A && A.finishListening) A.finishListening(); } catch (e) {}
+    LS.grace = setTimeout(lsDone, 900);
+  }
+  function lsRestart() {
+    if (!LS || LS.finishing) return;
+    if (++LS.restarts > 12) { lsDone(); return; }          // never loop forever
+    LS.cont = true;
+    try { A.listenWith(LS.quiet ? 'quiet' : 'cmd', silenceMs(), false); } catch (e) { lsDone(); }
+  }
+  function lsHeardWords() {   // first real words of the request
+    if (!LS || LS.began) return;
+    LS.began = true; clearTimeout(LS.noSpeech);
+    LS.cap = setTimeout(lsFinish, MAX_TALK_MS);
+    if (LS.quiet) { LS.quiet = false; try { if (A && A.listenFocus) A.listenFocus(); } catch (e) {} }   // pause music only now
+  }
+  Nexus._speechBegan = function () { /* sound detected; we wait for actual words before changing anything */ };
+  Nexus._partial = function (t) {
+    if (!LS || LS.finishing) return;
+    LS.partial = String(t || '');
+    var words = lsText(); if (!words) return;
+    lsHeardWords();
+    LS.lastSpeech = Date.now();
+    caption('“' + words + '”');
+    clearTimeout(LS.still); LS.still = setTimeout(lsFinish, silenceMs());   // every new partial resets the pause
+  };
+  Nexus._heard = function (t) {
+    if (!LS) { if (heardResolve) { var r = heardResolve; heardResolve = null; r(t); } return; }
+    t = String(t || '').trim();
+    LS.partial = '';
+    if (t) LS.segments.push(t);
+    var words = lsText();
+    if (words) { if (!LS.lastSpeech) LS.lastSpeech = Date.now(); lsHeardWords(); caption('“' + words + '”'); }
+    if (LS.finishing || !A || !A.listenWith) { lsDone(); return; }
+    var now = Date.now();
+    if (!words) { if (LS.windowEnd - now > 700) lsRestart(); else lsDone(); return; }
+    var left = silenceMs() - (now - LS.lastSpeech);
+    if (left < 250) { lsDone(); return; }
+    clearTimeout(LS.still); LS.still = setTimeout(lsFinish, left);
+    lsRestart();                         // recognizer stopped early: keep listening for the rest of the pause
+  };
   Nexus._heardError = function (code) {
-    if (LS && LS.partial && heardResolve) { var p = LS.partial; lsClear(); Nexus._heard(p); return; }
-    lsClear();
-    setOrb('listening', false); $('orb').style.transform = '';
-    if (heardResolve) { var r = heardResolve; heardResolve = null; r({ error: code }); }
+    code = String(code);
+    if (!LS) { if (heardResolve) { var r = heardResolve; heardResolve = null; r({ error: code }); } return; }
+    if (LS.finishing) { lsDone(); return; }
+    if (code === '9' || code === 'unavailable' || code === 'start') { if (lsText()) lsDone(); else lsResolve({ error: code }); return; }
+    var now = Date.now();
+    if (code === '8' && LS.busy++ < 3) { setTimeout(function () { if (LS && !LS.finishing) lsRestart(); }, 400); return; }   // recognizer busy
+    if (code === '6' || code === '7') {      // no speech / no words this round
+      if (lsText()) { if (silenceMs() - (now - LS.lastSpeech) > 600) lsRestart(); else lsDone(); return; }
+      if (LS.windowEnd - now > 800) { lsRestart(); return; }
+    }
+    lsDone();
   };
 
   function pauseForTalk() { holdMusic(); }
   function resumeAfterTalk() { releaseMusic(); }
-  function listen() {
-    pauseForTalk();
+  // o: { mode: 'cmd' | 'quiet', window: ms to start talking, followup, fromWake, seed, seedFinal }
+  function openListen(o) {
+    o = o || {};
+    wakeStop();
+    if (heardResolve || LS) lsCancel();
+    listenHeld = false;
+    if (!o.fromWake && o.mode !== 'quiet') { pauseForTalk(); listenHeld = true; }
     return new Promise(function (resolve) {
       heardResolve = resolve;
-      lsClear();
-      LS = { began: false, partial: '', finishing: false };
+      var win = o.window || TAP_WAIT_MS;
+      LS = { segments: [], partial: '', began: false, finishing: false, cont: false, chimed: false, restarts: 0, busy: 0, lastSpeech: 0,
+        quiet: o.mode === 'quiet', followup: !!o.followup, fromWake: !!o.fromWake, windowEnd: Date.now() + win };
       aiClock.start = 0;
-      LS.noSpeech = setTimeout(function () { if (LS && !LS.began) { try { if (A) A.stopListening(); } catch (e) {} Nexus._heardError('6'); } }, 5000);
-      LS.cap = setTimeout(lsFinish, 10000);
+      setOrb('listening', true); setOrb('followup', !!o.followup);
+      LS.noSpeech = setTimeout(function () { if (LS && !LS.began) { try { if (A) A.stopListening(); } catch (e) {} lsDone(); } }, win);
+      LS.hard = setTimeout(function () { if (LS) lsFinish(); }, win + MAX_TALK_MS + 5000);
+      if (o.fromWake) {
+        LS.chimed = true; chime(true); caption('LISTENING…');
+        if (o.seedFinal) Nexus._heard(o.seed); else Nexus._partial(o.seed);
+        return;
+      }
+      if (A && A.listenWith) { A.listenWith(o.mode === 'quiet' ? 'quiet' : 'cmd', silenceMs(), false); return; }
       if (A) { A.listen(); return; }
       var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) { resolve({ error: 'unavailable' }); return; }
+      if (!SR) { lsResolve({ error: 'unavailable' }); return; }
       var rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true;
       rec.onstart = function () { Nexus._listening(true); };
       rec.onresult = function (e) { var r = e.results[e.results.length - 1]; if (r.isFinal) Nexus._heard(r[0].transcript); else Nexus._partial(r[0].transcript); };
@@ -1061,25 +1150,125 @@
       rec.start();
     });
   }
+  // Used by the hologram and other screens: same behaviour as before (music held; they call resumeAfterTalk()).
+  function listen() { return openListen({ mode: 'cmd' }); }
 
-  function orbTap() {
-    if (booting) return;
-    if (orbBusy) { stopTalking(); try { if (A) A.stopListening(); } catch (e) {} orbBusy = false; setOrb('thinking', false); caption('TAP THE ORB TO TALK TO NEXUS'); return; }
+  // ---- "Hey Nexus" (optional). Plain Android speech recognition run in short rounds while Nexus is on screen
+  // and idle. It never pauses music, stops while Nexus talks (plus a short tail so it can't hear itself),
+  // during Party Mode, holograms and other apps, and backs off when the recognizer keeps failing.
+  var W = { on: false, timer: null, watch: null, fails: 0, startedAt: 0, lastSpeechEnd: 0, offline: true };
+  function wakeAllowed() {
+    return wakeOn() && A && A.listenWith && !booting && !orbBusy && !heardResolve && !LS && !Nexus.speaking &&
+      !(P && P.on) && !awaySince && !(window.XP && XP.active) && Date.now() - W.lastSpeechEnd > 900 &&
+      !(A.speakingNow && A.speakingNow());
+  }
+  function wakeSchedule(ms) { clearTimeout(W.timer); W.timer = null; if (!wakeOn() || W.on) return; W.timer = setTimeout(wakeArm, ms == null ? 1200 : ms); }
+  function wakeArm() {
+    W.timer = null;
+    if (W.on) return;
+    if (!wakeAllowed()) { wakeSchedule(2000); return; }
+    W.on = true; W.startedAt = Date.now(); setOrb('wake', true);
+    clearTimeout(W.watch); W.watch = setTimeout(function () { if (W.on) { wakeStop(); wakeSchedule(500); } }, 45000);
+    try { A.listenWith('wake', 900, W.offline); } catch (e) { W.on = false; setOrb('wake', false); wakeFailed(); }
+  }
+  function wakeStop() {
+    clearTimeout(W.timer); W.timer = null; clearTimeout(W.watch);
+    if (!W.on) { setOrb('wake', false); return; }
+    W.on = false; setOrb('wake', false);
+    try { if (A) A.stopListening(); } catch (e) {}
+  }
+  function wakeEnded() { W.on = false; clearTimeout(W.watch); setOrb('wake', false); }
+  function wakeFailed() { W.fails++; wakeSchedule(Math.min(30000, 1000 * Math.pow(2, W.fails))); }
+  function wakeAgain() {   // a round ended normally; a round that died instantly counts as a failure
+    if (Date.now() - W.startedAt < 1500) wakeFailed(); else { W.fails = 0; wakeSchedule(350); }
+  }
+  function wakeHeard(t, isFinal) {
+    wakeEnded(); W.fails = 0;
+    if (!isFinal) { try { A.listenFocus(); } catch (e) {} }   // same recognizer carries on as the request
+    converse(openListen({ fromWake: true, window: WAKE_WAIT_MS, seed: t, seedFinal: isFinal }));
+  }
+  Nexus._wakePartial = function (t) { if (W.on && WAKE_RE.test(t)) wakeHeard(t, false); };
+  Nexus._wakeResult = function (t) {
+    if (!W.on) { if (LS && LS.fromWake) Nexus._heard(t); return; }   // final words that arrived just after promotion
+    wakeEnded();
+    if (t && WAKE_RE.test(t) && Date.now() - W.lastSpeechEnd > 1500) { wakeHeard(t, true); return; }
+    wakeAgain();
+  };
+  Nexus._wakeError = function (code) {
+    code = String(code);
+    if (!W.on) { if (LS && LS.fromWake) Nexus._heardError(code); return; }
+    wakeEnded();
+    if (code === '9') { setPref('wake', '0'); caption('"HEY NEXUS" NEEDS MICROPHONE PERMISSION · TURNED OFF'); return; }
+    if (code === 'unavailable') { setPref('wake', '0'); caption('"HEY NEXUS" NOT SUPPORTED ON THIS BOX · TURNED OFF'); return; }
+    if ((code === '12' || code === '13') && W.offline) { W.offline = false; wakeSchedule(500); return; }   // no offline model: use online
+    if (code === '6' || code === '7') { wakeAgain(); return; }
+    wakeFailed();
+  };
+
+  // ---- One turn of conversation: listen → handle → (maybe) follow-up window
+  var voiceGen = 0, followUpOk = false;
+  function converse(p) {
+    var gen = ++voiceGen, held = listenHeld, follow = LS && LS.followup;
     orbBusy = true;
-    stopTalking();
-    listen().then(function (res) {
+    return p.then(function (res) {
+      if (gen !== voiceGen) { if (held) resumeAfterTalk(); return; }
       if (typeof res !== 'string' || !res.trim()) {
         orbBusy = false;
-        resumeAfterTalk();
+        if (held) resumeAfterTalk();
         var code = res && res.error;
+        wakeSchedule();
+        if (code === 'cancelled' || code === 'replaced') return;
+        if (follow) { caption('TAP THE ORB TO TALK TO NEXUS'); return; }
         if (code === 'unavailable') { caption('VOICE INPUT NOT AVAILABLE ON THIS BOX'); return say('Voice recognition isn\'t available on this box yet.'); }
         if (code === '9') { caption('MICROPHONE PERMISSION NEEDED'); return say('I need microphone permission. Allow it in the Android settings for Nexus.'); }
         caption('DIDN\'T CATCH THAT · TAP TO TRY AGAIN');
         return;
       }
       caption('“' + res + '”');
-      return handleSpeech(res).then(function () { orbBusy = false; resumeAfterTalk(); }, function () { orbBusy = false; resumeAfterTalk(); });
+      setOrb('thinking', true);
+      followUpOk = false;
+      function after() {
+        if (gen !== voiceGen) { if (held) resumeAfterTalk(); return; }
+        orbBusy = false; setOrb('thinking', false);
+        if (held) resumeAfterTalk();
+        if (followUpOk) startFollowUp(gen); else wakeSchedule();
+      }
+      return handleSpeech(res).then(after, after);
     });
+  }
+  // After Nexus answers, keep listening for 25 seconds so you can just keep talking.
+  // Music is not paused unless you actually say something.
+  function startFollowUp(gen) {
+    followUpOk = false;
+    setTimeout(function () {   // let the last word clear the speaker before the mic opens
+      if (gen !== voiceGen || orbBusy || heardResolve || booting || Nexus.speaking || (P && P.on) || awaySince || (window.XP && XP.active) ||
+        !A || !A.listenWith || (A.speakingNow && A.speakingNow())) { wakeSchedule(); return; }
+      caption('GO AHEAD · STILL LISTENING');
+      converse(openListen({ mode: 'quiet', window: FOLLOW_UP_MS, followup: true }));
+    }, 700);
+  }
+  // Anything Nexus is about to say closes the mic first, so it never listens to itself.
+  function micYieldToSpeech() {
+    wakeStop();
+    if (LS && LS.followup && !LS.began) { voiceGen++; orbBusy = false; lsCancel(); }
+  }
+
+  function orbTap() {
+    if (booting) return;
+    var speakingNow = Nexus.speaking || (A && A.speakingNow && A.speakingNow());
+    if (LS && !LS.followup) {            // tap while listening = cancel
+      voiceGen++; orbBusy = false; lsCancel(); stopTalking(); setOrb('thinking', false);
+      caption('TAP THE ORB TO TALK TO NEXUS'); wakeSchedule(); return;
+    }
+    if (orbBusy && !speakingNow && !LS) {   // tap while thinking = cancel the answer
+      voiceGen++; stopTalking(); orbBusy = false; setOrb('thinking', false);
+      caption('TAP THE ORB TO TALK TO NEXUS'); wakeSchedule(); return;
+    }
+    // idle, follow-up window, or Nexus talking: stop it and listen right away
+    voiceGen++; orbBusy = false; setOrb('thinking', false);
+    if (LS) lsCancel();
+    stopTalking();
+    converse(openListen({ mode: 'cmd' }));
   }
   $('orbWrap').addEventListener('click', orbTap);
   $('caption').addEventListener('click', orbTap);
@@ -1142,7 +1331,7 @@
     var cmd = matchCommand(t);
     if (cmd) { act(cmd); return Promise.resolve(); }
     var quick = quickAnswer(t);
-    if (quick) { caption(quick); return say(quick); }
+    if (quick) { caption(quick); followUpOk = true; return say(quick); }
 
     if (chatBusy) { caption('I AM FINISHING YOUR LAST ANSWER'); return Promise.resolve(); }
     chatBusy = true;
@@ -1160,6 +1349,7 @@
     } }).then(function (reply) {
       chatBusy = false;
       setOrb('thinking', false);
+      followUpOk = true;
       chatHistory.push({ role: 'model', parts: [{ text: reply.replace(/[*#_`]/g, '') }] });
       if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
       saveChatHistory();
@@ -1719,7 +1909,7 @@
     P.song = '';
     clearInterval(P.songTimer);
     P.songTimer = setInterval(pollSong, 4000); setTimeout(pollSong, 600);
-    P.on = mode.party = true;
+    P.on = mode.party = true; wakeStop();
     if (mode.night) { mode.night = false; try { if (A) A.setBrightness(-1); } catch (e) {} }
     buildBars(); badges();
     $('party').classList.remove('hidden');
@@ -1735,7 +1925,7 @@
     P.talk = setInterval(function () { if (P.on) partyTalk(egoLine('hype'), false, true); }, 45000 + Math.floor(Math.random() * 20000));
   }
   function exitParty(silent) {
-    P.on = mode.party = false;
+    P.on = mode.party = false; wakeSchedule(2000);
     clearInterval(P.auto); clearInterval(P.strobe); P.strobe = null;
     try { if (A) A.meter(false); } catch (e) {}
     $('party').classList.add('hidden');
@@ -2134,6 +2324,13 @@
       '<label>PITCH</label><input type="range" id="sPitch" min="0.6" max="1.4" step="0.05" value="' + (pref('pitch') || '0.9') + '">' +
       '<span class="btn go" id="sVoiceTest">TEST VOICE</span></div>' +
 
+      '<div class="field"><label>VOICE</label>' +
+      '<div class="hint">How long Nexus waits after you stop talking before it answers. Longer = more room to pause.</div>' +
+      SILENCE_CHOICES.map(function (v) { var on = silenceMs() === v * 1000; return '<span class="btn' + (on ? ' go' : '') + '" data-silence="' + v + '">' + v + ' SEC</span>'; }).join('') +
+      '<div class="hint">"Hey Nexus": while Nexus is on screen and quiet, it listens for "Hey Nexus" so you don\'t have to tap. ' +
+      'This uses Android\'s normal speech recognition in short rounds (not a low-power wake-word chip), so the microphone is on and audio may go to the speech service. ' +
+      'It pauses while Nexus talks, in Party Mode and in other apps. Off = tap the orb to talk.</div>' +
+      '<span class="btn' + (wakeOn() ? ' go' : '') + '" id="sWake">HEY NEXUS: ' + (wakeOn() ? 'ON' : 'OFF') + '</span></div>' +
       '<div class="field"><label>HOW NEXUS BEHAVES</label>' +
       [['talkFirst', 'TALKS FIRST'], ['dj', 'DJ SONG INTROS'], ['saver', 'CLOCK SCREENSAVER'], ['showSpeed', '⚡ SPEED NUMBER']].map(function (o) {
         var on = pref(o[0]) !== '0'; return '<span class="btn' + (on ? ' go' : '') + '" data-toggle="' + o[0] + '">' + o[1] + ': ' + (on ? 'ON' : 'OFF') + '</span>'; }).join('') +
@@ -2202,6 +2399,14 @@
     });
     $('sForget').addEventListener('click', function () { saveMemories([]); caption('MEMORY CLEARED'); refreshMemorySettings(); });
     $('sForgetChat').addEventListener('click', function () { chatHistory = []; saveChatHistory(); caption('CHAT HISTORY CLEARED'); refreshMemorySettings(); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-silence]'), function (el) {
+      el.addEventListener('click', function () { setPref('silence_s', el.getAttribute('data-silence')); refreshMemorySettings(); });
+    });
+    $('sWake').addEventListener('click', function () {
+      var on = !wakeOn(); setPref('wake', on ? '1' : '0'); W.fails = 0; W.offline = true;
+      if (on) { caption('SAY "HEY NEXUS" ANY TIME'); wakeSchedule(1500); } else { wakeStop(); caption('TAP THE ORB TO TALK TO NEXUS'); }
+      refreshMemorySettings();
+    });
     $('sAndroid').addEventListener('click', function () { if (A) A.openSystemSettings(); });
   }
 
@@ -2340,9 +2545,9 @@
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
-  Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.paused = function () { wakeStop(); if (LS && LS.followup) { voiceGen++; orbBusy = false; lsCancel(); } stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
-    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); wakeSchedule(1500); };
 
   // ------------------------------------------------------------------
   // Start
@@ -2354,5 +2559,5 @@
   applyStyle();
   renderTiles();
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
-  else { $('boot').classList.add('hidden'); showHome(); stopAnim(); }
+  else { $('boot').classList.add('hidden'); showHome(); stopAnim(); wakeSchedule(4000); }
 })();

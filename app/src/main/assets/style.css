@@ -64,7 +64,14 @@ body.night #vig { background: radial-gradient(ellipse at center, rgba(0,0,0,.2) 
 #orbRing { position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 50%; border: 2px solid rgba(61,255,154,.35); }
 #orbWrap.listening #orb { animation: none; background: radial-gradient(circle at 35% 35%, #e0f4ff, #4fb4ff 45%, #0b3d7a); box-shadow: 0 0 34px rgba(79,180,255,.8); }
 #orbWrap.listening #orbRing { border-color: #4fb4ff; animation: ring 1s ease-out infinite; }
-#orbWrap.thinking #orb { animation: think 1s linear infinite; background: conic-gradient(#3dff9a, #4fb4ff, #b17cff, #3dff9a); }
+/* Processing: amber/violet spin (no blue, so it can't be mistaken for listening) */
+#orbWrap.thinking #orb { animation: think 1s linear infinite; background: conic-gradient(#ffb84d, #b17cff, #ff6fb1, #ffb84d); box-shadow: 0 0 26px rgba(255,184,77,.55); }
+#orbWrap.thinking #orbRing { border-color: rgba(255,184,77,.6); }
+/* Follow-up window: still blue (listening), softer ring */
+#orbWrap.listening.followup #orb { box-shadow: 0 0 22px rgba(79,180,255,.55); }
+#orbWrap.listening.followup #orbRing { animation-duration: 1.8s; }
+/* "Hey Nexus" armed: thin blue ring only, the orb itself keeps its normal colour */
+#orbWrap.wake:not(.listening):not(.thinking) #orbRing { border-color: rgba(79,180,255,.55); border-style: dashed; }
 #orbWrap.speaking #orb { animation: pulse .5s ease-in-out infinite; }
 #caption { margin-top: 1.4vmin; font-size: 2.4vmin; letter-spacing: 2px; color: #cfe3ff;
   text-align: center; max-width: 90vw; min-height: 1.4em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
