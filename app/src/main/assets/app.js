@@ -650,16 +650,22 @@
   function smallTalk(t) {
     var n = String(t || '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!n || !SAY.sayings[egoName]) return null;   // only the 7 main personalities have these
-    for (var i = 0; i < SAY.qa.length; i++) {
-      var q = SAY.qa[i]; if (!q.rx || !q.rx.test(n)) continue;
-      if (q.say) return egoSaying() || null;
-      var a = q.a && q.a[egoName]; return a && a.length ? freshPick(a) : null;
-    }
-    // A few common presence checks have no dedicated row; answer them with the existing saved greeting set.
-    if (/^(are you there|you there|are you around|you around|you awake)( nexus| buddy| man| bud)?$/.test(n)) {
-      var greet = SAY.qa.filter(function (q) { return q.id === 'greet'; })[0];
-      var greeting = greet && greet.a && greet.a[egoName];
-      return greeting && greeting.length ? freshPick(greeting) : egoSaying() || null;
+    // Try the complete utterance first, then allow a casual opener before the saved question.
+    var variants = [n], withoutOpener = n.replace(/^(hey|hi|hello|okay|ok|nexus)[, ]+/, '').trim();
+    if (withoutOpener && withoutOpener !== n) variants.push(withoutOpener);
+    for (var v = 0; v < variants.length; v++) {
+      var phrase = variants[v];
+      for (var i = 0; i < SAY.qa.length; i++) {
+        var q = SAY.qa[i]; if (!q.rx || !q.rx.test(phrase)) continue;
+        if (q.say) return egoSaying() || null;
+        var a = q.a && q.a[egoName]; return a && a.length ? freshPick(a) : null;
+      }
+      // These presence checks use the existing personality-specific saved greeting answers.
+      if (/^(are you there|you there|are you around|you around|you awake)( nexus| buddy| man| bud)?$/.test(phrase)) {
+        var greet = SAY.qa.filter(function (q) { return q.id === 'greet'; })[0];
+        var greeting = greet && greet.a && greet.a[egoName];
+        return greeting && greeting.length ? freshPick(greeting) : egoSaying() || null;
+      }
     }
     return null;
   }
@@ -731,10 +737,14 @@
       setTimeout(function () { document.body.classList.remove('ego-glitch'); f.style.background = ''; }, 700);
     }
   }
+  function egoSwitchPhrase(k) {
+    var lines = (SAY.sayings[k] || []).filter(function (line) { return typeof line === 'string' && line.length <= 110; });
+    return lines.length ? freshPick(lines) : ((EGOS[k] && EGOS[k].intro) || '');
+  }
   function setEgo(k) {
     stopTalking();
     egoName = k; setPref('ego', k); egoLevel = 1;
-    sayLine(EGOS[k].intro, true);          // talks the instant you tap
+    sayLine(egoSwitchPhrase(k) || EGOS[k].intro, true); // vary the instant native-TTS greeting using bundled dialogue
     applyEgo(true);
     caption(EGOS[k].name === 'NEXUS' ? 'NEXUS' : EGOS[k].name + ' MODE');
     scheduleEgoPrecache(1800);

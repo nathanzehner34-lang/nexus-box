@@ -69,4 +69,10 @@ async function t10() { // loop guard: recognizer erroring instantly in follow-up
   for (let i = 0; i < 40; i++) { e.api.Nexus._heardError('7'); e.advance(50); }
   await tick(); assert.ok(out && out.error); assert(e.calls.filter(c => c[0] === 'listenWith').length <= 14); console.log('ok 10 loop guard');
 }
-(async () => { for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10]) await t(); console.log('ALL PASSED'); })().catch(e => { console.error('FAIL', e); process.exit(1); });
+async function t11() { // a silent orb tap speaks a bundled local phrase instead of staying silent
+  const e = makeEnv(); e.api.orbTap(); e.advance(1800); await tick(); await tick();
+  assert.deepStrictEqual(e.spoken, ['Local saved Nexus line.']);
+  assert.strictEqual(e.handled, undefined, 'no question was sent to the AI handler');
+  console.log('ok 11 silent orb tap speaks locally');
+}
+(async () => { for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]) await t(); console.log('ALL PASSED'); })().catch(e => { console.error('FAIL', e); process.exit(1); });

@@ -26,6 +26,10 @@ function makeEnv() {
     function holdMusic() { env.calls.push(['hold']); } function releaseMusic() { env.calls.push(['release']); }
     function stopTalking() { env.calls.push(['stopTalking']); }
     function say(t) { env.spoken.push(t); return Promise.resolve(); }
+    var egoName = 'nexus', EGOS = { nexus: { intro: 'I am here.' } };
+    function egoSaying() { env.savedPickCount = (env.savedPickCount || 0) + 1; return env.savedPhrase || 'Local saved Nexus line.'; }
+    function sayLine(t) { env.spoken.push(t); return Promise.resolve(); }
+    function clip(t) { return t; }
     function handleSpeech(t) { env.handled = t; if (env.onHandle) env.onHandle(t); return Promise.resolve(); }
     ${src}
     return { Nexus: Nexus, listen: listen, orbTap: orbTap, wakeSchedule: wakeSchedule, W: W, get LS() { return LS; }, setFollow: function(){ followUpOk = true; }, get orbBusy() { return orbBusy; } };`);
