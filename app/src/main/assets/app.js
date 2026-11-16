@@ -985,26 +985,146 @@
   function memoryKind(fact) {
     if (/\b(prefer|like|love|hate|always|usually|favorite|favourite)\b/i.test(fact)) return 'preference';
     if (/\b(project|building|working on|goal|plan|develop|nexus)\b/i.test(fact)) return 'project';
-    if (/\b(truck|vehicle|box|engine|tire|tyre|stereo)\b/i.test(fact)) return 'vehicle';
+    if (/\b(truck|vehicle|car|pickup|van|suv|motorcycle|engine|tire|tyre|stereo)\b/i.test(fact)) return 'vehicle';
     return 'general';
   }
-  function remember(fact, kind) {
-    fact = String(fact || '').replace(/[\[\]]/g, '').trim(); if (fact.length < 3 || fact.length > 180) return false;
-    var key = fact.toLowerCase(), m = memories().filter(function (x) { return x.text.toLowerCase() !== key; });
-    m.push({ text: fact, kind: kind || memoryKind(fact), updatedAt: Date.now() }); saveMemories(m); return true;
+  function cleanMemoryValue(value) {
+    return String(value || '').trim().replace(/^(?:now|currently)\s+/i, '').replace(/^(?:a|an|the)\s+/i, '').replace(/\s+(?:right now|currently|for now|now)$/i, '').replace(/[.!?]+$/, '').trim();
+  }
+  function memoryArticle(value) { return /^[aeiou]/i.test(value) ? 'an' : 'a'; }
+  function vehicleNoun(value) {
+    return String(value || '').trim().split(/\s+/).length > 1 ||
+      /\b(gmc|ford|chevrolet|chevy|ram|dodge|toyota|honda|nissan|subaru|mazda|kia|hyundai|jeep|volkswagen|vw|volvo|bmw|mercedes|audi|sierra|silverado|f-?150|tacoma|tundra|ranger|f-?250|civic|corolla|camry|accord|wrangler|frontier|colorado|canyon|tahoe|yukon|tundra|ridgeline)\b/i.test(String(value || ''));
+  }
+  function memoryFactText(info) {
+    if (info.category === 'vehicle') return 'My ' + info.subject + ' is ' + (vehicleNoun(info.value) ? memoryArticle(info.value) + ' ' : '') + info.value + '.';
+    if (info.subject === 'name') return 'My name is ' + info.value + '.';
+    if (info.subject === 'home city') return 'I live in ' + info.value + '.';
+    if (info.subject === 'job') return 'I work as ' + info.value + '.';
+    if (info.subject === 'birthday') return 'My birthday is ' + info.value + '.';
+    if (info.category === 'preference') return 'My favorite ' + info.subject.replace(/^favorite\s+/, '') + ' is ' + info.value + '.';
+    return String(info.text || '').trim();
+  }
+  function parsePersonalFact(raw) {
+    var text = String(raw || '').trim()
+      .replace(/^(?:hey\s+)?(?:nexus|nexis)[, ]+/i, '')
+      .replace(/^(?:actually|correction|to clarify)[, ]*/i, '')
+      .replace(/[.!?]+$/, '').trim();
+    if (!text || /\b(today|tonight|right now|currently|for now|this week|tomorrow|yesterday|just now)\b/i.test(text)) return null;
+    var info = null, m;
+    m = /^my\s+(truck|vehicle|car|pickup|van|suv|motorcycle)\s+(?:is called|is|are)\s+(.+)$/i.exec(text);
+    if (m) {
+      info = { category: 'vehicle', subject: m[1].toLowerCase(), value: cleanMemoryValue(m[2]), kind: 'vehicle', key: 'vehicle:primary' };
+    } else {
+      m = /^(?:i\s+(drive|own|have))\s+(?:a|an|the)\s+(.+)$/i.exec(text);
+      if (m && (m[1].toLowerCase() === 'drive' || /\b(gmc|ford|chevrolet|chevy|ram|dodge|toyota|honda|nissan|subaru|mazda|kia|hyundai|jeep|volkswagen|vw|volvo|bmw|mercedes|audi|sierra|silverado|f-?150|tacoma|tundra|ranger|f-?250)\b/i.test(m[2]))) {
+        info = { category: 'vehicle', subject: 'vehicle', value: cleanMemoryValue(m[2]), kind: 'vehicle', key: 'vehicle:primary' };
+      }
+    }
+    if (!info) {
+      m = /^my\s+(name|home city|hometown|birthday|job|occupation)\s+(?:is|is called)\s+(.+)$/i.exec(text);
+      if (m) {
+        var subject = /^(home city|hometown)$/i.test(m[1]) ? 'home city' : /^(job|occupation)$/i.test(m[1]) ? 'job' : m[1].toLowerCase();
+        info = { category: 'profile', subject: subject, value: cleanMemoryValue(m[2]), kind: 'general', key: 'profile:' + subject.replace(/\s+/g, '_') };
+      } else {
+        m = /^i\s+live\s+in\s+(.+)$/i.exec(text);
+        if (m) info = { category: 'profile', subject: 'home city', value: cleanMemoryValue(m[1]), kind: 'general', key: 'profile:home_city' };
+        else {
+          m = /^i\s+work\s+(?:as|at)\s+(.+)$/i.exec(text);
+          if (m) info = { category: 'profile', subject: 'job', value: cleanMemoryValue(m[1]), kind: 'general', key: 'profile:job' };
+          else {
+            m = /^my\s+(?:favorite|favourite)\s+([a-z ]{2,32})\s+is\s+(.+)$/i.exec(text);
+            if (m) {
+              var topic = m[1].toLowerCase().trim();
+              info = { category: 'preference', subject: 'favorite ' + topic, value: cleanMemoryValue(m[2]), kind: 'preference', key: 'preference:' + topic.replace(/\s+/g, '_') };
+            } else {
+              m = /^i\s+prefer\s+(.+?)\s+(?:over|instead of)\s+(.+)$/i.exec(text);
+              if (m) info = { category: 'preference', subject: 'preference', value: cleanMemoryValue(m[1]) + ' over ' + cleanMemoryValue(m[2]), kind: 'preference', key: 'preference:general' };
+            }
+          }
+        }
+      }
+    }
+    if (!info || !info.value || info.value.length < 2 || info.value.length > 100) return null;
+    info.text = memoryFactText(info);
+    info.updatedAt = Date.now();
+    return info;
+  }
+  function memoryInfo(item) {
+    if (!item) return null;
+    if (item.category && item.subject && item.value) return item;
+    var parsed = parsePersonalFact(item.text);
+    if (parsed) return parsed;
+    if (item.kind === 'vehicle') return { category: 'vehicle', subject: 'vehicle', value: cleanMemoryValue(item.text), kind: 'vehicle', key: item.key || 'vehicle:primary', text: item.text };
+    return null;
+  }
+  function remember(fact, kind, metadata) {
+    fact = String(fact || '').replace(/[\[\]]/g, '').trim();
+    if (fact.length < 3 || fact.length > 180) return false;
+    var info = metadata || parsePersonalFact(fact);
+    var m = memories();
+    if (info) {
+      info = { text: info.text || fact, kind: kind || info.kind || memoryKind(fact), key: info.key || '', category: info.category || '', subject: info.subject || '', value: info.value || '', updatedAt: Date.now() };
+      var key = info.key, textKey = info.text.toLowerCase();
+      m = m.filter(function (x) {
+        var old = memoryInfo(x);
+        return x.text.toLowerCase() !== textKey && !(key && x.key === key) &&
+          !(old && info.category && old.category === info.category && old.subject === info.subject);
+      });
+      m.push(info);
+    } else {
+      var textKey = fact.toLowerCase();
+      m = m.filter(function (x) { return x.text.toLowerCase() !== textKey; });
+      m.push({ text: fact, kind: kind || memoryKind(fact), updatedAt: Date.now() });
+    }
+    saveMemories(m); return true;
+  }
+  function capturePersonalFact(raw) {
+    var info = parsePersonalFact(raw);
+    if (!info) return null;
+    // A single primary vehicle is updated by equivalent wording such as "my truck" or "I drive".
+    if (info.category === 'vehicle') {
+      var existingVehicles = memories().map(memoryInfo).filter(function (x) { return x && x.category === 'vehicle'; });
+      if (existingVehicles.length === 1) {
+        info.key = existingVehicles[0].key || info.key;
+        if (info.subject === 'vehicle' && existingVehicles[0].subject) info.subject = existingVehicles[0].subject;
+        info.text = memoryFactText(info);
+      }
+    }
+    remember(info.text, info.kind, info);
+    return info;
   }
   function forgetMemory(term) {
     var key = String(term || '').trim().toLowerCase(); if (!key) return false;
-    var m = memories(), next = m.filter(function (x) { return x.text.toLowerCase().indexOf(key) < 0; });
+    var m = memories(), next = m.filter(function (x) {
+      var info = memoryInfo(x);
+      return x.text.toLowerCase().indexOf(key) < 0 &&
+        !(info && [info.subject, info.value, info.category, info.key].join(' ').toLowerCase().indexOf(key) >= 0);
+    });
     if (next.length === m.length) return false;
     saveMemories(next); return true;
   }
   function correctMemory(oldFact, newFact) {
     var oldKey = String(oldFact || '').trim().toLowerCase(), nextFact = String(newFact || '').trim();
     if (nextFact.length < 3 || nextFact.length > 180) return false;
-    var m = memories(), i = m.findIndex(function (x) { return x.text.toLowerCase().indexOf(oldKey) >= 0; });
-    if (i >= 0) m.splice(i, 1);
-    m.push({ text: nextFact, kind: memoryKind(nextFact), updatedAt: Date.now() }); saveMemories(m); return true;
+    var m = memories(), i = m.findIndex(function (x) {
+      var info = memoryInfo(x);
+      return x.text.toLowerCase().indexOf(oldKey) >= 0 ||
+        (info && [info.subject, info.value, info.category, info.key].join(' ').toLowerCase().indexOf(oldKey) >= 0);
+    });
+    var previous = i >= 0 ? memoryInfo(m[i]) : null;
+    var parsed = parsePersonalFact(nextFact);
+    if (!parsed && previous && previous.category) {
+      var value = cleanMemoryValue(nextFact);
+      parsed = { category: previous.category, subject: previous.subject, value: value, kind: previous.kind, key: previous.key };
+      parsed.text = memoryFactText(parsed);
+    } else if (parsed && previous && previous.category === parsed.category) {
+      parsed.key = previous.key || parsed.key;
+      if (parsed.subject === 'vehicle' && previous.subject) parsed.subject = previous.subject;
+      parsed.text = memoryFactText(parsed);
+    }
+    if (i >= 0) { m.splice(i, 1); saveMemories(m); }
+    return parsed ? remember(parsed.text, parsed.kind, parsed) : remember(nextFact);
   }
   function memoryPrompt(query) {
     var m = memories(), terms = String(query || '').toLowerCase().match(/[a-z0-9]{4,}/g) || [];
@@ -1017,6 +1137,65 @@
     for (var i = 0; i < selected.length; i++) { var next = joined ? joined + '; ' + selected[i] : selected[i]; if (next.length > 1200) break; joined = next; }
     return (joined ? ' Things you remember about Nathan from earlier conversations (use only relevant facts naturally): ' + joined + '.' : '') +
       ' If Nathan tells you a lasting preference, personal fact, vehicle detail or project update, add [[remember: a concise corrected fact]] at the very end of your reply. Never say or mention that tag.';
+  }
+  function memoryQuestionProfile(query) {
+    var n = String(query || '').toLowerCase().replace(/[^a-z0-9 -]+/g, ' ').replace(/\s+/g, ' ').trim();
+    n = n.replace(/^(?:hey|hi|hello|okay|ok)[, ]+/, '').trim();
+    if (!n || !/^(what|which|where|when|who|do you remember|did i say|have i told you|can you recall|remind me|tell me|i told you|i said|i mentioned)/.test(n)) return null;
+    var topic = null;
+    if (/\b(truck|vehicle|car|pickup|van|suv|motorcycle|drive|driving|own|owned|gmc|ford|chevrolet|chevy|ram|dodge|toyota|honda|nissan|subaru|mazda|kia|hyundai|jeep|volkswagen|volvo|bmw|mercedes|audi|sierra|silverado|f-?150|tacoma|tundra|ranger|f-?250)\b/.test(n)) topic = 'vehicle';
+    else if (/\b(name|who am i)\b/.test(n)) topic = 'profile:name';
+    else if (/\b(live|home|city|hometown)\b/.test(n)) topic = 'profile:home_city';
+    else if (/\b(work|job|occupation)\b/.test(n)) topic = 'profile:job';
+    else if (/\b(favorite|favourite|prefer|like)\b/.test(n)) topic = 'preference';
+    var pronounRecall = /\b(what kind|what model|what type|which one|what do i have|what do i own|what is mine|what am i driving)\b/.test(n) && /\b(i|it|that|mine|have|own|driving)\b/.test(n);
+    var terms = n.match(/[a-z0-9]+/g) || [];
+    var stop = /^(what|which|where|when|who|do|you|remember|did|i|say|have|told|me|can|recall|remind|tell|about|my|the|a|an|is|are|was|were|kind|type|model|one|of|in|on|for|to|drive|driving|own|owned|have|do|am|it|that|mine)$/;
+    terms = terms.filter(function (x) { return !stop.test(x); });
+    return { topic: topic, terms: terms, pronoun: pronounRecall };
+  }
+  function recallMemory(query) {
+    var profile = memoryQuestionProfile(query);
+    if (!profile) return null;
+    var all = memories().map(function (x, i) { return { raw: x, info: memoryInfo(x), order: i }; }).filter(function (x) { return !!x.info; });
+    if (!all.length) return null;
+    var topicCandidates = profile.topic === 'vehicle' ? all.filter(function (x) { return x.info.category === 'vehicle'; }) :
+      profile.topic === 'preference' ? all.filter(function (x) { return x.info.category === 'preference'; }) :
+      profile.topic ? all.filter(function (x) { return x.info.category + ':' + x.info.subject.replace(/\s+/g, '_') === profile.topic; }) : [];
+    var candidates = topicCandidates.length ? topicCandidates : all;
+    var best = null, bestScore = 0;
+    candidates.forEach(function (item) {
+      var info = item.info, text = (info.text + ' ' + info.subject + ' ' + info.value + ' ' + info.category).toLowerCase();
+      var score = profile.topic && (info.category === 'vehicle' && profile.topic === 'vehicle' || info.category + ':' + info.subject.replace(/\s+/g, '_') === profile.topic || info.category === profile.topic) ? 8 : 0;
+      profile.terms.forEach(function (term) {
+        if (String(info.value).toLowerCase().split(/[^a-z0-9]+/).indexOf(term) >= 0) score += 5;
+        else if (String(info.subject).toLowerCase().indexOf(term) >= 0) score += 3;
+        else if (text.indexOf(term) >= 0) score += 2;
+      });
+      if (score > bestScore || score === bestScore && item.order > (best ? best.order : -1)) { best = item; bestScore = score; }
+    });
+    if (bestScore === 0 && profile.pronoun && all.length === 1) { best = all[0]; bestScore = 1; }
+    if (!best || bestScore === 0) return null;
+    var info = best.info;
+    if (info.category === 'vehicle') return { text: vehicleNoun(info.value) ? 'You drive ' + memoryArticle(info.value) + ' ' + info.value + '.' : 'Your ' + info.subject + ' is ' + info.value + '.', memory: best.raw };
+    if (info.subject === 'name') return { text: 'Your name is ' + info.value + '.', memory: best.raw };
+    if (info.subject === 'home city') return { text: 'You live in ' + info.value + '.', memory: best.raw };
+    if (info.subject === 'job') return { text: 'You work as ' + info.value + '.', memory: best.raw };
+    if (info.subject === 'birthday') return { text: 'Your birthday is ' + info.value + '.', memory: best.raw };
+    return { text: 'You told me your ' + info.subject.replace(/^favorite\s+/, '') + ' is ' + info.value + '.', memory: best.raw };
+  }
+  function memoryAck(info) {
+    if (info.category === 'vehicle') return 'Got it. ' + memoryFactText(info).replace(/^My /, 'Your ');
+    if (info.subject === 'home city') return 'Got it. I will remember that you live in ' + info.value + '.';
+    if (info.subject === 'job') return 'Got it. I will remember that you work as ' + info.value + '.';
+    return 'Got it. I will remember your ' + info.subject.replace(/^favorite\s+/, '') + ' is ' + info.value + '.';
+  }
+  function localMemoryTurn(query, utterance) {
+    var recalled = recallMemory(query);
+    if (recalled) return { kind: 'recalled', text: recalled.text };
+    var captured = capturePersonalFact(utterance);
+    if (captured) return { kind: 'saved', text: memoryAck(captured) };
+    return null;
   }
 
   var PREFACE_LINES = {
@@ -1382,6 +1561,8 @@
     var fm = /^forget (?:that )?(.{3,180})$/i.exec(t);
     if (fm) { var removed = forgetMemory(fm[1]); caption(removed ? 'MEMORY UPDATED' : 'NO MATCHING MEMORY'); return say(removed ? 'Forgotten.' : 'I could not find that exact memory.'); }
     var rm = /^remember (that )?(.{4,180})$/i.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
+    var localMemory = localMemoryTurn(t, raw);
+    if (localMemory) { caption(clip(localMemory.text)); followUpOk = true; return sayLine(localMemory.text); }
     if (/open the vault/.test(t)) { setPref('vault', '1'); caption('🔓 SECRET UNLOCKED · GOLD STYLE'); return say('Vault open. You just unlocked the gold home screen. Find it in Backgrounds.'); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
       if (MUSIC_CMDS[mi][0].test(t)) { var mcmd = MUSIC_CMDS[mi][1]; caption(MUSIC_CMDS[mi][2].toUpperCase()); if (mcmd === 'next') { egoLevel = Math.min(5, egoLevel + 1); sayLine(skipQuip()); } setTimeout(function () { music(mcmd); }, 600); return Promise.resolve(); }

@@ -72,6 +72,7 @@ jobs:
           node --check app/src/main/assets/experiences.js
           node tools/voice-test/test.js
           node tools/voice-test/smalltalk.test.js
+          node tools/voice-test/memory.test.js
 
       - name: Build debug APK
         run: |
