@@ -3,6 +3,7 @@
   'use strict';
 
   var A = window.Android || null;
+  var updateTimer = null;
   var $ = function (id) { return document.getElementById(id); };
 
   // ------------------------------------------------------------------
@@ -2335,7 +2336,7 @@
     var savedMemories = memories();
     var memoryRows = savedMemories.map(function (m, i) { return '<div class="hrow"><span class="hlb">' + esc(m.text) + '</span><span class="btn sm" data-memory-index="' + i + '">FORGET</span></div>'; }).join('');
     var html =
-      '<div class="field"><label>UPDATE NEXUS</label><div class="hint">After you run a new build on GitHub, tap this. It downloads the newest Nexus and opens the install screen. Just press Install.</div><span class="btn go" id="sUpdate">UPDATE NEXUS</span><div id="sUpdateMsg" class="hint"></div></div>' +
+      '<div class="field"><label>NEXUS SYSTEM UPDATE</label><div class="hint">Installed version: <span id="sUpdateCurrent">' + esc(A ? A.version() : 'preview') + '</span><br>Latest available: <span id="sUpdateLatest">Not checked</span></div><span class="btn go" id="sUpdateCheck">CHECK FOR UPDATES</span><span class="btn go" id="sUpdateDownload" style="display:none">DOWNLOAD UPDATE</span><div id="sUpdateProgressWrap" style="display:none;margin-top:1vmin"><progress id="sUpdateProgress" max="100" value="0" style="width:100%"></progress><span id="sUpdatePercent" class="hint">0%</span></div><div id="sUpdateMsg" class="hint">Checks the latest successful Nexus 23 build from GitHub.</div><span class="btn go" id="sUpdateInstall" style="display:none">INSTALL UPDATE</span></div>' +
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
@@ -2387,7 +2388,59 @@
     openPanel('SETTINGS', html);
 
     $('sHome').addEventListener('click', function () { openHomeEditor(); });
-    $('sUpdate').addEventListener('click', function () { if (A && A.updateNexus) { $('sUpdateMsg').textContent = 'Starting…'; A.updateNexus(); } else $('sUpdateMsg').textContent = 'Only works on the box.'; });
+    var updateInfo = null;
+    function updateStatus(message) { var el = $('sUpdateMsg'); if (el) el.textContent = message; }
+    function updatePoll() {
+      if (!A || !A.updateProgress) return;
+      try {
+        var p = JSON.parse(A.updateProgress());
+        if (p.state === 'verified') { $('sUpdateInstall').style.display = ''; $('sUpdateProgressWrap').style.display = 'none'; updateStatus('APK verified. Select Install Update to continue.'); if (updateTimer) clearInterval(updateTimer); }
+        else if (p.state === 'downloading' || p.state === 'verifying') {
+          $('sUpdateProgressWrap').style.display = '';
+          $('sUpdateProgress').value = p.percent || 0;
+          $('sUpdatePercent').textContent = (p.percent || 0) + '%';
+          if (p.state === 'downloading') updateStatus('Downloading update…');
+          else updateStatus('Download complete. Verifying APK…');
+        }
+      } catch (e) {}
+    }
+    function checkNexusUpdate() {
+      $('sUpdateDownload').style.display = 'none'; $('sUpdateInstall').style.display = 'none';
+      $('sUpdateLatest').textContent = 'Checking…'; updateStatus('Checking latest successful GitHub build…');
+      if (!A) { updateStatus('Updates are available on the Nexus device.'); return; }
+      http('GET', 'https://api.github.com/repos/Nathanzehner34-lang/nexus-box/releases/tags/nexus-23-dev', null,
+        { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' })
+        .then(function (res) {
+          if (res.status !== 200) throw new Error(res.status === 404 ? 'No successful development build has been published yet.' : 'GitHub could not be reached (' + res.status + ').');
+          var rel = JSON.parse(res.text), apk = (rel.assets || []).filter(function (a) { return a.name === 'nexus23.apk'; })[0];
+          var sum = (rel.assets || []).filter(function (a) { return a.name === 'nexus23.apk.sha256'; })[0];
+          var match = (rel.body || '').match(/Build version:\s*(\d+)/i);
+          if (!apk || !sum || !match) throw new Error('The latest build is missing its APK verification data.');
+          var latestCode = Number(match[1]), currentCode = A.versionCode ? Number(A.versionCode()) : 0;
+          $('sUpdateLatest').textContent = rel.name + ' (version ' + latestCode + ')';
+          if (!latestCode || latestCode <= currentCode) { updateStatus('Nexus is up to date.'); return; }
+          updateInfo = { apk: apk, checksum: sum, version: latestCode };
+          $('sUpdateDownload').style.display = '';
+          updateStatus('Version ' + latestCode + ' is available. Select Download Update when ready.');
+        })
+        .catch(function (e) { $('sUpdateLatest').textContent = 'Unavailable'; updateStatus(e.message || 'Could not check for updates.'); });
+    }
+    $('sUpdateCheck').addEventListener('click', checkNexusUpdate);
+    $('sUpdateDownload').addEventListener('click', function () {
+      if (!updateInfo || !A || !A.updateDownload) { updateStatus('Check for updates first.'); return; }
+      updateStatus('Preparing secure download…');
+      http('GET', updateInfo.checksum.browser_download_url)
+        .then(function (res) {
+          var digest = (res.text || '').trim().split(/\s+/)[0];
+          if (res.status !== 200 || !/^[a-f0-9]{64}$/i.test(digest)) throw new Error('Could not retrieve the APK checksum.');
+          $('sUpdateDownload').style.display = 'none'; $('sUpdateProgressWrap').style.display = '';
+          A.updateDownload(updateInfo.apk.browser_download_url, updateInfo.apk.size, digest);
+          if (updateTimer) clearInterval(updateTimer); updateTimer = setInterval(updatePoll, 1000); updatePoll();
+        })
+        .catch(function (e) { updateStatus(e.message || 'Could not start update download.'); });
+    });
+    $('sUpdateInstall').addEventListener('click', function () { if (A && A.installUpdate) A.installUpdate(); });
+    updatePoll();
     $('sKeySave').addEventListener('click', function () {
       setPref('gemini_key', $('sKey').value.trim()); $('sKeyMsg').textContent = 'Saved.';
     });
@@ -2564,12 +2617,15 @@
   // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
-  Nexus._update = function (st) {
-    var m = { allow: 'Turn ON "Allow from this source" for Nexus on the screen that just opened, then come back and tap UPDATE NEXUS again.',
-      downloading: 'Downloading the newest Nexus… this can take a minute. The install screen will pop up by itself.',
-      ready: 'Press INSTALL on the screen that popped up.', failed: 'Download failed. Check the internet and try again.' }[st] || st;
-    caption(st === 'downloading' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
-    var el = $('sUpdateMsg'); if (el) el.textContent = m;
+  Nexus._update = function (st, detail) {
+    var msg = { allow: 'Enable "Allow from this source" for Nexus in Android settings, return here, then tap Install Update.',
+      downloading: 'Downloading update…', verified: 'APK verified. Select Install Update to continue.',
+      installing: 'Opening Android package installer…', failed: detail || 'Update failed. Check the connection and try again.' }[st] || st;
+    var el = $('sUpdateMsg'); if (el) el.textContent = msg;
+    var install = $('sUpdateInstall'), wrap = $('sUpdateProgressWrap');
+    if (st === 'verified') { if (install) install.style.display = ''; if (wrap) wrap.style.display = 'none'; if (updateTimer) clearInterval(updateTimer); }
+    else if (st === 'downloading' || st === 'verifying') { if (wrap) wrap.style.display = ''; }
+    if (st === 'failed') { if (install) install.style.display = 'none'; if (updateTimer) clearInterval(updateTimer); }
   };
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
