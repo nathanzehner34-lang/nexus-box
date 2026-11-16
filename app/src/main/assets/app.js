@@ -2519,7 +2519,13 @@
     });
     function tune() {
       setPref('rate', $('sRate').value); setPref('pitch', $('sPitch').value);
-      try { if (A) { A.setVoice($('sVoice').value); A.setVoiceTuning(parseFloat($('sRate').value), parseFloat($('sPitch').value)); } } catch (e) {}
+      try {
+        if (A) {
+          var selectedVoice = $('sVoice').value;
+          if (selectedVoice) A.setVoice(selectedVoice);
+          A.setVoiceTuning(parseFloat($('sRate').value), parseFloat($('sPitch').value));
+        }
+      } catch (e) {}
     }
     $('sVoice').addEventListener('change', tune);
     $('sRate').addEventListener('change', tune);
