@@ -29,6 +29,23 @@ const factFirst = engine.respond('What is the capital of Canada?', 'king');
 const factRepeat = engine.respond('What is the capital of Canada?', 'king');
 assert(factFirst.includes('Ottawa') && factRepeat.includes('Ottawa') && factRepeat !== factFirst, 'repeated factual questions retain the answer with varied phrasing');
 
+const routedSamples = [
+  ['What is new?', 'casual'],
+  ['Yeah right', 'sarcasm'],
+  ['I feel overwhelmed', 'empathy'],
+  ["I don't think so", 'disagree'],
+  ['Sounds good', 'agree'],
+  ['Tell me a joke', 'joke'],
+  ['I feel frustrated', 'frustrated'],
+  ['Good evening', 'time']
+];
+for (const ego of egos) {
+  for (const [utterance, category] of routedSamples) {
+    const answer = engine.respond(utterance, ego);
+    assert(answer && (category === 'time' ? answer.toLowerCase().includes('evening') : engine.dialogue[ego][category].some(line => answer.includes(line))), ego + ' routes ' + utterance + ' to distinct ' + category + ' dialogue');
+  }
+}
+
 const knowledgeCases = [
   ['What is the capital city of Canada?', 'Ottawa'],
   ['Which province is Kelowna in?', 'British Columbia'],

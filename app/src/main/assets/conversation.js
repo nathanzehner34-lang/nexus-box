@@ -252,6 +252,8 @@
   function normalize(s) {
     return String(s || '').toLowerCase()
       .replace(/\bwhat's\b/g, 'what is').replace(/\bwhats\b/g, 'what is')
+      .replace(/\bdon't\b/g, 'do not').replace(/\bcan't\b/g, 'cannot').replace(/\bwon't\b/g, 'will not')
+      .replace(/\bit's\b/g, 'it is').replace(/\bthat's\b/g, 'that is').replace(/\byou're\b/g, 'you are').replace(/\bi've\b/g, 'i have')
       .replace(/\bwhere's\b/g, 'where is').replace(/\bhow's\b/g, 'how is')
       .replace(/\bi'm\b/g, 'i am').replace(/\bwe're\b/g, 'we are')
       .replace(/&/g, ' and ').replace(/[^a-z0-9. +\-/]+/g, ' ')
@@ -330,13 +332,16 @@
   }
   function classify(n) {
     if (/^(who are you|what are you|introduce yourself|what is your name)\b/.test(n)) return 'introduction';
+    if (/^(what is new|anything new|just chatting|how is your day|how has your day been|how are things)\b/.test(n)) return 'casual';
+    if (/\b(yeah right|nice going|brilliant idea|great plan|sure thing|obviously)\b/.test(n)) return 'sarcasm';
+    if (/\b(sad|lonely|stressed|overwhelmed|worried|anxious|rough time|need to vent|feeling low)\b/.test(n)) return 'empathy';
     if (/\b(good morning|morning|good afternoon|good evening|evening)\b/.test(n)) return 'time';
     if (/^(hi|hello|hey|howdy|yo|sup|what is good|nice to meet you|good to see you)\b/.test(n)) return 'greeting';
     if (/\b(how are you|how is it going|how you doing|you good|you okay|how have you been)\b/.test(n)) return 'status';
     if (/\b(what is happening|what is going on|what is up|anything happening|what are you doing|what are you up to)\b/.test(n)) return 'happening';
     if (/\b(tell me a joke|joke|make me laugh|say something funny)\b/.test(n)) return 'joke';
     if (/\b(that is funny|you are funny|good one|nice one|well done)\b/.test(n)) return 'compliment';
-    if (/\b(you are right|that is right|exactly|i agree|true enough)\b/.test(n)) return 'agree';
+    if (/\b(you are right|that is right|exactly|i agree|true enough|sounds good|makes sense)\b/.test(n)) return 'agree';
     if (/\b(i disagree|that is wrong|i do not think so|not really|no way)\b/.test(n)) return 'disagree';
     if (/\b(i can do this|i need encouragement|motivate me|i feel down|i cannot do this)\b/.test(n)) return 'encourage';
     if (/\b(frustrated|annoying|this sucks|bad day|rough day|i am fed up)\b/.test(n)) return 'frustrated';
