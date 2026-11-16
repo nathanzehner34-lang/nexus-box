@@ -1,4 +1,4 @@
-/* NEXUS experiences: Wake Up, Hologram, Synthwave, Cosmic Zoom, Song Aura.
+/* NEXUS experiences: Wake Up, Synthwave, Cosmic Zoom, Song Aura.
    Loaded only the first time one is opened. Each one only draws while it is on screen. */
 (function () {
   'use strict';
@@ -109,7 +109,7 @@
       GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens })[name]();
+      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -159,67 +159,6 @@
     var len = Math.floor(c.sampleRate * dur), b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
     for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (Math.random() < .3 ? 1 : .2);
     var s = c.createBufferSource(), g = c.createGain(); g.gain.value = Math.min(vol, 0.14); s.buffer = b; s.connect(g); g.connect(audioOut || c.destination); s.start();
-  }
-
-  // ------------------------------------------------------------------
-  // 5. HOLOGRAM — talking 3D Nexus. Tap it to talk.
-  // ------------------------------------------------------------------
-  function holo() {
-    var pts = [], NPTS = 260;
-    for (var i = 0; i < NPTS; i++) { // even points on a sphere
-      var y = 1 - (i / (NPTS - 1)) * 2, r = Math.sqrt(1 - y * y), th = i * 2.399963;
-      pts.push([Math.cos(th) * r, y, Math.sin(th) * r]);
-    }
-    var energy = 0, listening = false;
-    loop(function (now) {
-      var talk = window.Nexus.speaking ? (.35 + .65 * Math.abs(Math.sin(now * .018) * Math.sin(now * .007 + 1))) : 0;
-      energy += ((listening ? .5 : talk) - energy) * .3;
-      cx.fillStyle = '#00060c'; cx.fillRect(0, 0, W, H);
-      var cxp = W / 2, cyp = H * .46, R = Math.min(W, H) * (.28 + energy * .04);
-      var a = now * .0004, ca = Math.cos(a), sa = Math.sin(a), tilt = .35, ct = Math.cos(tilt), st = Math.sin(tilt);
-      // glow
-      var g = cx.createRadialGradient(cxp, cyp, 0, cxp, cyp, R * 1.6);
-      g.addColorStop(0, 'rgba(0,220,255,' + (.18 + energy * .3) + ')'); g.addColorStop(1, 'rgba(0,0,0,0)');
-      cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-      for (var i = 0; i < NPTS; i++) {
-        var p = pts[i];
-        var wob = 1 + energy * .12 * Math.sin(now * .01 + i);
-        var x = p[0] * ca - p[2] * sa, z = p[0] * sa + p[2] * ca, y = p[1];
-        var y2 = y * ct - z * st, z2 = y * st + z * ct;
-        var depth = (z2 + 1.4) / 2.4;
-        cx.fillStyle = 'rgba(' + (120 + 135 * energy | 0) + ',240,255,' + (.25 + depth * .75) + ')';
-        var sz = (1 + depth * 2) * (S * 2);
-        cx.fillRect(cxp + x * R * wob - sz / 2, cyp + y2 * R * wob - sz / 2, sz, sz);
-      }
-      // voice wave "mouth"
-      cx.beginPath();
-      for (var k = 0; k <= 60; k++) {
-        var u = k / 60, xx = cxp - R * .9 + u * R * 1.8;
-        var yy = cyp + R * 1.35 + Math.sin(u * 18 + now * .02) * Math.sin(u * Math.PI) * (2 + energy * H * .06);
-        if (k) cx.lineTo(xx, yy); else cx.moveTo(xx, yy);
-      }
-      cx.strokeStyle = 'rgba(61,255,154,' + (.4 + energy * .6) + ')'; cx.lineWidth = Math.max(1, 2 * S * 2); cx.stroke();
-      // scanlines
-      cx.fillStyle = 'rgba(0,0,0,.18)';
-      for (var s2 = (now / 40 | 0) % 4; s2 < H; s2 += 4) cx.fillRect(0, s2, W, 1);
-    }, 30);
-
-    text('xpTop', 'HOLOGRAPHIC INTERFACE · ' + (N.egoTitle ? N.egoTitle() : 'NEXUS'));
-    text('xpBottom', 'TAP THE HOLOGRAM TO TALK');
-    if (N.sayEgo) N.sayEgo('holo', true); else N.say('Hologram projection online. I am Nexus. Tap me, and talk to me.');
-    var busy = false;
-    layer.onclick = function () {
-      if (busy) return; busy = true;
-      N.stopTalking();
-      listening = true; text('xpBottom', 'LISTENING…');
-      N.listen().then(function (res) {
-        listening = false;
-        if (typeof res !== 'string' || !res.trim()) { busy = false; N.resumeAfterTalk(); text('xpBottom', 'DIDN\'T CATCH THAT · TAP TO TRY AGAIN'); return; }
-        text('xpBottom', '“' + N.esc(res) + '”');
-        return N.handleSpeech(res).then(function () { busy = false; N.resumeAfterTalk(); text('xpBottom', 'TAP THE HOLOGRAM TO TALK'); },
-          function () { busy = false; N.resumeAfterTalk(); });
-      });
-    };
   }
 
   // ------------------------------------------------------------------
