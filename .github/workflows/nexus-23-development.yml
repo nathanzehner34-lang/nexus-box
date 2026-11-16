@@ -57,15 +57,21 @@ jobs:
           path: ~/nexus-signing/nexus.keystore
           key: nexus-signing-key-v2
 
-      - name: Add the configured AI key
-        env:
-          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+      - name: Keep API credentials out of the public APK
         run: |
-          if [ -n "$GEMINI_KEY" ]; then
-            printf 'window.NEXUS_DEFAULT_KEY = %s;\n' "$(printf '%s' "$GEMINI_KEY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" > app/src/main/assets/key.js
-          else
-            : > app/src/main/assets/key.js
-          fi
+          : > app/src/main/assets/key.js
+
+      - name: Set up Node.js for source checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check JavaScript and voice behavior
+        run: |
+          node --check app/src/main/assets/app.js
+          node --check app/src/main/assets/experiences.js
+          node tools/voice-test/test.js
+          node tools/voice-test/smalltalk.test.js
 
       - name: Build debug APK
         run: |
@@ -87,10 +93,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp app/build/outputs/apk/nexus23/app-nexus23.apk nexus23.apk
+          sha256sum nexus23.apk > nexus23.apk.sha256
           gh release delete nexus-23-dev --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || true
-          gh release create nexus-23-dev nexus23.apk -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          gh release create nexus-23-dev nexus23.apk nexus23.apk.sha256 -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --prerelease --latest=false --title "Nexus 23 test build" \
-            --notes "Test build of Nexus 23 (installs next to Nexus 22). Built from ${GITHUB_SHA::7}."
+            --notes "Test build of Nexus 23 (installs next to Nexus 22). Build version: ${GITHUB_RUN_NUMBER}. Commit: ${GITHUB_SHA}."
 
       - name: Show download instructions
         run: |
