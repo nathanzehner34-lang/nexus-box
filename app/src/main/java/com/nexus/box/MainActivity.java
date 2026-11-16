@@ -166,7 +166,15 @@ public class MainActivity extends Activity {
         hideSystemUi();
 
         startTts();
-        pool.execute(this::labels);
+        pool.execute(() -> {
+            List<String[]> installed = labels();
+            for (String[] app : installed) {
+                if ("com.spotify.music".equals(app[1])) {
+                    launchCache.put("Spotify,YouTube Music,Music", new String[]{app[1], app[2]});
+                    break;
+                }
+            }
+        });
         // passengers' phones connect to the box (song requests, photos, shout-outs, remote)
         ui.postDelayed(this::startPhones, 1500);
         // wake Spotify up quietly in the background so tapping it opens fast
@@ -700,6 +708,11 @@ public class MainActivity extends Activity {
     private android.media.browse.MediaBrowser spotifyWarm = null;
     private void warmSpotify() {
         try { getPackageManager().getPackageInfo("com.spotify.music", 0); } catch (Exception e) { return; }
+        if (spotifyWarm != null && (spotifyWarm.isConnected() || spotifyWarm.isConnecting())) {
+            ui.removeCallbacks(spotifyRewarm);
+            ui.postDelayed(spotifyRewarm, 8 * 60 * 1000L);
+            return;
+        }
         try {
             if (spotifyWarm != null) { try { spotifyWarm.disconnect(); } catch (Exception ignored) {} spotifyWarm = null; }
             final android.media.browse.MediaBrowser[] holder = new android.media.browse.MediaBrowser[1];

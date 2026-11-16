@@ -655,6 +655,12 @@
       if (q.say) return egoSaying() || null;
       var a = q.a && q.a[egoName]; return a && a.length ? freshPick(a) : null;
     }
+    // A few common presence checks have no dedicated row; answer them with the existing saved greeting set.
+    if (/^(are you there|you there|are you around|you around|you awake)( nexus| buddy| man| bud)?$/.test(n)) {
+      var greet = SAY.qa.filter(function (q) { return q.id === 'greet'; })[0];
+      var greeting = greet && greet.a && greet.a[egoName];
+      return greeting && greeting.length ? freshPick(greeting) : egoSaying() || null;
+    }
     return null;
   }
   function tod() { var h = L().h; return h >= 4 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening'; }
@@ -1067,7 +1073,7 @@
   var SILENCE_CHOICES = [1.5, 2, 2.5, 3];
   function silenceMs() { var v = parseFloat(pref('silence_s')); return SILENCE_CHOICES.indexOf(v) >= 0 ? v * 1000 : 2000; }
   function wakeOn() { return pref('wake') === '1'; }
-  var FOLLOW_UP_MS = 25000, WAKE_WAIT_MS = 6000, TAP_WAIT_MS = 5000, MAX_TALK_MS = 20000;
+  var FOLLOW_UP_MS = 25000, WAKE_WAIT_MS = 6000, TAP_WAIT_MS = 1800, MAX_TALK_MS = 20000;
   var WAKE_RE = /\b(?:hey|hi|okay|ok)[\s,]+(?:nexus|nexis|nexxus|nexes|next us)\b[\s,.!?]*/i;
   function stripWake(t) { t = String(t || ''); var m = WAKE_RE.exec(t); return (m ? t.slice(m.index + m[0].length) : t).trim(); }
 
@@ -1262,6 +1268,11 @@
         wakeSchedule();
         if (code === 'cancelled' || code === 'replaced') return;
         if (follow) { caption('TAP THE ORB TO TALK TO NEXUS'); return; }
+        if (code === '6' || code === '7') {
+          var promptLine = egoSaying() || (EGOS[egoName] && EGOS[egoName].intro) || 'I am here. Go ahead.';
+          caption(clip(promptLine));
+          return sayLine(promptLine);
+        }
         if (code === 'unavailable') { caption('VOICE INPUT NOT AVAILABLE ON THIS BOX'); return say('Voice recognition isn\'t available on this box yet.'); }
         if (code === '9') { caption('MICROPHONE PERMISSION NEEDED'); return say('I need microphone permission. Allow it in the Android settings for Nexus.'); }
         caption('DIDN\'T CATCH THAT · TAP TO TRY AGAIN');
@@ -1426,7 +1437,8 @@
 
   function launchNamed(key) {
     var a = APPS[key];
-    launchSplash(a.label);
+    if (key === 'music') caption('OPENING SPOTIFY');
+    else launchSplash(a.label);
     var ok = A ? A.launchApp(a.names) : false;
     if (!ok) { if ($('launching')) $('launching').classList.remove('on'); caption(a.label.toUpperCase() + ' IS NOT INSTALLED'); say(a.missing || (a.label + ' isn\'t installed on this box.')); return; }
     caption('OPENING ' + a.label.toUpperCase());
@@ -1434,11 +1446,11 @@
   function launchSplash(label) {
     var o = $('launching'); if (!o) { o = document.createElement('div'); o.id = 'launching'; document.body.appendChild(o); }
     o.innerHTML = '<div class="spin"></div><div>OPENING ' + esc(label.toUpperCase()) + '</div>'; o.classList.add('on');
-    clearTimeout(o.t); o.t = setTimeout(function () { o.classList.remove('on'); }, 7000);
+    clearTimeout(o.t); o.t = setTimeout(function () { o.classList.remove('on'); }, 1800);
   }
 
   function act(name) {
-    if (booting) return;
+    if (booting && name !== 'settings') return;
     if (P.on && name !== 'party') exitParty(true);    // leaving Party for anything else switches it fully off
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
@@ -2350,11 +2362,9 @@
   }
 
   // ---- Settings
+  var settingsLoadGeneration = 0;
   function openSettings() {
-    var voices = [], cur = '';
-    try { voices = A ? JSON.parse(A.getVoices()) : []; cur = A ? A.currentVoice() : ''; } catch (e) {}
-    var homes = [];
-    try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
+    var voices = [], cur = '', homes = [], settingsLoadId = ++settingsLoadGeneration;
     var savedMemories = memories();
     var memoryRows = savedMemories.map(function (m, i) { return '<div class="hrow"><span class="hlb">' + esc(m.text) + '</span><span class="btn sm" data-memory-index="' + i + '">FORGET</span></div>'; }).join('');
     var html =
@@ -2370,7 +2380,7 @@
       '<span class="btn go" id="sCitySave">SAVE CITY</span><div id="sCityMsg" class="hint"></div></div>' +
 
       '<div class="field"><label>NEXUS VOICE</label><select id="sVoice">' +
-      (voices.length ? voices.map(function (v) { return '<option' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') : '<option>Default</option>') +
+      '<option value="">Loading voices…</option>' +
       '</select><div class="hint">Tip: names with "x-rjs", "x-gbd" or "x-iom" are usually deeper male voices. More voices: Android Settings → Languages → Text-to-speech → Google → Install voice data.</div>' +
       '<label style="margin-top:2vmin">SPEED</label><input type="range" id="sRate" min="0.6" max="1.4" step="0.05" value="' + (pref('rate') || '0.95') + '">' +
       '<label>PITCH</label><input type="range" id="sPitch" min="0.6" max="1.4" step="0.05" value="' + (pref('pitch') || '0.9') + '">' +
@@ -2392,7 +2402,7 @@
       '<span class="btn" id="sForget">CLEAR SAVED FACTS</span><span class="btn" id="sForgetChat">CLEAR CHAT HISTORY</span></div>' +
       '<div class="field"><label>HOME SCREEN</label>' +
       '<span class="btn" id="sHomeChoose">SET NEXUS AS DEFAULT HOME</span>' +
-      homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
+      '<span class="hint" id="sOtherHomes">Loading home screens…</span>' +
       '<div class="hint">Use the "Open …" buttons to get back to the box\'s original home screen any time.</div></div>' +
 
       '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
@@ -2408,6 +2418,36 @@
       '<span class="btn" id="sReplay">REPLAY STARTUP</span><span class="btn" id="sAndroid">ANDROID SETTINGS</span>' +
       '<div class="hint">Nexus version ' + esc(A ? A.version() : 'preview') + '</div></div>';
     openPanel('SETTINGS', html);
+    // Paint the panel before making synchronous Android voice and PackageManager lookups.
+    setTimeout(function () {
+      if (settingsLoadId !== settingsLoadGeneration || $('panel').classList.contains('hidden')) return;
+      try {
+        voices = A ? JSON.parse(A.getVoices()) : [];
+        cur = A ? A.currentVoice() : '';
+        var voiceSelect = $('sVoice');
+        if (voiceSelect) voiceSelect.innerHTML = voices.length
+          ? voices.map(function (v) { return '<option' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('')
+          : '<option>Default</option>';
+      } catch (e) {
+        var voiceSelectFallback = $('sVoice');
+        if (voiceSelectFallback) voiceSelectFallback.innerHTML = '<option>Default</option>';
+      }
+    }, 900);
+    setTimeout(function () {
+      if (settingsLoadId !== settingsLoadGeneration || $('panel').classList.contains('hidden')) return;
+      var homeSlot = $('sOtherHomes');
+      if (!homeSlot) return;
+      try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) { homes = []; }
+      homeSlot.innerHTML = homes.length
+        ? homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('')
+        : '<span class="hint">No other home screens found.</span>';
+      Array.prototype.forEach.call(homeSlot.querySelectorAll('[data-home]'), function (el) {
+        el.addEventListener('click', function () {
+          var h = homes[Number(el.getAttribute('data-home'))];
+          if (h && A) A.openOtherHome(h.pkg, h.cls);
+        });
+      });
+    }, 1200);
 
     $('sHome').addEventListener('click', function () { openHomeEditor(); });
     var updateInfo = null;
@@ -2486,9 +2526,6 @@
     $('sPitch').addEventListener('change', tune);
     $('sVoiceTest').addEventListener('click', function () { tune(); setTimeout(function () { say('Good morning, Nathan. I am Nexus, your personal assistant. How may I assist you?'); }, 300); });
     $('sHomeChoose').addEventListener('click', function () { if (A) A.openHomeChooser(); });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
-      el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
-    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-bg]'), function (el) {
       el.addEventListener('click', function () { bgName = el.getAttribute('data-bg'); setPref('background', bgName); applyBackground(); openSettings(); });
     });
