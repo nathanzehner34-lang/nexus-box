@@ -1,4 +1,4 @@
-name: Nexus 23 Development APK
+name: Build Nexus 23 APK
 
 on:
   workflow_dispatch:
@@ -6,69 +6,81 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: nexus23-apk-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
-    name: Build downloadable development APK
+    name: Build and upload APK
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/nexus-23'
     steps:
       - name: Check out selected branch
         uses: actions/checkout@v5
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Restore Nexus signing key
+      # Reuse the signing key used by the existing Nexus build so test APKs
+      # remain installable as updates to the same app on the test device.
+      - name: Restore the Nexus signing key
         id: keycache
         uses: actions/cache/restore@v4
         with:
           path: ~/nexus-signing/nexus.keystore
           key: nexus-signing-key-v2
 
-      - name: Create signing key if needed
+      - name: Create a signing key if none is cached
         if: steps.keycache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/nexus-signing
-          keytool -genkeypair -keystore ~/nexus-signing/nexus.keystore -alias androiddebugkey \
+          mkdir -p "$HOME/nexus-signing"
+          keytool -genkeypair -keystore "$HOME/nexus-signing/nexus.keystore" -alias androiddebugkey \
             -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 20000 \
             -dname "CN=Nexus Box, O=Nexus, C=CA"
 
-      - name: Save signing key for future builds
+      - name: Save a newly created signing key
         if: steps.keycache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/nexus-signing/nexus.keystore
           key: nexus-signing-key-v2
 
-      - name: Add AI key
+      - name: Add the configured AI key
         env:
           GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
         run: |
           if [ -n "$GEMINI_KEY" ]; then
             printf 'window.NEXUS_DEFAULT_KEY = %s;\n' "$(printf '%s' "$GEMINI_KEY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" > app/src/main/assets/key.js
           else
-            echo '' > app/src/main/assets/key.js
+            : > app/src/main/assets/key.js
           fi
 
-      - name: Build APK
+      - name: Build debug APK
         run: |
           export NEXUS_KEYSTORE="$HOME/nexus-signing/nexus.keystore"
-          gradle assembleDebug --no-daemon --stacktrace
+          gradle assembleNexus23 --no-daemon --stacktrace
 
-      - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk nexus-23-development.apk
-
-      - name: Upload downloadable APK
+      - name: Upload APK for testing
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-23-development-apk
-          path: nexus-23-development.apk
+          name: nexus23-apk
+          path: app/build/outputs/apk/nexus23/app-nexus23.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Show download instructions
+        run: |
+          {
+            echo '## Nexus 23 APK is ready'
+            echo 'Download the **nexus23-apk** artifact from the run summary. The artifact contains `app-nexus23.apk` and expires after 30 days.'
+            echo 'This workflow uploads an Actions artifact only. It does not create, delete, or modify a GitHub release.'
+          } >> "$GITHUB_STEP_SUMMARY"

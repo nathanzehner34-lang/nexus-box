@@ -10,6 +10,13 @@
   // ------------------------------------------------------------------
   var Nexus = window.Nexus = {};
   var speakWaiters = {}, httpWaiters = {}, seq = 0;
+  var audioBuses = [];
+  Nexus.registerAudioBus = function (bus) { audioBuses.push(bus); if (Nexus.speaking) Nexus._duckEffects(true); return bus; };
+  Nexus._duckEffects = function (on) {
+    audioBuses.forEach(function (bus) {
+      try { bus.gain.cancelScheduledValues(bus.context.currentTime); bus.gain.setTargetAtTime(on ? 0.035 : 0.32, bus.context.currentTime, 0.04); } catch (e) {}
+    });
+  };
 
 
   // ---- Real local time. The box's own clock/timezone can be wrong, so once we know where we are,
@@ -41,15 +48,17 @@
       holdMusic();
       var fallback = setTimeout(function () { done(); }, 2500 + text.length * 90);
       var finished = false;
-      function done() { if (finished) return; finished = true; clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; releaseMusic(); resolve(); }
+      function done() { if (finished) return; finished = true; clearTimeout(fallback); delete speakWaiters[id]; setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; Nexus._duckEffects(Nexus.speaking); releaseMusic(); resolve(); }
       speakWaiters[id] = done;
       setOrb('speaking', true);
       Nexus.speaking = true;
+      Nexus._duckEffects(true);
       var eg = (typeof EGOS !== 'undefined' && EGOS[egoName]) || {};
       if (!opts.rate && !opts.pitch && eg.rate) { opts.rate = eg.rate; opts.pitch = eg.pitch; }
       if (A) {
-        if (eg.voiceHint && A.speakAs) A.speakAs(text, id, opts.rate || eg.rate || 0, opts.pitch || eg.pitch || 0, eg.voiceHint);
+        if (opts.line && eg.voiceHint && A.speakPersonaLine) A.speakPersonaLine(text, id, opts.rate || eg.rate || 0, opts.pitch || eg.pitch || 0, !!opts.flush, eg.voiceHint);
         else if (opts.line && A.speakLine) A.speakLine(text, id, opts.rate || 0, opts.pitch || 0, !!opts.flush);
+        else if (eg.voiceHint && A.speakAs) A.speakAs(text, id, opts.rate || eg.rate || 0, opts.pitch || eg.pitch || 0, eg.voiceHint);
         else if (opts.rate || opts.pitch) A.speakWith(text, id, opts.rate || .95, opts.pitch || .9); else A.speak(text, id);
       }
       else if (window.speechSynthesis) {
@@ -58,12 +67,13 @@
       } else { done(); }
     });
   }
-  function stopTalking() {
+  function stopTalking(cancelAI) {
+    if (cancelAI !== false) try { if (Nexus.cancelAI) Nexus.cancelAI(); } catch (e) {}
     try { if (A) A.stopSpeaking(); else if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
     Object.keys(speakWaiters).forEach(function (k) { speakWaiters[k](); });
   }
-  Nexus._speakStart = function () {};
-  Nexus._spoken = function (id) { if (speakWaiters[id]) speakWaiters[id](); };
+  Nexus._speakStart = function () { Nexus._duckEffects(true); };
+  Nexus._spoken = function (id) { if (speakWaiters[id]) speakWaiters[id](); else Nexus._duckEffects(!!Nexus.speaking); };
 
   var lastTouchAt = Date.now();
   function http(method, url, body, headers) {
@@ -661,16 +671,18 @@
     var e = EGOS[egoName], r = e.rate || 0, p = e.pitch || 0, list = [];
     ['Good morning', 'Good afternoon', 'Good evening'].forEach(function (g, i) {
       var t = egoLine('greet', g);
-      setPref('greet_' + ['morning', 'afternoon', 'evening'][i], t + '\u0001' + r + '\u0001' + p);
-      list.push([t, r, p]);
+      setPref('greet_' + ['morning', 'afternoon', 'evening'][i], t + '\u0001' + r + '\u0001' + p + '\u0001' + (e.voiceHint || ''));
+      list.push([t, r, p, e.voiceHint || '']);
     });
-    var bye = egoLine('bye'); setPref('bye', bye + '\u0001' + r + '\u0001' + p); list.push([bye, r, p]);
+    var phrases = PREFACE_LINES[egoName] || PREFACE_LINES.nexus;
+    Object.keys(phrases).forEach(function (kind) { phrases[kind].forEach(function (t) { list.push([t, r, p, e.voiceHint || '']); }); });
+    var bye = egoLine('bye'); setPref('bye', bye + '\u0001' + r + '\u0001' + p + '\u0001' + (e.voiceHint || '')); list.push([bye, r, p, e.voiceHint || '']);
     var pack = EGO_LINES[egoName] || {};
     ['holo', 'partyIn', 'partyOut', 'hype', 'shout', 'show'].forEach(function (k) {
       var v = pack[k] !== undefined ? pack[k] : NEXUS_LINES[k];
-      (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, r, p]); });
+      (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, r, p, e.voiceHint || '']); });
     });
-    Object.keys(EGOS).forEach(function (k) { var x = EGOS[k]; list.push([x.intro, x.rate || 0, x.pitch || 0]); });
+    Object.keys(EGOS).forEach(function (k) { var x = EGOS[k]; list.push([x.intro, x.rate || 0, x.pitch || 0, x.voiceHint || '']); });
     try { if (A && A.precache) A.precache(JSON.stringify(list)); } catch (er) {}
   }
   function persona() { var e = EGOS[egoName]; return (e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA) + ' LEVEL=' + egoLevel + '. Reply in plain text, under 30 words.'; }
@@ -688,7 +700,7 @@
   }
   function setEgo(k) {
     stopTalking();
-    egoName = k; setPref('ego', k); chatHistory = []; egoLevel = 1;
+    egoName = k; setPref('ego', k); egoLevel = 1;
     sayLine(EGOS[k].intro, true);          // talks the instant you tap
     applyEgo(true);
     caption(EGOS[k].name === 'NEXUS' ? 'NEXUS' : EGOS[k].name + ' MODE');
@@ -708,8 +720,8 @@
     });
   }
 
-  var MODELS = ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
-  var SMART_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+  var MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+  var SMART_MODELS = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite'];
 
   function aiKey() { return (pref('gemini_key') || window.NEXUS_DEFAULT_KEY || '').trim(); }
 
@@ -757,6 +769,8 @@
   }
   // ---- INSTANT ANSWERS: stream the AI reply and start talking the moment the first sentence arrives ----
   var streams = {};
+  var activeStreamCancel = null;
+  Nexus.cancelAI = function () { if (activeStreamCancel) activeStreamCancel(); };
   Nexus._streamChunk = function (id, data) { var s = streams[id]; if (!s) return; try { var j = JSON.parse(data); var parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || []; parts.forEach(function (p) { if (p.text && !p.thought) s.onText(p.text); }); } catch (e) {} };
   Nexus._streamEnd = function (id, status, text) { var s = streams[id]; if (!s) return; delete streams[id]; s.onEnd(status, text); };
   Nexus._voiceFixed = function () { caption('SWITCHED TO A WORKING VOICE'); };
@@ -774,10 +788,14 @@
     var known = (pref('model_fast_ok') || '').trim(), custom = (pref('model') || '').trim();
     var models = (custom ? [custom] : []).concat(known ? [known] : []).concat(MODELS).filter(function (m, i, a) { return a.indexOf(m) === i; });
     return new Promise(function (resolve, reject) {
-      var full = '', buf = '', raw = '', shown = 0, pending = 0, ended = false, settled = false, first = null;
+      var full = '', buf = '', raw = '', shown = 0, pending = 0, ended = false, settled = false, first = null, currentId = null, transportOpen = false;
       holdMusic(); setOrb('speaking', true); Nexus.speaking = true;
-      function finish() { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; resolve(full.trim()); }
-      function fail(e) { if (settled) return; settled = true; clearTimeout(first); releaseMusic(); setOrb('speaking', false); Nexus.speaking = false; reject(e); }
+      function clearActive() { if (activeStreamCancel === cancelCurrent) activeStreamCancel = null; }
+      function abortTransport(id) { delete streams[id]; try { if (A && A.cancelHttpStream) A.cancelHttpStream(id); } catch (e) {} }
+      function finish() { if (settled) return; settled = true; clearActive(); clearTimeout(first); releaseMusic(); setOrb('thinking', false); setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; Nexus._duckEffects(Nexus.speaking); resolve(full.trim()); }
+      function fail(e) { if (settled) return; settled = true; clearActive(); clearTimeout(first); if (currentId && transportOpen) abortTransport(currentId); transportOpen = false; releaseMusic(); setOrb('thinking', false); setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; Nexus._duckEffects(Nexus.speaking); reject(e); }
+      function cancelCurrent() { if (settled) return; settled = true; clearActive(); clearTimeout(first); if (currentId && transportOpen) abortTransport(currentId); transportOpen = false; releaseMusic(); setOrb('thinking', false); setOrb('speaking', false); Nexus.speaking = Object.keys(speakWaiters).length > 0; Nexus._duckEffects(Nexus.speaking); reject(new Error('cancelled')); }
+      activeStreamCancel = cancelCurrent;
       function speakPart(txt) {
         txt = txt.replace(/[*#_`]/g, '').trim(); if (!txt) return;
         if (aiClock.start) { showSpeed(performance.now() - aiClock.start); aiClock.start = 0; }
@@ -789,20 +807,35 @@
         var m, re = /^([\s\S]*?[.!?…]+["')\]]*)(\s+|$)/;
         while ((m = re.exec(buf)) && (m[1].length > 4 || force)) { speakPart(m[1]); buf = buf.slice(m[0].length); }
         if (!full.length || pending) { /* keep waiting */ }
-        if (!force && pending === 0 && buf.length > 38) { var c = buf.search(/[,;:—]\s/); if (c > 16) { speakPart(buf.slice(0, c + 1)); buf = buf.slice(c + 2); } }
+        if (!force && buf.length >= 48) {
+          var c = buf.search(/[,;:—]\s/);
+          if (c < 24 || c > 72) c = buf.lastIndexOf(' ', 68);
+          if (c >= 28) { speakPart(buf.slice(0, c + 1)); buf = buf.slice(c + 1).replace(/^\s+/, ''); }
+        }
         if (force && buf.trim()) { speakPart(buf); buf = ''; }
       }
       function attempt(i) {
         if (i >= models.length) { fail(new Error('models')); return; }
         var model = models[i], id = 'st' + (++seq);
+        currentId = id; transportOpen = true;
+        var generationConfig = { maxOutputTokens: opts.maxTokens || 300 };
+        if (/^gemini-3\./.test(model)) {
+          // Gemini 3 models expose reasoning effort as a level; low keeps routine
+          // voice replies responsive without relying on the legacy token budget.
+          // Flash-Lite can think at 'minimal' (fastest); 3.8 Flash only goes down to 'low'.
+          generationConfig.thinkingConfig = { thinkingLevel: /flash-lite/.test(model) ? 'minimal' : 'low' };
+        } else {
+          generationConfig.temperature = opts.temperature || 1;
+          if (/^gemini-2\.5/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+        }
         var body = { system_instruction: { parts: [{ text: system }] }, contents: contents,
-          generationConfig: { temperature: opts.temperature || 1, maxOutputTokens: opts.maxTokens || 300 } };
-        if (/3\.|2\.5|latest/.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+          generationConfig: generationConfig };
         clearTimeout(first);
         // if nothing at all comes back quickly, don't leave Nathan hanging
-        first = setTimeout(function () { if (!raw && !settled) { delete streams[id]; var e = new Error('network'); e.detail = 'timeout'; fail(e); } }, 9000);
+        first = setTimeout(function () { if (!raw && !settled) { var e = new Error('network'); e.detail = 'timeout'; fail(e); } }, 9000);
         streams[id] = {
           onText: function (txt) {
+            if (!raw && prefaceActive) stopTalking(false);
             if (!raw) clearTimeout(first); if (model !== known) { setPref('model_fast_ok', model); known = model; }
             raw += txt;
             var vis = raw.replace(/\[\[[\s\S]*?\]\]/g, ''), cut = vis.indexOf('[['); if (cut >= 0) vis = vis.slice(0, cut); else if (/\[$/.test(vis)) vis = vis.slice(0, -1);
@@ -810,6 +843,7 @@
             var add = vis.slice(shown); shown = vis.length; full += add; buf += add; caption(clip(full)); setOrb('thinking', false); flush(false);
           },
           onEnd: function (status, text) {
+            transportOpen = false;
             if (settled) return;
             if (status !== 200 && !raw) {
               if (status === 404 || (status === 400 && !/API key|credential|auth/i.test(text))) { attempt(i + 1); return; }
@@ -821,18 +855,17 @@
             if (pending === 0) finish();
           }
         };
-        A.httpStream(id, 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?alt=sse', JSON.stringify(body),
-          JSON.stringify({ 'Content-Type': 'application/json', 'x-goog-api-key': key }));
+        try {
+          A.httpStream(id, 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':streamGenerateContent?alt=sse', JSON.stringify(body),
+            JSON.stringify({ 'Content-Type': 'application/json', 'x-goog-api-key': key }));
+        } catch (e) { fail(e); }
       }
       attempt(0);
     });
   }
   function clip(s) { s = String(s || ''); return s.length > 140 ? s.slice(0, 137) + '…' : s; }
 
-  // Warm up the line to Google right after start so the first answer isn't slow.
   var aiClock = { start: 0 };
-  function warmAI() { var k = aiKey(); if (!k) return; http('GET', 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', null, { 'x-goog-api-key': k }).catch(function () {}); }
-  setTimeout(warmAI, 2500); setInterval(warmAI, 4 * 60 * 1000);
 
   function aiErrorLine(e) {
     var m = e && e.message;
@@ -870,27 +903,99 @@
   // ------------------------------------------------------------------
   // Assistant: orb, listening, commands, chat
   // ------------------------------------------------------------------
-  var chatHistory = [];
-  // NEXUS REMEMBERS YOU: small notes kept on the box and handed to the AI every time.
-  function memories() { try { return JSON.parse(pref('memory') || '[]'); } catch (e) { return []; } }
-  function remember(fact) {
-    fact = String(fact || '').replace(/[\[\]]/g, '').trim(); if (fact.length < 3 || fact.length > 140) return;
-    var m = memories().filter(function (x) { return x.toLowerCase() !== fact.toLowerCase(); }); m.push(fact); setPref('memory', JSON.stringify(m.slice(-30)));
+  function loadChatHistory() {
+    try {
+      var h = JSON.parse(pref('chat_history') || '[]');
+      if (!Array.isArray(h)) return [];
+      return h.filter(function (m) { return m && (m.role === 'user' || m.role === 'model') && Array.isArray(m.parts) && m.parts[0] && typeof m.parts[0].text === 'string'; }).slice(-12);
+    } catch (e) { return []; }
   }
-  function memoryPrompt() {
-    var m = memories();
-    return (m.length ? ' Things you remember about Nathan from earlier conversations (use them naturally, do not list them unless asked): ' + m.join('; ') + '.' : '') +
-      ' If Nathan tells you a lasting fact about himself, his truck, his people or what he likes, add [[remember: the fact in a few words]] at the very end of your reply. Never say or mention that tag.';
+  var chatHistory = loadChatHistory(), chatBusy = false;
+  function saveChatHistory() { setPref('chat_history', JSON.stringify(chatHistory.slice(-12))); }
+
+  // Versioned, on-device memory. Migrate the previous string-array format in place.
+  function memories() {
+    try {
+      var raw = JSON.parse(pref('memory') || '[]');
+      var list = Array.isArray(raw) ? raw.map(function (x) { return typeof x === 'string' ? { text: x, kind: 'general', updatedAt: 0 } : x; }) : (raw && raw.version === 2 && Array.isArray(raw.items) ? raw.items : []);
+      return list.filter(function (x) { return x && typeof x.text === 'string' && x.text.trim(); }).slice(-40);
+    } catch (e) { return []; }
+  }
+  function saveMemories(list) { setPref('memory', JSON.stringify({ version: 2, updatedAt: Date.now(), items: list.slice(-40) })); }
+  function memoryKind(fact) {
+    if (/\b(prefer|like|love|hate|always|usually|favorite|favourite)\b/i.test(fact)) return 'preference';
+    if (/\b(project|building|working on|goal|plan|develop|nexus)\b/i.test(fact)) return 'project';
+    if (/\b(truck|vehicle|box|engine|tire|tyre|stereo)\b/i.test(fact)) return 'vehicle';
+    return 'general';
+  }
+  function remember(fact, kind) {
+    fact = String(fact || '').replace(/[\[\]]/g, '').trim(); if (fact.length < 3 || fact.length > 180) return false;
+    var key = fact.toLowerCase(), m = memories().filter(function (x) { return x.text.toLowerCase() !== key; });
+    m.push({ text: fact, kind: kind || memoryKind(fact), updatedAt: Date.now() }); saveMemories(m); return true;
+  }
+  function forgetMemory(term) {
+    var key = String(term || '').trim().toLowerCase(); if (!key) return false;
+    var m = memories(), next = m.filter(function (x) { return x.text.toLowerCase().indexOf(key) < 0; });
+    if (next.length === m.length) return false;
+    saveMemories(next); return true;
+  }
+  function correctMemory(oldFact, newFact) {
+    var oldKey = String(oldFact || '').trim().toLowerCase(), nextFact = String(newFact || '').trim();
+    if (nextFact.length < 3 || nextFact.length > 180) return false;
+    var m = memories(), i = m.findIndex(function (x) { return x.text.toLowerCase().indexOf(oldKey) >= 0; });
+    if (i >= 0) m.splice(i, 1);
+    m.push({ text: nextFact, kind: memoryKind(nextFact), updatedAt: Date.now() }); saveMemories(m); return true;
+  }
+  function memoryPrompt(query) {
+    var m = memories(), terms = String(query || '').toLowerCase().match(/[a-z0-9]{4,}/g) || [];
+    var ranked = m.map(function (x, i) {
+      var text = x.text.toLowerCase(), score = (x.kind === 'preference' || x.kind === 'project' ? 2 : 0);
+      terms.forEach(function (t) { if (text.indexOf(t) >= 0) score += 3; });
+      return { item: x, score: score, order: i };
+    }).sort(function (a, b) { return b.score - a.score || b.order - a.order; });
+    var selected = ranked.slice(0, 10).map(function (x) { return x.item.text; }), joined = '';
+    for (var i = 0; i < selected.length; i++) { var next = joined ? joined + '; ' + selected[i] : selected[i]; if (next.length > 1200) break; joined = next; }
+    return (joined ? ' Things you remember about Nathan from earlier conversations (use only relevant facts naturally): ' + joined + '.' : '') +
+      ' If Nathan tells you a lasting preference, personal fact, vehicle detail or project update, add [[remember: a concise corrected fact]] at the very end of your reply. Never say or mention that tag.';
+  }
+
+  var PREFACE_LINES = {
+    nexus: { general: ['I have the useful details.', 'Let me get to the point.'], technical: ['I am checking the moving parts.', 'I have the technical thread.'], project: ['I am keeping the project in view.', 'I have the project context.'], personal: ['I am factoring in what you prefer.', 'I remember how you like it.'] },
+    king: { general: ['The court has an answer.', 'Attend; this is useful.'], technical: ['My engineers have examined it.', 'The royal systems are checking.'], project: ['The kingdom remembers the mission.', 'Your project has my attention.'], personal: ['Your preferences are noted, peasant.', 'The crown remembers your taste.'] },
+    ex: { general: ['Fine, I did think about it.', 'Okay, I have an answer.'], technical: ['I checked all the details, obviously.', 'I did the homework this time.'], project: ['I remember what you are building.', 'I have not forgotten the project.'], personal: ['I remembered what you like.', 'I listened. Unlike some people.'] },
+    conspiracy: { general: ['I found the suspiciously useful part.', 'The clues are lining up.'], technical: ['I checked the wires twice.', 'The numbers are acting strange.'], project: ['The project trail is still warm.', 'I kept the plan off the radar.'], personal: ['I remember. The toaster heard too.', 'Your preferences are in the dossier.'] },
+    mob_boss: { general: ['I have got the answer, boss.', 'Let me lay it out for you.'], technical: ['I checked every moving part.', 'The details are handled, boss.'], project: ['The project stays with the family.', 'I remember the business, boss.'], personal: ['I remember what you like, boss.', 'Your preferences are respected.'] },
+    rogue: { general: ['Analysis complete. Answer incoming.', 'I found the useful signal.'], technical: ['System trace is complete.', 'The diagnostics have a result.'], project: ['Project continuity restored.', 'Your plan remains in my cache.'], personal: ['Preference profile updated.', 'Your settings are remembered.'] },
+    cult: { general: ['The answer is taking shape.', 'I have been listening carefully.'], technical: ['The pattern is becoming clear.', 'The system has revealed its shape.'], project: ['The path is still before us.', 'I remember what we are building.'], personal: ['Your wishes are remembered, child.', 'I kept that close.'] }
+  };
+  function prephraseKind(text) {
+    if (/\b(project|working on|building|develop|plan|goal|nexus 2[23])\b/i.test(text)) return 'project';
+    if (/\b(prefer|like|love|hate|favorite|favourite|remember|forget|correct)\b/i.test(text)) return 'personal';
+    if (/\b(code|android|api|error|build|crash|network|audio|voice|volume|bug|performance|latency)\b/i.test(text)) return 'technical';
+    return 'general';
+  }
+  function prephrase(text) {
+    var pack = PREFACE_LINES[egoName] || PREFACE_LINES.nexus, choices = pack[prephraseKind(text)] || pack.general;
+    var recent = []; try { recent = JSON.parse(pref('preface_recent') || '[]'); } catch (e) {}
+    var options = choices.filter(function (x) { return recent.indexOf(egoName + '|' + x) < 0; });
+    if (!options.length) options = choices;
+    var line = pick(options); recent.push(egoName + '|' + line); setPref('preface_recent', JSON.stringify(recent.slice(-12)));
+    return line;
+  }
+  var prefaceActive = false;
+  function playPreface(text) {
+    prefaceActive = true;
+    return sayLine(text, false).then(function () { prefaceActive = false; }, function () { prefaceActive = false; });
   }
   // MOODS: Nexus isn't the same every day.
   var MOODS = ['fired up and energetic', 'chill and laid back', 'extra sarcastic', 'in a great mood, cracking jokes', 'focused and sharp', 'a bit dramatic today', 'feeling like a legend', 'playful and teasing'];
   function mood() { var d = L(), h = d.h; if (h >= 0 && h < 5) return 'tired, it is the middle of the night, a little grumpy about being awake';
     if (weatherNow && /snow|storm|freezing/i.test(weatherNow.desc)) return 'unimpressed with this weather';
     return MOODS[(new Date().getDate() * 7 + Math.floor(h / 6)) % MOODS.length]; }
-  function aiContext() {
+  function aiContext(query) {
     return persona() + ' Today is ' + dateStr() + ', ' + L().y + '. Local time: ' + timeStr() + '.' +
       (weatherNow ? ' Current weather in ' + weatherNow.city + ': ' + weatherNow.temp + ' degrees C, ' + weatherNow.desc + '.' : '') +
-      ' Your mood right now: ' + mood() + ' (let it colour how you talk, a little).' + memoryPrompt();
+      ' Your mood right now: ' + mood() + ' (let it colour how you talk, a little).' + memoryPrompt(query);
   }
   var orbBusy = false;
   function setOrb(state, on) { var w = $('orbWrap'); if (w) w.classList.toggle(state, !!on); }
@@ -899,10 +1004,16 @@
   function chime(up) {
     try {
       var c = window.__ac = window.__ac || new (window.AudioContext || window.webkitAudioContext)();
+      var out = window.__acOut;
+      if (!out) {
+        var master = c.createGain(), comp = c.createDynamicsCompressor();
+        master.gain.value = 0.32; comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.18;
+        master.connect(comp); comp.connect(c.destination); out = window.__acOut = Nexus.registerAudioBus(master);
+      }
       var o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
       o.type = 'sine'; o.frequency.setValueAtTime(up ? 880 : 660, t); o.frequency.exponentialRampToValueAtTime(up ? 1320 : 440, t + .12);
-      g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.0001, t + .18);
-      o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .2);
+      g.gain.setValueAtTime(.07, t); g.gain.exponentialRampToValueAtTime(.0001, t + .18);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + .2);
     } catch (e) {}
   }
   Nexus._listening = function (on) { setOrb('listening', on); if (on) { caption('LISTENING…'); chime(true); } else chime(false); };
@@ -936,7 +1047,6 @@
       heardResolve = resolve;
       lsClear();
       LS = { began: false, partial: '', finishing: false };
-      warmAI();   // open the line to Google while you're still talking
       aiClock.start = 0;
       LS.noSpeech = setTimeout(function () { if (LS && !LS.began) { try { if (A) A.stopListening(); } catch (e) {} Nexus._heardError('6'); } }, 5000);
       LS.cap = setTimeout(lsFinish, 10000);
@@ -1013,8 +1123,12 @@
     var t = raw.toLowerCase().replace(/^(hey |ok |okay )?nexus[, ]*/, '').trim();
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
     if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
-    if (/^(forget everything|clear (your )?memory|wipe (your )?memory)/.test(t)) { setPref('memory', '[]'); caption('MEMORY CLEARED'); return say('Done. I\'ve wiped everything I remembered about you.'); }
-    var rm = /^remember (that )?(.{4,140})$/.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
+    if (/^(forget everything|clear (your )?memory|wipe (your )?memory)/.test(t)) { saveMemories([]); chatHistory = []; saveChatHistory(); caption('MEMORY CLEARED'); return say('Done. I\'ve cleared remembered facts and conversation history.'); }
+    var cm = /^(?:correct|update) (?:my )?memory:?\s+(.{3,140}?)\s+(?:->|to)\s+(.{3,180})$/i.exec(t);
+    if (cm) { correctMemory(cm[1], cm[2]); caption('MEMORY UPDATED'); return say('Updated. I\'ll use that version from now on.'); }
+    var fm = /^forget (?:that )?(.{3,180})$/i.exec(t);
+    if (fm) { var removed = forgetMemory(fm[1]); caption(removed ? 'MEMORY UPDATED' : 'NO MATCHING MEMORY'); return say(removed ? 'Forgotten.' : 'I could not find that exact memory.'); }
+    var rm = /^remember (that )?(.{4,180})$/i.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
     if (/open the vault/.test(t)) { setPref('vault', '1'); caption('🔓 SECRET UNLOCKED · GOLD STYLE'); return say('Vault open. You just unlocked the gold home screen. Find it in Backgrounds.'); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
       if (MUSIC_CMDS[mi][0].test(t)) { var mcmd = MUSIC_CMDS[mi][1]; caption(MUSIC_CMDS[mi][2].toUpperCase()); if (mcmd === 'next') { egoLevel = Math.min(5, egoLevel + 1); sayLine(skipQuip()); } setTimeout(function () { music(mcmd); }, 600); return Promise.resolve(); }
@@ -1030,19 +1144,30 @@
     var quick = quickAnswer(t);
     if (quick) { caption(quick); return say(quick); }
 
-    chatHistory.push({ role: 'user', parts: [{ text: raw }] });
-    if (chatHistory.length > 9) chatHistory = chatHistory.slice(-9);   // last 4 turns + this message
+    if (chatBusy) { caption('I AM FINISHING YOUR LAST ANSWER'); return Promise.resolve(); }
+    chatBusy = true;
+    var userTurn = { role: 'user', parts: [{ text: raw }] };
+    chatHistory.push(userTurn);
+    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+    saveChatHistory();
     if (egoLevel > 1) egoLevel--;
     setOrb('thinking', true);
     caption('THINKING…');
-    var ctx = aiContext();
+    var ctx = aiContext(t);
+    playPreface(prephrase(t)).catch(function () {});
     return streamAnswer(chatHistory, ctx, { maxTokens: 75, temperature: egoName !== 'nexus' ? 1.1 : .9, onRaw: function (raw) {
       var re = /\[\[\s*remember\s*:\s*([^\]]+)\]\]/gi, m; while ((m = re.exec(raw))) remember(m[1]);
     } }).then(function (reply) {
+      chatBusy = false;
       setOrb('thinking', false);
       chatHistory.push({ role: 'model', parts: [{ text: reply.replace(/[*#_`]/g, '') }] });
+      if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+      saveChatHistory();
     }).catch(function (e) {
-      chatHistory.pop();
+      var turnIndex = chatHistory.indexOf(userTurn); if (turnIndex >= 0) chatHistory.splice(turnIndex, 1);
+      saveChatHistory();
+      chatBusy = false;
+      if (e && e.message === 'cancelled') return;
       setOrb('thinking', false);
       lastAiError = (e && (e.message + (e.detail ? ' · ' + e.detail : ''))) || 'unknown';
       var off = offlineReply(t), line = (e.message === 'offline' || e.message === 'limit' || e.message === 'network') ? (egoOffline() || off || aiErrorLine(e)) : aiErrorLine(e);
@@ -1482,7 +1607,18 @@
       var h = ''; for (var i = 0; i < 24; i++) h += '<i></i>'; el.innerHTML = h;
     });
   }
-  function audio() { try { P.ctx = P.ctx || new (window.AudioContext || window.webkitAudioContext)(); if (P.ctx.state === 'suspended') P.ctx.resume(); } catch (e) {} return P.ctx; }
+  function audio() {
+    try {
+      P.ctx = P.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      if (!P.out) {
+        var master = P.ctx.createGain(), comp = P.ctx.createDynamicsCompressor();
+        master.gain.value = 0.32; comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.18;
+        master.connect(comp); comp.connect(P.ctx.destination); P.out = Nexus.registerAudioBus(master);
+      }
+      if (P.ctx.state === 'suspended') P.ctx.resume();
+    } catch (e) {}
+    return P.ctx;
+  }
 
   var THEMES = ['RAINBOW', 'POLICE', 'FIRE', 'ICE', 'PURPLE HAZE', 'TOXIC', 'SUNSET', 'GOLD', 'MONO'];
   P.themeSaved = THEMES.indexOf(pref('partyTheme'));
@@ -1614,12 +1750,13 @@
   // sound effects, made on the fly (no files needed)
   function tone(type, freq, start, dur, vol, endFreq) {
     var c = audio(); if (!c) return;
+    vol = Math.min(Math.max(0, vol), 0.14);
     var o = c.createOscillator(), g = c.createGain(), t0 = c.currentTime + start;
     o.type = type; o.frequency.setValueAtTime(freq, t0);
     if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
     g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
     g.gain.setValueAtTime(vol, t0 + dur * 0.8); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.05);
+    o.connect(g); g.connect(P.out || c.destination); o.start(t0); o.stop(t0 + dur + 0.05);
   }
   function noise(start, dur, vol, hp) {
     var c = audio(); if (!c) return;
@@ -1627,7 +1764,7 @@
     for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
     var src = c.createBufferSource(), g = c.createGain(), f = c.createBiquadFilter(), t0 = c.currentTime + start;
     f.type = 'highpass'; f.frequency.value = hp || 800;
-    g.gain.value = vol; src.buffer = buf; src.connect(f); f.connect(g); g.connect(c.destination); src.start(t0);
+    g.gain.value = Math.min(vol, 0.14); src.buffer = buf; src.connect(f); f.connect(g); g.connect(P.out || c.destination); src.start(t0);
   }
   var FX = {
     horn: function () {
@@ -1699,11 +1836,17 @@
 
   // ---- Intruder alert
   var audioCtx = null;
+  var sirenOut = null;
   function siren(seconds) {
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (!sirenOut) {
+        var master = audioCtx.createGain(), comp = audioCtx.createDynamicsCompressor();
+        master.gain.value = 0.12; comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.18;
+        master.connect(comp); comp.connect(audioCtx.destination); sirenOut = Nexus.registerAudioBus(master);
+      }
       var o = audioCtx.createOscillator(), g = audioCtx.createGain(), now = audioCtx.currentTime;
-      o.type = 'sawtooth'; o.connect(g); g.connect(audioCtx.destination); g.gain.value = 0.08;
+      o.type = 'sawtooth'; o.connect(g); g.connect(sirenOut); g.gain.value = 0.08;
       for (var i = 0; i < seconds * 2; i++) { o.frequency.setValueAtTime(i % 2 ? 620 : 880, now + i * .5); }
       o.start(now); o.stop(now + seconds);
     } catch (e) {}
@@ -1970,6 +2113,8 @@
     try { voices = A ? JSON.parse(A.getVoices()) : []; cur = A ? A.currentVoice() : ''; } catch (e) {}
     var homes = [];
     try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
+    var savedMemories = memories();
+    var memoryRows = savedMemories.map(function (m, i) { return '<div class="hrow"><span class="hlb">' + esc(m.text) + '</span><span class="btn sm" data-memory-index="' + i + '">FORGET</span></div>'; }).join('');
     var html =
       '<div class="field"><label>UPDATE NEXUS</label><div class="hint">After you run a new build on GitHub, tap this. It downloads the newest Nexus and opens the install screen. Just press Install.</div><span class="btn go" id="sUpdate">UPDATE NEXUS</span><div id="sUpdateMsg" class="hint"></div></div>' +
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
@@ -1992,8 +2137,10 @@
       '<div class="field"><label>HOW NEXUS BEHAVES</label>' +
       [['talkFirst', 'TALKS FIRST'], ['dj', 'DJ SONG INTROS'], ['saver', 'CLOCK SCREENSAVER'], ['showSpeed', '⚡ SPEED NUMBER']].map(function (o) {
         var on = pref(o[0]) !== '0'; return '<span class="btn' + (on ? ' go' : '') + '" data-toggle="' + o[0] + '">' + o[1] + ': ' + (on ? 'ON' : 'OFF') + '</span>'; }).join('') +
-      '<div class="hint">Nexus remembers ' + memories().length + ' thing' + (memories().length === 1 ? '' : 's') + ' about you. Say "remember that…" to add one, or "forget everything".</div>' +
-      '<span class="btn" id="sForget">CLEAR NEXUS MEMORY</span></div>' +
+      '<div class="hint">Nexus keeps local facts and recent conversation history on this box. Say "remember that…", "forget [fact]", or "correct memory: old fact to new fact" to update it.</div>' +
+      '<div class="hint">' + savedMemories.length + ' saved fact' + (savedMemories.length === 1 ? '' : 's') + '</div>' +
+      '<div id="sMemoryItems">' + (memoryRows || '<div class="hint">No saved facts yet.</div>') + '</div>' +
+      '<span class="btn" id="sForget">CLEAR SAVED FACTS</span><span class="btn" id="sForgetChat">CLEAR CHAT HISTORY</span></div>' +
       '<div class="field"><label>HOME SCREEN</label>' +
       '<span class="btn" id="sHomeChoose">SET NEXUS AS DEFAULT HOME</span>' +
       homes.map(function (h, i) { return '<span class="btn" data-home="' + i + '">OPEN ' + esc(h.label.toUpperCase()) + '</span>'; }).join('') +
@@ -2049,7 +2196,12 @@
     $('sHigh').addEventListener('click', function () { setPref('quality', 'high'); LITE = false; D = 1; FRAME_MS = 30; resize(); redraw(); openSettings(); });
     $('sReplay').addEventListener('click', function () { closePanel(); runBoot(); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-toggle]'), function (el) { el.addEventListener('click', function () { var k = el.getAttribute('data-toggle'); setPref(k, pref(k) !== '0' ? '0' : '1'); var y = $('panelBody').scrollTop; openSettings(); $('panelBody').scrollTop = y; }); });
-    $('sForget').addEventListener('click', function () { setPref('memory', '[]'); caption('MEMORY CLEARED'); var y = $('panelBody').scrollTop; openSettings(); $('panelBody').scrollTop = y; });
+    function refreshMemorySettings() { var y = $('panelBody').scrollTop; openSettings(); $('panelBody').scrollTop = y; }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-memory-index]'), function (el) {
+      el.addEventListener('click', function () { var m = memories(); m.splice(Number(el.getAttribute('data-memory-index')), 1); saveMemories(m); refreshMemorySettings(); });
+    });
+    $('sForget').addEventListener('click', function () { saveMemories([]); caption('MEMORY CLEARED'); refreshMemorySettings(); });
+    $('sForgetChat').addEventListener('click', function () { chatHistory = []; saveChatHistory(); caption('CHAT HISTORY CLEARED'); refreshMemorySettings(); });
     $('sAndroid').addEventListener('click', function () { if (A) A.openSystemSettings(); });
   }
 
@@ -2059,7 +2211,7 @@
   window.NX = {
     latestPhoto: function () { try { return PH.photos[0] && A && A.photoData ? A.photoData(PH.photos[0]) : ''; } catch (e) { return ''; } }, saver: function () { return saverOn; }, saverOff: function () { saverOn = false; }, say: say, sayLine: sayLine, egoLine: egoLine, sayEgo: sayEgo, egoName: function () { return egoName; }, egoTitle: function () { return EGOS[egoName].name; }, stopTalking: stopTalking, listen: listen, handleSpeech: function (t) { return handleSpeech(t); },
     pauseForTalk: pauseForTalk, resumeAfterTalk: resumeAfterTalk,
-    getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
+    getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc, registerAudioBus: Nexus.registerAudioBus,
     weather: function () {  return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [

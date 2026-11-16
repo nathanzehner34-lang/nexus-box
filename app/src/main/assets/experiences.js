@@ -133,20 +133,32 @@
   // Sound helpers
   // ------------------------------------------------------------------
   var ac = null;
-  function audio() { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch (e) {} return ac; }
+  var audioOut = null;
+  function audio() {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (!audioOut) {
+        var master = ac.createGain(), comp = ac.createDynamicsCompressor();
+        master.gain.value = 0.32; comp.threshold.value = -18; comp.knee.value = 6; comp.ratio.value = 12; comp.attack.value = 0.003; comp.release.value = 0.18;
+        master.connect(comp); comp.connect(ac.destination); audioOut = N.registerAudioBus ? N.registerAudioBus(master) : master;
+      }
+      if (ac.state === 'suspended') ac.resume();
+    } catch (e) {}
+    return ac;
+  }
   function hum(freq, dur, vol, type) {
     var c = audio(); if (!c) return;
     var o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
     o.type = type || 'sawtooth'; o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .3);
     g.gain.setValueAtTime(vol, t + dur - .4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + dur + .1);
+    o.connect(g); g.connect(audioOut || c.destination); o.start(t); o.stop(t + dur + .1);
   }
   function staticBurst(dur, vol) {
     var c = audio(); if (!c) return;
     var len = Math.floor(c.sampleRate * dur), b = c.createBuffer(1, len, c.sampleRate), d = b.getChannelData(0);
     for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (Math.random() < .3 ? 1 : .2);
-    var s = c.createBufferSource(), g = c.createGain(); g.gain.value = vol; s.buffer = b; s.connect(g); g.connect(c.destination); s.start();
+    var s = c.createBufferSource(), g = c.createGain(); g.gain.value = Math.min(vol, 0.14); s.buffer = b; s.connect(g); g.connect(audioOut || c.destination); s.start();
   }
 
   // ------------------------------------------------------------------

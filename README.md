@@ -14,3 +14,9 @@ Open this link in the box's web browser and install the file:
 - Tap the green orb to talk to Nexus (Google Gemini, free tier; key goes in Settings on the box, never in this repo)
 
 Every push to `main` builds a new `nexus.apk` automatically (GitHub Actions).
+
+## Nexus 23 development builds
+
+On the `nexus-23` branch, open **Actions → Build Nexus 23 APK → Run workflow**. Select the `nexus-23` branch and start the run. When it finishes, download the **nexus23-apk** artifact from the run summary; artifacts are kept for 30 days.
+
+The development APK installs as a separate app (`com.nexus.box.nexus23`) so it can be tested alongside Nexus 22 without replacing Nexus 22 or changing the existing `latest` release.

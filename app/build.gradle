@@ -30,6 +30,14 @@ android {
     }
 
     buildTypes {
+        // Isolated Nexus 23 test app: install and update it alongside Nexus 22
+        // without replacing Nexus 22's app data or launcher installation.
+        nexus23 {
+            initWith debug
+            applicationIdSuffix '.nexus23'
+            versionNameSuffix '-nexus23'
+        }
+
         release {
             minifyEnabled false
         }
