@@ -683,7 +683,8 @@
       var v = pack[k] !== undefined ? pack[k] : NEXUS_LINES[k];
       (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, r, p, e.voiceHint || '']); });
     });
-    Object.keys(EGOS).forEach(function (k) { var x = EGOS[k]; list.push([x.intro, x.rate || 0, x.pitch || 0, x.voiceHint || '']); });
+    // Only the personalities on the picker (not all 18), so the box isn't busy recording lines nobody uses.
+    ['nexus'].concat(EGO_ORDER).forEach(function (k) { var x = EGOS[k]; if (x && x.intro) list.push([x.intro, x.rate || 0, x.pitch || 0, x.voiceHint || '']); });
     try { if (A && A.precache) A.precache(JSON.stringify(list)); } catch (er) {}
   }
   function persona() { var e = EGOS[egoName]; return (e.persona ? 'You are NEXUS, the onboard AI system in Nathan\'s truck.' + ' ' + e.persona + EGO_RULES : PERSONA) + ' LEVEL=' + egoLevel + '. Reply in plain text, under 30 words.'; }

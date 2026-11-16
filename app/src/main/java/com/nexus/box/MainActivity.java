@@ -272,13 +272,19 @@ public class MainActivity extends Activity {
         }
         ui.post(this::cacheNext);
     }
+    private String lastCacheHint = "";
     private void cacheNext() {
         if (!ttsReady || caching) return;
+        if (pausedAt != 0) return;   // Nexus is in the background: leave the CPU to Spotify etc. (resumes in onResume)
         if (activeSpeech != null || tts.isSpeaking()) { ui.postDelayed(this::cacheNext, 1500); return; }
-        String[] q;
-        synchronized (cacheQueue) { q = cacheQueue.poll(); }
+        String[] q = null;
+        synchronized (cacheQueue) {
+            // prefer a line in the voice that's already loaded, so the engine isn't swapping voices
+            for (Iterator<String[]> it = cacheQueue.iterator(); it.hasNext(); ) { String[] c = it.next(); if (c[3].equals(lastCacheHint)) { q = c; it.remove(); break; } }
+            if (q == null) q = cacheQueue.poll();
+        }
         if (q == null) return;
-        float rate = Float.parseFloat(q[1]), pitch = Float.parseFloat(q[2]); String hint = q[3].isEmpty() ? null : q[3];
+        float rate = Float.parseFloat(q[1]), pitch = Float.parseFloat(q[2]); String hint = q[3].isEmpty() ? null : q[3]; lastCacheHint = q[3];
         File f = lineFile(q[0], rate, pitch, hint);
         if (good(f)) { ui.post(this::cacheNext); return; }
         try {
@@ -286,20 +292,19 @@ public class MainActivity extends Activity {
             File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
             cachingId = "cache_" + f.getName() + "_" + System.nanoTime();
             pendingCache.put(cachingId, new File[]{tmp, f});
-            applyVoice();
-            if (hint != null) applyPersonaVoice(hint);
+            applySpeechVoice(hint);
             tts.setSpeechRate(rate > 0 ? rate : prefs.getFloat("rate", 0.95f));
             tts.setPitch(pitch > 0 ? pitch : prefs.getFloat("pitch", 0.9f));
             int r = tts.synthesizeToFile(q[0], new Bundle(), tmp, cachingId);
-            if (r != TextToSpeech.SUCCESS) { pendingCache.remove(cachingId); caching = false; cachingId = null; applyVoice(); ui.postDelayed(this::cacheNext, 300); }
-        } catch (Exception e) { if (cachingId != null) pendingCache.remove(cachingId); caching = false; cachingId = null; applyVoice(); }
+            if (r != TextToSpeech.SUCCESS) { pendingCache.remove(cachingId); caching = false; cachingId = null; ui.postDelayed(this::cacheNext, 300); }
+        } catch (Exception e) { if (cachingId != null) pendingCache.remove(cachingId); caching = false; cachingId = null; }
     }
     private final java.util.Map<String, File[]> pendingCache = new java.util.concurrent.ConcurrentHashMap<>();
     private void cacheDone(String id) {
         File[] p = pendingCache.remove(id);
         if (p == null) return;
         if (p != null) { try { if (p[0].length() > 6000) p[0].renameTo(p[1]); else p[0].delete(); } catch (Exception ignored) {} }
-        ui.post(() -> { if (id.equals(cachingId)) { caching = false; cachingId = null; if (activeSpeech == null) applyVoice(); cacheNext(); } });
+        ui.post(() -> { if (id.equals(cachingId)) { caching = false; cachingId = null; ui.postDelayed(this::cacheNext, 250); } });
     }
 
     private void cancelCacheForSpeech() {
@@ -377,8 +382,7 @@ public class MainActivity extends Activity {
             }
         }
         try {
-            applyVoice();
-            if (request.voiceHint != null) applyPersonaVoice(request.voiceHint);
+            applySpeechVoice(request.voiceHint);
             tts.setSpeechRate(request.rate > 0 ? request.rate : prefs.getFloat("rate", 0.95f));
             tts.setPitch(request.pitch > 0 ? request.pitch : prefs.getFloat("pitch", 0.9f));
             if (request.id != null) spokenText.put(request.id, request.text);
@@ -406,8 +410,7 @@ public class MainActivity extends Activity {
             return;
         }
         try {
-            applyVoice();
-            if (request.voiceHint != null) applyPersonaVoice(request.voiceHint);
+            applySpeechVoice(request.voiceHint);
             tts.setSpeechRate(request.rate > 0 ? request.rate : prefs.getFloat("rate", 0.95f));
             tts.setPitch(request.pitch > 0 ? request.pitch : prefs.getFloat("pitch", 0.9f));
             if (request.id != null) spokenText.put(request.id, request.text);
@@ -661,6 +664,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         pausedAt = 0;
+        ui.postDelayed(this::cacheNext, 4000);
         if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
         ui.postDelayed(this::warmSpotify, 4000);
@@ -727,40 +731,58 @@ public class MainActivity extends Activity {
         PERSONA_VOICES.put("male_soft",   new String[]{"en-gb-x-rjs-local", "en-us-x-iom-network", "en-us-x-sfg-local"});
         PERSONA_VOICES.put("female_sharp", new String[]{"en-us-x-iol-local", "en-us-x-iol-network", "en-gb-x-gbb-local", "en-gb-x-gbb-network"});
     }
-    private void applyPersonaVoice(String hint) {
-        if (tts == null || hint == null || hint.isEmpty()) return;
-        String[] names = PERSONA_VOICES.get(hint);
-        if (names == null) return;
-        Set<Voice> voices = null;
-        try { voices = tts.getVoices(); } catch (Exception ignored) {}
-        if (voices == null) return;
-        for (String want : names) for (Voice v : voices) {
-            if (v.getName().equals(want) && usable(v)) { try { tts.setVoice(v); return; } catch (Exception ignored) {} }
+    // Switching the TTS voice makes the engine load a whole voice model, which is slow on a 2 GB box.
+    // So: the installed-voice list is read once (refreshed every 10 min), and the engine is only told to
+    // change voice when the line really needs a different one.
+    private Set<Voice> voiceList = null;
+    private long voiceListAt = 0;
+    private volatile String loadedVoice = null;
+    private Set<Voice> voices() {
+        long now = System.currentTimeMillis();
+        if (voiceList == null || now - voiceListAt > 600000) {
+            try { Set<Voice> v = tts.getVoices(); if (v != null) { voiceList = v; voiceListAt = now; } } catch (Exception ignored) {}
         }
+        return voiceList;
     }
-
+    private Voice personaVoice(String hint) {
+        if (tts == null || hint == null || hint.isEmpty()) return null;
+        String[] names = PERSONA_VOICES.get(hint);
+        Set<Voice> vs = voices();
+        if (names == null || vs == null) return null;
+        for (String want : names) for (Voice v : vs) if (v.getName().equals(want) && usable(v)) return v;
+        return null;
+    }
+    private Voice defaultVoice() {
+        Set<Voice> vs = voices();
+        if (vs == null) return null;
+        String chosen = prefs.getString("voice", "");
+        if (!chosen.isEmpty()) {
+            String local = chosen.replace("-network", "-local");
+            for (Voice v : vs) if (v.getName().equals(local) && usable(v)) return v;
+            for (Voice v : vs) if (v.getName().equals(chosen) && usable(v)) return v;
+        }
+        String[] preferred = {"en-gb-x-rjs", "en-gb-x-gbd", "en-gb-x-gbb", "en-us-x-iom", "en-us-x-iol", "en-us-x-tpd"};
+        for (String p : preferred) for (Voice v : vs) if (v.getName().startsWith(p) && usable(v)) return v;
+        for (Voice v : vs) if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && usable(v)) return v;
+        return null;
+    }
+    // Pick the voice for a line (persona voice if there is one, else the normal Nexus voice) and switch only if needed.
+    private void applySpeechVoice(String hint) {
+        if (tts == null) return;
+        Voice v = personaVoice(hint);
+        if (v == null) v = defaultVoice();
+        try {
+            if (v != null) { if (!v.getName().equals(loadedVoice)) { tts.setVoice(v); loadedVoice = v.getName(); } }
+            else if (!"lang-uk".equals(loadedVoice)) { tts.setLanguage(Locale.UK); loadedVoice = "lang-uk"; }
+        } catch (Exception e) { loadedVoice = null; }
+    }
+    // Kept for existing callers (voice settings, start-up): normal voice + saved rate/pitch.
+    private void applyPersonaVoice(String hint) { applySpeechVoice(hint); }
     private void applyVoice() {
         if (tts == null) return;
         tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
         tts.setPitch(prefs.getFloat("pitch", 0.9f));
-        String chosen = prefs.getString("voice", "");
-        Set<Voice> voices = null;
-        try { voices = tts.getVoices(); } catch (Exception ignored) {}
-        if (voices != null) {
-            if (!chosen.isEmpty()) {
-                String local = chosen.replace("-network", "-local");
-                for (Voice v : voices) if (v.getName().equals(local) && usable(v)) { tts.setVoice(v); return; }
-                for (Voice v : voices) if (v.getName().equals(chosen) && usable(v)) { tts.setVoice(v); return; }
-            }
-            String[] preferred = {"en-gb-x-rjs", "en-gb-x-gbd", "en-gb-x-gbb", "en-us-x-iom", "en-us-x-iol", "en-us-x-tpd"};
-            for (String p : preferred) {
-                for (Voice v : voices) {
-                    if (v.getName().startsWith(p) && usable(v)) { tts.setVoice(v); return; }
-                }
-            }
-        }
-        if (voices != null) for (Voice v : voices) if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && usable(v)) { tts.setVoice(v); return; }
-        tts.setLanguage(Locale.UK);
+        applySpeechVoice(null);
     }
 
     // If a line fails to speak (voice missing/broken), say it again right away with a safe voice.
@@ -775,7 +797,7 @@ public class MainActivity extends Activity {
                     Voice safe = null;
                     try { safe = tts.getDefaultVoice(); } catch (Exception ignored) {}
                     if (safe == null || !usable(safe)) { Set<Voice> vs = tts.getVoices(); if (vs != null) for (Voice v : vs) if (v.getLocale() != null && "en".equals(v.getLocale().getLanguage()) && usable(v)) { safe = v; break; } }
-                    if (safe != null) tts.setVoice(safe); else tts.setLanguage(Locale.UK);
+                    if (safe != null) { tts.setVoice(safe); loadedVoice = safe.getName(); } else { tts.setLanguage(Locale.UK); loadedVoice = "lang-uk"; }
                     tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
                     tts.setPitch(prefs.getFloat("pitch", 0.9f));
                     int result = tts.speak(request.text, TextToSpeech.QUEUE_FLUSH, new Bundle(), id);
