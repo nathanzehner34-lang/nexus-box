@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # only to publish the separate nexus-23-dev download (never the 'latest' Nexus 22 release)
 
 concurrency:
   group: nexus23-apk-${{ github.ref }}
@@ -77,10 +77,23 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Easy link for the truck: no GitHub sign-in, no zip. Uses its own 'nexus-23-dev' tag as a pre-release,
+      # so the Nexus 22 'latest' release and its UPDATE NEXUS button are never touched.
+      - name: Publish Nexus 23 test download link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/nexus23/app-nexus23.apk nexus23.apk
+          gh release delete nexus-23-dev --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || true
+          gh release create nexus-23-dev nexus23.apk -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "Nexus 23 test build" \
+            --notes "Test build of Nexus 23 (installs next to Nexus 22). Built from ${GITHUB_SHA::7}."
+
       - name: Show download instructions
         run: |
           {
             echo '## Nexus 23 APK is ready'
             echo 'Download the **nexus-23-development-apk** artifact from the run summary. The artifact contains `app-nexus23.apk` and expires after 30 days.'
-            echo 'This workflow uploads an Actions artifact only. It does not create, delete, or modify a GitHub release.'
+            echo 'Easy download (no sign-in): https://github.com/'"$GITHUB_REPOSITORY"'/releases/download/nexus-23-dev/nexus23.apk'
+            echo 'This only replaces the nexus-23-dev pre-release. The Nexus 22 latest release is not touched.'
           } >> "$GITHUB_STEP_SUMMARY"

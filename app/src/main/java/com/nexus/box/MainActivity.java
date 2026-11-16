@@ -477,6 +477,9 @@ public class MainActivity extends Activity {
 
     // ---------- UPDATE NEXUS: download the newest build and open the install screen ----------
     private static final String UPDATE_URL = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk";
+    // The Nexus 23 test app (package ends in .nexus23) updates from its own test download, never from Nexus 22's.
+    private static final String UPDATE_URL_N23 = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/nexus-23-dev/nexus23.apk";
+    private String updateUrl() { return getPackageName().endsWith(".nexus23") ? UPDATE_URL_N23 : UPDATE_URL; }
     private long updateId = -1;
     private BroadcastReceiver updateReceiver;
 
@@ -492,7 +495,7 @@ public class MainActivity extends Activity {
             android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
             File f = new File(getExternalFilesDir(null), "nexus-update.apk");
             if (f.exists()) f.delete();
-            android.app.DownloadManager.Request r = new android.app.DownloadManager.Request(android.net.Uri.parse(UPDATE_URL));
+            android.app.DownloadManager.Request r = new android.app.DownloadManager.Request(android.net.Uri.parse(updateUrl()));
             r.setDestinationUri(android.net.Uri.fromFile(f));
             r.setTitle("Nexus update");
             r.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE);
