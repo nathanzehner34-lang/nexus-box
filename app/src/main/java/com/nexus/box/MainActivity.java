@@ -706,9 +706,10 @@ public class MainActivity extends Activity {
 
     // Starts Spotify's background service (no screen) so the app is already loaded when you tap it.
     private android.media.browse.MediaBrowser spotifyWarm = null;
+    private volatile boolean spotifyWarmConnecting = false;
     private void warmSpotify() {
         try { getPackageManager().getPackageInfo("com.spotify.music", 0); } catch (Exception e) { return; }
-        if (spotifyWarm != null && (spotifyWarm.isConnected() || spotifyWarm.isConnecting())) {
+        if (spotifyWarm != null && (spotifyWarm.isConnected() || spotifyWarmConnecting)) {
             ui.removeCallbacks(spotifyRewarm);
             ui.postDelayed(spotifyRewarm, 8 * 60 * 1000L);
             return;
@@ -719,12 +720,13 @@ public class MainActivity extends Activity {
             holder[0] = new android.media.browse.MediaBrowser(this,
                     new ComponentName("com.spotify.music", "com.spotify.mobile.android.service.media.browser.SpotifyBrowserService"),
                     new android.media.browse.MediaBrowser.ConnectionCallback() {
-                        @Override public void onConnected() { }
-                        @Override public void onConnectionFailed() { }
+                        @Override public void onConnected() { spotifyWarmConnecting = false; }
+                        @Override public void onConnectionFailed() { spotifyWarmConnecting = false; spotifyWarm = null; }
                     }, null);
             spotifyWarm = holder[0];
+            spotifyWarmConnecting = true;
             spotifyWarm.connect();
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) { spotifyWarmConnecting = false; }
         ui.removeCallbacks(spotifyRewarm); ui.postDelayed(spotifyRewarm, 8 * 60 * 1000L);
     }
     private final Runnable spotifyRewarm = this::warmSpotify;
