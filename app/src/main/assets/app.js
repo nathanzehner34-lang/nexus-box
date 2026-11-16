@@ -1480,6 +1480,8 @@
       var seen = PH.people[name]; PH.people[name] = Date.now();
       if (!seen || Date.now() - seen > 10 * 60 * 1000) { caption('📱 ' + name.toUpperCase() + ' JOINED THE RIDE'); say(name + ' just joined the ride.'); }
       if ($('phPeople')) renderPhoneLists();
+    } else if (ev.type === 'aikey') {
+      caption('🔑 AI KEY SAVED FROM ' + name.toUpperCase() + '\'S PHONE'); say('Got the AI key. My full brain is online.');
     } else if (ev.type === 'song') {
       PH.people[name] = Date.now();
       PH.queue.push({ name: name, text: ev.text, at: Date.now() }); phoneSync();

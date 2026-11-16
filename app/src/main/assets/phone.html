@@ -68,6 +68,12 @@
     </div>
 
     <div class="card">
+      <h2>🔑 AI KEY (DRIVER)</h2>
+      <input id="aikey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the Gemini AI key here">
+      <button id="aikeyBtn">SAVE AI KEY TO THE TRUCK</button>
+    </div>
+
+    <div class="card">
       <h2>🎛 REMOTE</h2>
       <div class="grid">
         <button data-cmd="prev">⏮ BACK</button><button data-cmd="play">⏯ PLAY</button><button data-cmd="next">⏭ NEXT</button>
@@ -105,6 +111,13 @@
   $('leave').onclick = function () { showJoin(); };
   $('songBtn').onclick = function () { var t = $('song').value.trim(); if (!t) return toast('Type a song'); post('song', { text: t }).then(function (j) { if (j.ok) { $('song').value = ''; toast('Added to the queue'); setTimeout(refresh, 600); } }); };
   $('msgBtn').onclick = function () { var t = $('msg').value.trim(); if (!t) return toast('Type a message'); post('msg', { text: t }).then(function (j) { if (j.ok) { $('msg').value = ''; toast('Shout-out sent'); } }); };
+  $('aikeyBtn').onclick = function () {
+    var k = $('aikey').value.trim(); if (k.length < 20) return toast('Paste the whole key first');
+    post('aikey', { key: k }).then(function (j) {
+      if (j.ok) { $('aikey').value = ''; toast('AI key saved. Nexus is ready.'); }
+      else if (j.error === 'key') toast('That doesn\'t look like a full key');
+    });
+  };
   Array.prototype.forEach.call(document.querySelectorAll('[data-cmd]'), function (b) { b.onclick = function () { post('remote', { cmd: b.getAttribute('data-cmd') }); }; });
   var photo = null;
   $('pickBtn').onclick = function () { $('file').click(); };

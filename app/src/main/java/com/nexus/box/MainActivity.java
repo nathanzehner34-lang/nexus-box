@@ -581,6 +581,13 @@ public class MainActivity extends Activity {
                 ev.put("text", t);
             } else if (path.equals("remote")) {
                 ev.put("cmd", o.optString("cmd", ""));
+            } else if (path.equals("aikey")) {
+                // Paste the AI key from a phone instead of typing it on the box. Saved straight to settings;
+                // the key itself is never sent back to any phone or shown on screen.
+                String k = o.optString("key", "").replaceAll("\\s+", "").replaceAll("^[\"']+|[\"'.,;]+$", "");
+                if (k.length() < 20 || k.length() > 200) return "{\"ok\":false,\"error\":\"key\"}";
+                prefs.edit().putString("p_gemini_key", k).apply();
+                prefs.edit().remove("p_model_fast_ok").apply();
             } else if (!path.equals("join")) return null;
             js("Nexus._phone && Nexus._phone(" + JSONObject.quote(ev.toString()) + ")");
             return "{\"ok\":true}";
