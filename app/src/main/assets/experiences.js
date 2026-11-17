@@ -6,8 +6,12 @@
   var layer = $('xp'), cv = $('xpc'), cx = cv.getContext('2d', { alpha: false });
   // Quality: S = drawing resolution. Starts from what worked last time, then quietly
   // steps up while the box keeps up, and steps back down the moment it struggles.
-  var QMIN = 0.4, QMAX = 0.9;
-  var DPR = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
+  // Android 13 / 2 GB X3 stays at native pixel density and a capped canvas scale.
+  // Newer devices with 6+ GB can use the higher-resolution path automatically.
+  var DEVICE_MEMORY = Number(navigator.deviceMemory) || 2;
+  var HIGH_MEMORY_DEVICE = DEVICE_MEMORY >= 6;
+  var QMIN = 0.4, QMAX = HIGH_MEMORY_DEVICE ? 0.9 : 0.68;
+  var DPR = Math.min(HIGH_MEMORY_DEVICE ? 1.5 : 1, Math.max(1, window.devicePixelRatio || 1));
   var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || 0.5));
   var W = 0, H = 0;
   var running = null, raf = 0, timers = [], last = 0, xpDom = [];
@@ -111,12 +115,12 @@
     for (i=0;i<(kind==='skeleton'?70:kind==='deepsea'?110:0);i++) stars.push([rnd(),rnd(),.25+rnd()*.75]);
     var burst=0, lastHit=0, cycle=0;
     var titles={
-      skeleton:['DANCING SKELETON','BASS · RHYTHM · MOTION'],
-      fluid:['NEON FLUID','MIDRANGE · FLOW · COLOUR'],
-      growth:['CRYSTALLINE GROWTH','TIME-LAPSE · PRISMATIC LIGHT'],
-      deepsea:['BIOLUMINESCENT DEEP SEA','DARK WATER · LIVING LIGHT'],
-      prism:['PRISMATIC REFRACTION','TREBLE · SPECTRUM · LIGHT'],
-      quantum:['QUANTUM PARTICLES','BASS DROP · FIELD RESPONSE']
+      skeleton:['Dancing Skeleton','BASS · RHYTHM · MOTION'],
+      fluid:['Neon Fluid Simulations','MIDRANGE · FLOW · COLOUR'],
+      growth:['Macro Crystal Growth','TIME-LAPSE · PRISMATIC LIGHT'],
+      deepsea:['Bioluminescent Deep Sea','DARK WATER · LIVING LIGHT'],
+      prism:['Prismatic Light Refraction','TREBLE · SPECTRUM · LIGHT'],
+      quantum:['Quantum Particle Fields','BASS DROP · FIELD RESPONSE']
     };
     text('xpTop',titles[kind][0]); text('xpMid',titles[kind][1]); text('xpBottom','MUSIC REACTIVE · TOUCH TO CHANGE VISUAL');
     function backdrop(now, h, energy) {
@@ -241,7 +245,7 @@
   }
   function skeletonDance(){premiumVisual('skeleton');}
   function neonFluid(){premiumVisual('fluid');}
-  function crystalGrowth(){premiumVisual('growth');}
+  function macroCrystalGrowth(){premiumVisual('growth');}
   function bioluminescentDeepSea(){premiumVisual('deepsea');}
   function prismaticRefraction(){premiumVisual('prism');}
   function quantumParticles(){premiumVisual('quantum');}
@@ -258,7 +262,7 @@
       GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, crystalgrowth: crystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles })[name]();
+      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, macrocrystalgrowth: macroCrystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -1863,7 +1867,7 @@
     }, 30);
   }
 
-  // 24. CRYSTAL GEOMETRY — rotating diamonds refract rainbow light; they split apart on the drop
+  // 24. LAVA LAMP — glossy neon forms rise, merge and split.
   function lava() {
     var b = beatTracker(), hue = beatHue(10, 35), pulse = 0;
     var g = glStart('lava',

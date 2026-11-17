@@ -2769,8 +2769,8 @@
     ['worlds', '🏔', 'ALIEN WORLDS'], ['gold', '🥇', 'LIQUID METAL'], ['neural', '🧠', 'NEURAL NETWORK'], ['auroratunnel', '🌌', 'AURORA TUNNEL'], ['ink', '🎨', 'INK IN WATER'],
     ['datastorm', '💻', 'DATA STORM'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA'],
-    ['skeletondance', '💀', 'DANCING SKELETON'], ['neonfluid', '🫧', 'NEON FLUID'], ['crystalgrowth', '💎', 'CRYSTALLINE GROWTH'],
-    ['deepsea', '🪼', 'BIOLUMINESCENT DEEP SEA'], ['prismrefraction', '🔮', 'PRISMATIC REFRACTION'], ['quantumparticles', '✦', 'QUANTUM PARTICLES']
+    ['skeletondance', '💀', 'Dancing Skeleton'], ['neonfluid', '🫧', 'Neon Fluid Simulations'], ['macrocrystalgrowth', '💎', 'Macro Crystal Growth'],
+    ['deepsea', '🪼', 'Bioluminescent Deep Sea'], ['prismrefraction', '🔮', 'Prismatic Light Refraction'], ['quantumparticles', '✦', 'Quantum Particle Fields']
   ];
   // ---- BACKGROUNDS button: big picture grid, tap to apply instantly, plus home screen styles ----
   var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER'], ['gold', '🔓 GOLD']];
