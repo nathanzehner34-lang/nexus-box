@@ -1510,7 +1510,8 @@ public class MainActivity extends Activity {
                     if (art != null) {
                         Bitmap small = art;
                         if (art.getWidth() > 192 || art.getHeight() > 192) {
-                            small = Bitmap.createScaledBitmap(art, Math.min(192, art.getWidth()), Math.min(192, art.getHeight()), true);
+                            float scale = Math.min(192f / art.getWidth(), 192f / art.getHeight());
+                            small = Bitmap.createScaledBitmap(art, Math.max(1, Math.round(art.getWidth() * scale)), Math.max(1, Math.round(art.getHeight() * scale)), true);
                         }
                         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                         small.compress(Bitmap.CompressFormat.JPEG, 74, bytes);
