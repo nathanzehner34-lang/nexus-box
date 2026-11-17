@@ -101,11 +101,11 @@
     sheen.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = sheen; g.fillRect(20, 20, 120, 120);
     if (chrome) {
-      var shine = g.createLinearGradient(38, 0, 122, 0);
-      shine.addColorStop(0, 'rgba(255,255,255,0)'); shine.addColorStop(.38, 'rgba(255,255,255,.08)');
-      shine.addColorStop(.5, 'rgba(255,255,255,.74)'); shine.addColorStop(.62, 'rgba(255,255,255,.08)');
-      shine.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = shine; g.fillRect(30, 28, 100, 104);
+      var chromeGlow = g.createRadialGradient(73, 56, 1, 80, 73, 47);
+      chromeGlow.addColorStop(0, 'rgba(255,255,255,.48)');
+      chromeGlow.addColorStop(.24, 'rgba(255,255,255,.12)');
+      chromeGlow.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = chromeGlow; g.fillRect(31, 31, 98, 98);
     }
     g.restore();
     sprites[key] = off;
@@ -187,6 +187,9 @@
           var impulse = (o.vx - b.vx) * nx + (o.vy - b.vy) * ny;
           o.vx -= impulse * nx * .64; o.vy -= impulse * ny * .64; b.vx += impulse * nx * .64; b.vy += impulse * ny * .64;
           o.flash = Math.max(o.flash, .55); b.flash = Math.max(b.flash, .55);
+          if (mode === 'ripple' && impulse > .4 && now - (o.lastRipple || 0) > 360) {
+            o.lastRipple = now; ripple((o.x + b.x) * .5, (o.y + b.y) * .5, .58);
+          }
         }
       }
     }
