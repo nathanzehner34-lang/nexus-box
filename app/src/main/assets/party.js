@@ -263,6 +263,8 @@
       document.getElementById('pSong').textContent = 'Media session access is off';
       document.getElementById('partyArtist').textContent = 'Tap MEDIA ACCESS, then enable Nexus in Android settings';
       document.getElementById('partyAlbum').textContent = '';
+      document.getElementById('partyDuration').textContent = '--:--'; document.getElementById('partyPosition').textContent = '0:00'; document.getElementById('partyProgressFill').style.width = '0%';
+      lastSong = ''; artUrl = ''; artwork.classList.remove('has-art'); artwork.innerHTML = '<span>◈</span>';
       document.getElementById('partyPrev').disabled = true; document.getElementById('partyNext').disabled = true; document.getElementById('partyToggle').disabled = true;
       if (source === 'fallback') hint.textContent = 'VISUAL RHYTHM FALLBACK · ENABLE MEDIA ACCESS FOR TRACK DETAILS';
       return;
