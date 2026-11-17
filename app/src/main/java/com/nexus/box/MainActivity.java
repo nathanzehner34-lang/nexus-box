@@ -1471,6 +1471,59 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String partyMediaInfo() {
+            JSONObject o = new JSONObject();
+            try {
+                if (!hasMediaAccess()) {
+                    o.put("access", false);
+                    return o.toString();
+                }
+                o.put("access", true);
+                MediaController c = activeController();
+                if (c == null) return o.toString();
+                o.put("app", c.getPackageName());
+                PlaybackState state = c.getPlaybackState();
+                MediaMetadata metadata = c.getMetadata();
+                long actions = state != null ? state.getActions() : 0L;
+                boolean playing = state != null && state.getState() == PlaybackState.STATE_PLAYING;
+                o.put("playing", playing);
+                o.put("canPrevious", (actions & PlaybackState.ACTION_SKIP_TO_PREVIOUS) != 0);
+                o.put("canNext", (actions & PlaybackState.ACTION_SKIP_TO_NEXT) != 0);
+                o.put("canPlayPause", (actions & (PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_PLAY_PAUSE)) != 0);
+                if (state != null) {
+                    long position = state.getPosition();
+                    if (playing && state.getLastPositionUpdateTime() > 0L) {
+                        position += (long) ((android.os.SystemClock.elapsedRealtime() - state.getLastPositionUpdateTime()) * state.getPlaybackSpeed());
+                    }
+                    o.put("position", Math.max(0L, position));
+                }
+                if (metadata != null) {
+                    String title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE);
+                    String artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
+                    String album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM);
+                    if (title != null) o.put("title", title);
+                    if (artist != null) o.put("artist", artist);
+                    if (album != null) o.put("album", album);
+                    o.put("duration", Math.max(0L, metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)));
+                    Bitmap art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART);
+                    if (art == null) art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+                    if (art != null) {
+                        Bitmap small = art;
+                        if (art.getWidth() > 192 || art.getHeight() > 192) {
+                            small = Bitmap.createScaledBitmap(art, Math.min(192, art.getWidth()), Math.min(192, art.getHeight()), true);
+                        }
+                        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                        small.compress(Bitmap.CompressFormat.JPEG, 74, bytes);
+                        o.put("artwork", "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+                        if (small != art) small.recycle();
+                        bytes.close();
+                    }
+                }
+            } catch (Exception ignored) {}
+            return o.toString();
+        }
+
+        @JavascriptInterface
         public void media(String action) {
             ui.post(() -> {
                 MediaController c = activeController();
