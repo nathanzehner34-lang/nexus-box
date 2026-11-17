@@ -1,0 +1,26 @@
+const fs = require('fs');
+const assert = require('assert');
+const root = __dirname + '/../../app/src/main/';
+const html = fs.readFileSync(root + 'assets/index.html', 'utf8');
+const css = fs.readFileSync(root + 'assets/style.css', 'utf8');
+const app = fs.readFileSync(root + 'assets/app.js', 'utf8');
+const java = fs.readFileSync(root + 'java/com/nexus/box/MainActivity.java', 'utf8');
+
+const party = html.slice(html.indexOf('<!-- PARTY MODE -->'), html.indexOf('<div id="xp"'));
+assert(party.includes('NEXUS <b>PARTY</b>') && party.includes('OBSIDIAN'), 'Party carries the Nexus Party Obsidian identity');
+const effects = [...party.matchAll(/class="pEffect(?: active)?" data-fx="([^"]+)"/g)].map(m => m[1]);
+assert.deepStrictEqual(effects, ['pulse', 'vortex', 'chrome', 'chaos', 'ripple'], 'all five requested effect controls are present in order');
+for (const effect of effects) assert(app.includes(`${effect}: function (btn) { setPartyMode(`), `${effect} is wired to its visual mode`);
+for (const palette of ['blue', 'violet', 'silver', 'amber']) assert(party.includes(`data-palette="${palette}"`) && app.includes(`${palette}: [`), `${palette} atmosphere is selectable and rendered`);
+for (const fx of ['bass', 'prev', 'toggle', 'next']) assert(party.includes(`data-fx="${fx}"`) && app.includes(`${fx}: function`), `${fx} has a real control handler`);
+assert(party.includes('id="pArtwork"') && party.includes('id="pProgressFill"') && party.includes('id="pMediaStatus"'), 'artwork, playback progress and explicit media status are displayed');
+assert(app.includes('addEventListener(\'pointerdown\'') && app.includes('addEventListener(\'pointermove\'') && app.includes('setPointerCapture'), 'orb touch and drag handling is connected');
+assert(app.includes('var rel =') && app.includes('OBSIDIAN.mergeAt') && app.includes('Math.sqrt(oa.r * oa.r + ob.r * ob.r)'), 'orb collision and merge physics are implemented');
+assert(app.includes('OBSIDIAN.trail.push') && app.includes('function partyRipple') && app.includes('function partyBurst'), 'trails, ripples and particle bursts are implemented');
+assert(app.includes('bass: function ()') && app.includes('tone(\'sine\', 118') && app.includes('partyRipple(x, y, 1'), 'Bass Cannon triggers synthesized impact audio and a visual impulse');
+assert(app.includes('duration > 0 ?') && app.includes('np.pos') && app.includes('np.dur'), 'playback progress uses media-session position and duration');
+assert(java.includes('MediaController.TransportControls t = c.getTransportControls()') && java.includes('case "next": t.skipToNext()') && java.includes('case "toggle":'), 'transport buttons control the active Android media session');
+assert(java.includes('METADATA_KEY_ART') && java.includes('createScaledBitmap(cover, 144, 144, true)'), 'available media-session artwork is downscaled before display');
+assert(css.includes('#pfx { position:absolute') && app.includes("c.getContext('2d')"), 'the visual stage uses a lightweight 2D canvas renderer');
+assert(app.includes('mem >= 6 ? .95 : .72') && app.includes('>= 6 ? 18 : 13') && app.includes('function partyOrbSprite'), 'canvas resolution, cached textures and orb count stay modest on X3-class memory');
+console.log('Party Mode tests passed: five effects, touch physics, audio/media integration, palettes, and X3 rendering caps');

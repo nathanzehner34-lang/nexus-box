@@ -112,6 +112,7 @@ public class MainActivity extends Activity {
     private volatile List<String[]> labelCache = null;
     // Spotify's "Device broadcast status" feed (works even when notification access is blocked on the box)
     private volatile String spTitle = null, spArtist = null;
+    private volatile String partyArtTrack = "", partyArtData = "";
     private volatile boolean spPlaying = false;
     private volatile long spTime = 0;
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
@@ -1762,6 +1763,28 @@ public class MainActivity extends Activity {
                     o.put("dur", md.getLong(MediaMetadata.METADATA_KEY_DURATION));
                     o.put("title", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_TITLE)));
                     o.put("artist", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_ARTIST)));
+                    String artKey = String.valueOf(md.getString(MediaMetadata.METADATA_KEY_TITLE)) + "|" + String.valueOf(md.getString(MediaMetadata.METADATA_KEY_ARTIST));
+                    if (!artKey.equals(partyArtTrack)) {
+                        partyArtTrack = artKey;
+                        partyArtData = "";
+                        Bitmap cover = md.getBitmap(MediaMetadata.METADATA_KEY_ART);
+                        if (cover == null) cover = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+                        if (cover == null) cover = md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+                        if (cover != null) {
+                            Bitmap thumb = null;
+                            try {
+                                thumb = Bitmap.createScaledBitmap(cover, 144, 144, true);
+                                ByteArrayOutputStream bytes = new ByteArrayOutputStream(12000);
+                                thumb.compress(Bitmap.CompressFormat.JPEG, 72, bytes);
+                                partyArtData = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
+                            } catch (Exception ignored) {
+                                partyArtData = "";
+                            } finally {
+                                if (thumb != null && thumb != cover) thumb.recycle();
+                            }
+                        }
+                    }
+                    if (!partyArtData.isEmpty()) o.put("art", partyArtData);
                 }
                 o.put("app", c.getPackageName());
                 return o.toString();
