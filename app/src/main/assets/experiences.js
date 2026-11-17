@@ -322,7 +322,7 @@
         if (creatures.length >= 2) creatures.shift(); creatures.push({ type:Math.floor(rnd() * 3), x:.5, y:.62, phase:range(0,6.28), start:now, life:30 + rnd() * 10, summoned:true });
         plants.forEach(function(p){if(Math.abs(p.x-.5)<.12)p.energy=Math.max(p.energy,.45);});
         worldEnergy = Math.max(worldEnergy, .55); if(ripples.length>=7)ripples.shift(); ripples.push({ x:.5, y:.66, life:1, r:0, strength:.7 });
-      } else {
+      } else if (kind === 'energy') {
         worldEnergy = 1; energyWaveAt = now; aurora = Math.max(aurora, .75); crystalWave = 0; crystalWaveAt = now;
         if(ripples.length>=7)ripples.shift(); ripples.push({ x:x / W, y:y / H, life:1, r:0, strength:1 }); trees[0] = Math.max(trees[0], .7); trees[1] = Math.max(trees[1], .7);
         plants.forEach(function (p) { p.energy = Math.max(p.energy, .65); });
