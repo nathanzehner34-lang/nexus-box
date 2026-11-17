@@ -1589,8 +1589,7 @@
     $('party').classList.remove('hidden');
     $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
     try { if (A) A.meter(true); } catch (e) {}
-    clearInterval(P.auto);
-    P.auto = setInterval(function () { if (Date.now() - P.lastMeter > 1500 && Date.now() - P.lastBeat > 480) beat(.5); }, 120);
+    clearInterval(P.auto); P.auto = null; // Orb motion is driven by the active Party renderer; no background beat timer needed.
     P.lastShout = Date.now();
     partyTalk(egoLine('partyIn'), true, true);
     var vb = document.querySelector('.pbtn[data-fx=voice] span'); if (vb) vb.textContent = P.voice ? 'VOICE ON' : 'VOICE OFF';
