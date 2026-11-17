@@ -21,8 +21,8 @@ const routes = {
   prismrefraction: "prismaticRefraction(){premiumVisual('prism')",
   quantumparticles: "quantumParticles(){premiumVisual('quantum')"
 };
-const expected = previous.filter(x => !removed.has(x)).concat(added);
-assert.deepStrictEqual(ids, expected, 'only Crystal Geometry and Black Hole were removed; all else retained and six appended');
+const expected = ['enchanted'].concat(previous.filter(x => !removed.has(x)), added);
+assert.deepStrictEqual(ids, expected, 'Enchanted is added separately while only Crystal Geometry and Black Hole remain removed');
 for (const name of exactNames) {
   assert(catalog.includes(`'${name}'`), `${name} uses the approved exact name in the selector`);
   assert(xp.includes(`['${name}'`), `${name} uses the approved exact name in its visual scene`);
@@ -41,4 +41,4 @@ assert(app.includes('Nexus._meter = function (all, bass, mid, high)'), 'existing
 assert(java.includes('double bass = 0, mid = 0, treble = 0, all = 0;'), 'existing Android Visualizer calculates bass, mid, treble, and total energy');
 assert(java.includes('Nexus._meter && Nexus._meter(') && java.includes('%.4f", treble)'), 'spectral bands feed the existing visualizer bridge');
 assert(app.includes("['kaleido', '🌀', 'KALEIDOSCOPE']"), 'Kaleidoscope remains in the user-visible selector');
-console.log('visual library tests passed: 30 retained, only Crystal Geometry and Black Hole removed, six new visuals connected, Kaleidoscope kept, and FFT bands wired');
+console.log('visual library tests passed: Enchanted added, 30 existing visuals retained, only Crystal Geometry and Black Hole removed, six new visuals connected, Kaleidoscope kept, and FFT bands wired');
