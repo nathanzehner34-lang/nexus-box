@@ -105,6 +105,7 @@
       <div id="pHint">TOUCH THE ENERGY FIELD · CONNECT A MEDIA SESSION TO SYNC</div>
       <div class="party-modes" role="group" aria-label="Visual mode">
         <button class="party-mode active" data-mode="pulse">PULSE</button>
+        <button class="party-mode" data-mode="wave">WAVE</button>
         <button class="party-mode" data-mode="vortex">VORTEX</button>
         <button class="party-mode" data-mode="chrome">LIQUID CHROME</button>
         <button class="party-mode" data-mode="chaos">CHAOS</button>
@@ -130,14 +131,11 @@
     </section>
 
     <footer class="party-dock">
-      <div class="party-atmospheres" role="group" aria-label="Colour atmosphere">
-        <span>ATMOSPHERE</span>
-        <button class="party-swatch active" data-palette="blue" aria-label="Electric blue"></button>
-        <button class="party-swatch cyan" data-palette="cyan" aria-label="Cyan"></button>
-        <button class="party-swatch violet" data-palette="violet" aria-label="Violet"></button>
-        <button class="party-swatch silver" data-palette="silver" aria-label="Silver"></button>
-        <button class="party-swatch amber" data-palette="amber" aria-label="Amber"></button>
-        <button class="party-swatch obsidian" data-palette="obsidian" aria-label="Obsidian"></button>
+      <div class="party-atmospheres" role="group" aria-label="Orb colour preset">
+        <span>ORB PRESET</span>
+        <button class="party-preset active" data-preset="voltage" aria-pressed="true">VOLTAGE</button>
+        <button class="party-preset" data-preset="aurora" aria-pressed="false">AURORA</button>
+        <button class="party-preset" data-preset="neon" aria-pressed="false">NEON</button>
       </div>
       <div class="party-actions">
         <button id="partyBass" class="party-action party-bass" type="button"><b>◉</b><span>BASS CANNON</span></button>
