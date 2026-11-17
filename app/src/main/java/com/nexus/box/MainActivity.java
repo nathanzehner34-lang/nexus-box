@@ -1251,15 +1251,17 @@ public class MainActivity extends Activity {
                     if (now - lastSend < 80) return;
                     lastSend = now;
                     int n = fft.length / 2;
-                    double bass = 0, all = 0;
+                    double bass = 0, mid = 0, treble = 0, all = 0;
                     for (int k = 1; k < n; k++) {
                         double re = fft[2 * k], im = fft[2 * k + 1];
                         double mag = Math.sqrt(re * re + im * im) / 128.0;
                         if (k <= 6) bass += mag;
+                        else if (k <= 24) mid += mag;
+                        else if (k <= 64) treble += mag;
                         if (k <= 64) all += mag;
                     }
-                    bass /= 6.0; all /= 64.0;
-                    js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", all) + "," + String.format(Locale.US, "%.4f", bass) + ")");
+                    bass /= 6.0; mid /= 18.0; treble /= 40.0; all /= 64.0;
+                    js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", all) + "," + String.format(Locale.US, "%.4f", bass) + "," + String.format(Locale.US, "%.4f", mid) + "," + String.format(Locale.US, "%.4f", treble) + ")");
                 }
             }, Math.min(Visualizer.getMaxCaptureRate(), 12000), false, true);
             v.setEnabled(true);

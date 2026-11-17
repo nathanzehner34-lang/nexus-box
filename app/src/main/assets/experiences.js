@@ -6,7 +6,8 @@
   var layer = $('xp'), cv = $('xpc'), cx = cv.getContext('2d', { alpha: false });
   // Quality: S = drawing resolution. Starts from what worked last time, then quietly
   // steps up while the box keeps up, and steps back down the moment it struggles.
-  var QMIN = 0.4, QMAX = 0.8;
+  var QMIN = 0.4, QMAX = 0.9;
+  var DPR = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
   var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || 0.5));
   var W = 0, H = 0;
   var running = null, raf = 0, timers = [], last = 0, xpDom = [];
@@ -27,8 +28,8 @@
   }
 
   function size() {
-    W = cv.width = Math.max(1, Math.floor(layer.clientWidth * S)); H = cv.height = Math.max(1, Math.floor(layer.clientHeight * S));
-    if (glc) { glc.width = Math.max(1, Math.floor(layer.clientWidth * S * GLX)); glc.height = Math.max(1, Math.floor(layer.clientHeight * S * GLX)); }
+    W = cv.width = Math.max(1, Math.floor(layer.clientWidth * S * DPR)); H = cv.height = Math.max(1, Math.floor(layer.clientHeight * S * DPR));
+    if (glc) { glc.width = Math.max(1, Math.floor(layer.clientWidth * S * GLX * DPR)); glc.height = Math.max(1, Math.floor(layer.clientHeight * S * GLX * DPR)); }
   }
 
   // ---- Graphics-chip (WebGL) visuals: the sharpest, smoothest look for the least effort ----
@@ -97,6 +98,154 @@
     raf = requestAnimationFrame(f);
   }
 
+  // Premium six-pack: procedural high-detail canvas scenes; allocate state only for the active visual.
+  function premiumVisual(kind) {
+    var b = beatTracker(), hue = beatHue(kind === 'skeleton' ? 190 : 215, 48);
+    var started = performance.now(), seed = 19, particles = [], count = kind === 'quantum' ? 190 : kind === 'deepsea' ? 72 : 0;
+    function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+    for (var i = 0; i < count; i++) particles.push({
+      x:rnd(), y:rnd(), z:.15+rnd()*.85, a:rnd()*6.283, speed:.12+rnd()*.5,
+      hue:rnd()*100, size:.5+rnd()*1.8, trail:rnd()*8
+    });
+    var stars=[];
+    for (i=0;i<(kind==='skeleton'?70:kind==='deepsea'?110:0);i++) stars.push([rnd(),rnd(),.25+rnd()*.75]);
+    var burst=0, lastHit=0, cycle=0;
+    var titles={
+      skeleton:['DANCING SKELETON','BASS · RHYTHM · MOTION'],
+      fluid:['NEON FLUID','MIDRANGE · FLOW · COLOUR'],
+      growth:['CRYSTALLINE GROWTH','TIME-LAPSE · PRISMATIC LIGHT'],
+      deepsea:['BIOLUMINESCENT DEEP SEA','DARK WATER · LIVING LIGHT'],
+      prism:['PRISMATIC REFRACTION','TREBLE · SPECTRUM · LIGHT'],
+      quantum:['QUANTUM PARTICLES','BASS DROP · FIELD RESPONSE']
+    };
+    text('xpTop',titles[kind][0]); text('xpMid',titles[kind][1]); text('xpBottom','MUSIC REACTIVE · TOUCH TO CHANGE VISUAL');
+    function backdrop(now, h, energy) {
+      cx.globalCompositeOperation='source-over';
+      cx.fillStyle='#02030b'; cx.fillRect(0,0,W,H);
+      var g=cx.createRadialGradient(W*.5,H*.42,0,W*.5,H*.42,Math.max(W,H)*.75);
+      g.addColorStop(0,'hsla('+h+',75%,20%,'+(.12+energy*.12)+')');g.addColorStop(1,'rgba(0,0,0,0)');
+      cx.fillStyle=g;cx.fillRect(0,0,W,H);
+    }
+    function skeleton(now,h,energy,kick) {
+      var unit=Math.min(W,H)*.00076, dance=now*.0015, hit=b.hit?1:0;
+      cx.globalCompositeOperation='lighter';
+      stars.forEach(function(s){cx.fillStyle='rgba(125,225,255,'+(s[2]*.42)+')';cx.fillRect(s[0]*W,s[1]*H,1+s[2]*1.5,1+s[2]*1.5);});
+      cx.save();cx.translate(W*.5,H*.46);cx.scale(unit*(1+energy*.04),unit*(1+energy*.04));cx.rotate(Math.sin(dance*.7)*.055);
+      function bone(x1,y1,x2,y2,width) {
+        cx.lineCap='round';cx.lineJoin='round';cx.strokeStyle='rgba(20,225,255,.26)';cx.lineWidth=width*2.5;cx.shadowColor='cyan';cx.shadowBlur=10;
+        cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke();cx.shadowBlur=0;
+        cx.strokeStyle='rgba(220,250,255,.94)';cx.lineWidth=width;cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke();
+        cx.strokeStyle='rgba(255,255,255,.8)';cx.lineWidth=Math.max(1,width*.23);cx.beginPath();cx.moveTo(x1-width*.12,y1);cx.lineTo(x2-width*.12,y2);cx.stroke();
+      }
+      function joint(x,y,r){cx.fillStyle='rgba(160,240,255,.95)';cx.shadowColor='cyan';cx.shadowBlur=12;cx.beginPath();cx.arc(x,y,r,0,Math.PI*2);cx.fill();cx.shadowBlur=0;cx.fillStyle='#07101a';cx.beginPath();cx.arc(x,y,r*.4,0,Math.PI*2);cx.fill();}
+      // Rib cage and spine.
+      bone(0,-150,Math.sin(dance)*12,-15,13);bone(0,-15,0,55,15);bone(-50,-130,50,-130,10);
+      for(var r=0;r<6;r++){var yy=-118+r*19,rx=53-r*3;cx.strokeStyle='rgba(193,244,255,.88)';cx.lineWidth=5;cx.shadowColor='#33eaff';cx.shadowBlur=7;cx.beginPath();cx.ellipse(0,yy,rx,18,0,Math.PI*.12,Math.PI*.9);cx.stroke();cx.beginPath();cx.ellipse(0,yy,rx,18,0,Math.PI*1.1,Math.PI*1.88);cx.stroke();cx.shadowBlur=0;}
+      // Skull, sockets, teeth, and jaw.
+      var bob=Math.sin(dance*2)*5-kick*8;cx.save();cx.translate(0,-190+bob);cx.fillStyle='#d9f4ff';cx.shadowColor='#72eaff';cx.shadowBlur=16;cx.beginPath();cx.ellipse(0,-15,43,51,0,0,Math.PI*2);cx.fill();cx.shadowBlur=0;
+      cx.fillStyle='#07101b';cx.beginPath();cx.ellipse(-16,-13,10,13,-.2,0,6.3);cx.ellipse(16,-13,10,13,.2,0,6.3);cx.fill();
+      cx.fillStyle='#8ffaff';cx.shadowColor='cyan';cx.shadowBlur=14;cx.beginPath();cx.arc(-16,-13,3,0,6.3);cx.arc(16,-13,3,0,6.3);cx.fill();cx.shadowBlur=0;
+      cx.strokeStyle='#9fcddd';cx.lineWidth=5;cx.beginPath();cx.moveTo(-23,21);cx.lineTo(23,21);cx.lineTo(17,39);cx.lineTo(-17,39);cx.closePath();cx.stroke();
+      for(var tooth=-12;tooth<=12;tooth+=8){cx.beginPath();cx.moveTo(tooth,22);cx.lineTo(tooth,33);cx.stroke();}
+      cx.restore();
+      // Pelvis and articulated limbs with beat-driven dance pose.
+      bone(-38,43,0,69,9);bone(38,43,0,69,9);bone(-38,43,38,43,8);
+      var swing=Math.sin(dance*2.1)*45+hit*32, lift=Math.max(0,Math.sin(dance*2.1+1.1))*26;
+      bone(-48,-128,-89,-62,11);bone(-89,-62,-68+Math.sin(dance)*25,5-lift,10);joint(-89,-62,9);
+      bone(48,-128,91,-58,11);bone(91,-58,67+Math.sin(dance+2)*28,10+lift,10);joint(91,-58,9);
+      bone(-28,62,-42+swing*.35,156-lift,13);bone(-42+swing*.35,156-lift,-50+swing,245-lift,12);joint(-42+swing*.35,156-lift,10);
+      bone(28,62,42-swing*.35,155+lift,13);bone(42-swing*.35,155+lift,50-swing,244+lift,12);joint(42-swing*.35,155+lift,10);
+      cx.restore();cx.globalCompositeOperation='source-over';
+    }
+    function fluid(now,h,energy,mid,high) {
+      cx.globalCompositeOperation='lighter';
+      var speed=.00042+energy*.001+mid*.0006;
+      for(var band=0;band<11;band++){
+        var baseY=H*(.18+band*.066), amp=H*(.035+mid*.055), ph=now*speed*(band%2?1:-1)+band*.79;
+        var grad=cx.createLinearGradient(0,baseY-amp,W,baseY+amp);
+        grad.addColorStop(0,'hsla('+(h+band*19+240)%360+',100%,58%,.04)');
+        grad.addColorStop(.48,'hsla('+(h+band*19+240)%360+',100%,70%,.7)');
+        grad.addColorStop(1,'hsla('+(h+band*19+240)%360+',100%,48%,.04)');
+        cx.strokeStyle=grad;cx.lineWidth=(3+band%3*2+high*5)*S;cx.shadowColor='hsl('+(h+band*20+220)%360+',100%,60%)';cx.shadowBlur=12+energy*16;
+        cx.beginPath();
+        for(var step=0;step<=38;step++){var x=W*step/38, u=step/38, y=baseY+Math.sin(u*8+ph)*amp+Math.sin(u*17-ph*1.7)*amp*.3+Math.cos(u*3-ph)*H*.025;
+          if(step===0)cx.moveTo(x,y);else cx.lineTo(x,y);}
+        cx.stroke();
+      }
+      cx.shadowBlur=0;cx.globalCompositeOperation='source-over';
+    }
+    function growth(now,h,energy,high) {
+      var sec=(now-started)/1000, phase=(sec%26)/26, grow=1-Math.pow(1-phase,3), fade=phase>.94?(1-phase)/.06:1;
+      cycle=grow;cx.globalCompositeOperation='lighter';
+      for(var c=0;c<9;c++){
+        var x=W*(.12+(c%3)*.38), y=H*(.82-Math.floor(c/3)*.28), count=5+(c%4), scale=Math.min(W,H)*(.11+grow*.13)*(c%3===0?1.2:.85);
+        for(var n=0;n<count;n++){
+          var ang=(n/count)*Math.PI*2+c*.31, height=scale*(.55+((n*7+c)%9)/12)*grow, width=scale*.22;
+          var x1=x+Math.cos(ang)*width, x2=x-Math.cos(ang)*width, tipX=x+Math.sin(ang)*width*.45, tipY=y-height;
+          cx.beginPath();cx.moveTo(x1,y);cx.lineTo(tipX,tipY);cx.lineTo(x2,y);cx.closePath();
+          var col=(h+c*27+n*13)%360;cx.fillStyle='hsla('+col+',95%,60%,'+(.12+fade*.3)+')';cx.strokeStyle='hsla('+col+',100%,78%,'+fade+')';cx.lineWidth=1.5*S;cx.shadowColor='hsl('+col+',100%,62%)';cx.shadowBlur=8+high*10;cx.fill();cx.stroke();
+          cx.shadowBlur=0;cx.strokeStyle='rgba(255,255,255,'+(.28*fade)+')';cx.beginPath();cx.moveTo(x1,y);cx.lineTo(tipX,tipY);cx.lineTo(x,y+height*.12);cx.stroke();
+        }
+      }
+      cx.globalCompositeOperation='source-over';
+    }
+    function deepsea(now,h,energy,mid,kick) {
+      cx.globalCompositeOperation='lighter';
+      particles.forEach(function(p){
+        var x=p.x*W+Math.sin(now*.0002+p.a)*W*.025,y=((p.y+now*.000012*p.z)%1)*H;
+        cx.fillStyle='hsla('+(h+p.hue+170)%360+',100%,75%,'+(p.z*.6)+')';cx.shadowColor='cyan';cx.shadowBlur=5;
+        cx.beginPath();cx.arc(x,y,p.size*(1+energy),0,6.283);cx.fill();
+      });
+      for(var j=0;j<3;j++){
+        var x0=W*(.25+j*.25)+Math.sin(now*.00025+j*2)*W*.08,y0=H*(.48+j*.13+Math.sin(now*.0006+j)*.05),pulse=1+energy*.2+kick*.1,r=Math.min(W,H)*(.08+j*.012)*pulse;
+        var g=cx.createRadialGradient(x0,y0-r*.2,1,x0,y0,r*1.5);g.addColorStop(0,'rgba(255,255,255,.9)');g.addColorStop(.18,'hsla('+(h+j*55+170)%360+',100%,68%,.75)');g.addColorStop(1,'hsla('+(h+j*55+170)%360+',100%,30%,0)');
+        cx.fillStyle=g;cx.shadowColor='hsl('+(h+j*55+170)%360+',100%,60%)';cx.shadowBlur=22;cx.beginPath();cx.ellipse(x0,y0,r*.85,r*.62,Math.sin(now*.0003+j)*.3,0,6.283);cx.fill();
+        cx.shadowBlur=0;cx.strokeStyle='hsla('+(h+j*55+170)%360+',100%,75%,.8)';cx.lineWidth=2*S;
+        for(var z=0;z<6;z++){var sx=x0+(z-2.5)*r*.22, sway=Math.sin(now*.002+z+j)*r*.12;cx.beginPath();cx.moveTo(sx,y0+r*.5);cx.bezierCurveTo(sx+sway,y0+r,sx-sway,y0+r*1.7,sx+Math.sin(now*.001+z)*r*.2,y0+r*(2.1+mid*.35));cx.stroke();}
+      }
+      cx.shadowBlur=0;cx.globalCompositeOperation='source-over';
+    }
+    function prism(now,h,energy,high,kick) {
+      cx.globalCompositeOperation='lighter';var cx0=W*.5,cy0=H*.44,spread=.25+energy*.2+kick*.08,rot=now*.00012;
+      for(var i=0;i<31;i++){
+        var a=rot+(i-15)*spread/15, x2=cx0+Math.sin(a)*Math.max(W,H)*1.2,y2=cy0+Math.cos(a)*Math.max(W,H)*1.2;
+        var hue=(i*11+h+high*80)%360;cx.strokeStyle='hsla('+hue+',100%,65%,'+(i%3===0?.35:.16)+')';cx.lineWidth=(1+i%4*.8+high*2)*S;cx.shadowColor='hsl('+hue+',100%,65%)';cx.shadowBlur=12+high*16;cx.beginPath();cx.moveTo(cx0,cy0);cx.lineTo(x2,y2);cx.stroke();
+      }
+      for(var p=0;p<6;p++){var w=W*(.18+p*.12),y=H*(.18+p*.105)+Math.sin(rot*4+p)*H*.03;cx.save();cx.translate(W*.5,y);cx.rotate(-.22+Math.sin(rot+p)*.04);var g=cx.createLinearGradient(-w,0,w,0);g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.48,'hsla('+(h+p*23)%360+',100%,70%,.08)');g.addColorStop(.5,'rgba(255,255,255,.42)');g.addColorStop(.52,'hsla('+(h+p*23+100)%360+',100%,70%,.09)');g.addColorStop(1,'rgba(255,255,255,0)');cx.fillStyle=g;cx.fillRect(-w,-2,w*2,4+high*2);cx.restore();}
+      cx.globalCompositeOperation='source-over';
+    }
+    function quantum(now,h,energy,kick,drop) {
+      if(b.hit&&(b.k>.62||drop)){burst=Math.max(burst,drop?1:.6);lastHit=now;}
+      burst*=.945;
+      cx.globalCompositeOperation='lighter';
+      particles.forEach(function(p){
+        var angle=p.a+now*.00005*p.speed, dist=p.z*(Math.min(W,H)*(.12+((now-started)/1000*p.speed*.07)%1.2))*(1+burst*1.3);
+        var x=W*.5+Math.cos(angle)*dist+Math.sin(now*.0003+p.a)*W*.03;
+        var y=H*.5+Math.sin(angle)*dist*.75+Math.cos(now*.00027+p.a)*H*.025;
+        cx.strokeStyle='hsla('+(h+p.hue+energy*60)%360+',100%,68%,'+(Math.min(.85,.18+p.z*.5+burst*.25))+')';cx.lineWidth=(p.size+energy*2)*S;
+        cx.beginPath();cx.moveTo(x-Math.cos(angle)*p.trail*(1+energy*3),y-Math.sin(angle)*p.trail);cx.lineTo(x,y);cx.stroke();
+      });
+      if(b.hit||drop){cx.strokeStyle='rgba(180,245,255,'+(drop ? .65 : .24)+')';cx.lineWidth=(2+burst*8)*S;cx.beginPath();cx.arc(W*.5,H*.5,((now-lastHit)*(.25+energy))%(Math.min(W,H)*.72),0,6.283);cx.stroke();}
+      cx.globalCompositeOperation='source-over';
+    }
+    loop(function(now){
+      b.tick(now);var h=hue.tick(b.hit),energy=b.e,mid=b.mid||0,high=b.high||0,kick=b.k,drop=b.drop;
+      backdrop(now,h,energy);
+      if(kind==='skeleton')skeleton(now,h,energy,kick);
+      else if(kind==='fluid')fluid(now,h,energy,mid,high);
+      else if(kind==='growth')growth(now,h,energy,high);
+      else if(kind==='deepsea')deepsea(now,h,energy,mid,kick);
+      else if(kind==='prism')prism(now,h,energy,high,kick);
+      else quantum(now,h,energy,kick,drop);
+    },30);
+  }
+  function skeletonDance(){premiumVisual('skeleton');}
+  function neonFluid(){premiumVisual('fluid');}
+  function crystalGrowth(){premiumVisual('growth');}
+  function bioluminescentDeepSea(){premiumVisual('deepsea');}
+  function prismaticRefraction(){premiumVisual('prism');}
+  function quantumParticles(){premiumVisual('quantum');}
+
   var XP = window.XP = {
     active: false,
     onMeter: null,
@@ -109,7 +258,7 @@
       GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens })[name]();
+      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, crystalgrowth: crystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles })[name]();
     },
     close: function (quiet) {
       running = null;
@@ -351,7 +500,7 @@
   function beatTracker() {
     // Music playing  -> energy + kicks follow the real beat.
     // No music       -> everything eases to calm (no fake beat, no pulsing, no flashes).
-    var B = window.BEAT, b = { e: 0, k: 0, hit: false, live: false, lastKicks: B ? B.kicks : 0, lastHit: 0, musicAt: 0 };
+    var B = window.BEAT, b = { e: 0, k: 0, mid: 0, high: 0, hit: false, live: false, lastKicks: B ? B.kicks : 0, lastHit: 0, musicAt: 0 };
     XP.onMeter = function () {};
     try { if (A) A.meter(true); } catch (e) {}
     var musicOn = !A, nextCheck = 0;
@@ -364,6 +513,7 @@
       if (live) {
         b.e += ((B.e || 0) - b.e) * .18;
         b.k = B.k || 0;
+        b.mid += ((B.mid || 0) - b.mid) * .22; b.high += ((B.high || 0) - b.high) * .24;
         var fresh = B.kicks !== b.lastKicks; b.lastKicks = B.kicks;
         b.hit = fresh && now - b.lastHit > 230; if (b.hit) b.lastHit = now;
         // THE DROP: the music was quiet/building, then slams in
@@ -371,7 +521,7 @@
         b.drop = b.hit && b.k > .8 && b.e > .45 && b.e > b.slow * 1.9 && now - (b.lastDrop || 0) > 9000;
         if (b.drop) { b.lastDrop = now; dropFlash(); }
       } else {
-        b.e *= .9; b.k *= .8; b.hit = false; b.drop = false; if (B) b.lastKicks = B.kicks;
+        b.e *= .9; b.k *= .8; b.mid *= .85; b.high *= .85; b.hit = false; b.drop = false; if (B) b.lastKicks = B.kicks;
       }
       return Math.max(b.e * .8, b.k);
     };
@@ -1714,76 +1864,6 @@
   }
 
   // 24. CRYSTAL GEOMETRY — rotating diamonds refract rainbow light; they split apart on the drop
-  function crystal() {
-    var b = beatTracker(), hue = beatHue(200, 60), spin = 0, split = 0;
-    var g = glStart('crystal',
-      'uniform float spin, split;\n' +
-      'mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }\n' +
-      'float octa(vec3 p, float s){ p = abs(p); return (p.x + p.y + p.z - s) * .577; }\n' +
-      'float sdf(vec3 p){ vec3 q = p; q.xz = rot(spin) * q.xz; q.xy = rot(spin * .7) * q.xy;\n' +
-      ' float d = octa(q, .55);\n' +
-      ' for (int i = 0; i < 4; i++) { float a = float(i) * 1.5708 + spin * .5; vec3 o = vec3(cos(a), sin(a * 1.3) * .4, sin(a)) * (.95 + split * .9);\n' +
-      '  vec3 r = p - o; r.xy = rot(spin * 1.3 + float(i)) * r.xy; d = min(d, octa(r, .22)); }\n' +
-      ' return d; }\n' +
-      'void main(){ vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y; vec3 ro = vec3(0., 0., -3.2), rd = normalize(vec3(uv, 1.6));\n' +
-      ' vec3 col = vec3(.005, .005, .02) + pal(hue + .6) * .06 * (1. - length(uv));\n' +
-      ' float t = 0.; bool hit = false;\n' +
-      ' for (int i = 0; i < 56; i++) { float d = sdf(ro + rd * t); if (d < .001) { hit = true; break; } t += d; if (t > 8.) break; }\n' +
-      ' if (hit) { vec3 p = ro + rd * t; vec2 e = vec2(.002, 0.);\n' +
-      '  vec3 n = normalize(vec3(sdf(p + e.xyy) - sdf(p - e.xyy), sdf(p + e.yxy) - sdf(p - e.yxy), sdf(p + e.yyx) - sdf(p - e.yyx)));\n' +
-      '  float fr = pow(1. - abs(dot(n, rd)), 2.);\n' +
-      '  vec3 rf = refract(rd, n, .7);\n' +
-      '  col = pal(hue + rf.x * .6 + rf.y * .4 + dot(n, vec3(.3, .5, .2))) * (.25 + .75 * fr) * 1.3;\n' +
-      '  col += vec3(1.) * pow(max(dot(reflect(rd, n), normalize(vec3(.4, .6, -.6))), 0.), 40.) * 1.5;\n' +
-      '  col += pal(hue + .5) * kick * .12; }\n' +
-      ' col += pal(hue) * .15 / (1. + length(uv) * 6.);\n' +
-      ' gl_FragColor = vec4(col, 1.); }');
-    if (!g) return kaleido();
-    text('xpTop', 'CRYSTAL GEOMETRY');
-    loop(function (now) {
-      b.tick(now); var hh = hue.tick(b.hit);
-      spin += .005 + b.e * .012; split += ((b.live && b.k > .6 ? 1 : 0) - split) * .05;
-      g.f('spin', spin); g.f('split', split); g.draw(now, b, hh);
-    }, 30);
-  }
-
-  // 25. BLACK HOLE — movie-style black hole: thin blazing accretion disk, light bent over the top and under,
-  //     a razor photon ring, lensed galaxy behind. Disk spins faster with the music; no pulsing.
-  function blackhole() {
-    var b = beatTracker(), hue = beatHue(25, 20), spin = 0;
-    var g = glStart('blackhole', FBM3 +
-      'uniform float spin;\n' +
-      'vec3 diskCol(float dr, float ang, float side){ float heat = pow(clamp(2. / dr, 0., 1.), 1.4);\n' +
-      ' float turb = fbm3(vec2(ang * 5. - spin * 3. / dr, dr * 2.5)) * .8 + fbm3(vec2(ang * 13. - spin * 6. / dr, dr * 6.)) * .4;\n' +
-      ' vec3 c = mix(vec3(1., .35, .08), vec3(1., .92, .8), heat); c = mix(c, pal(hue), .22);\n' +
-      ' float dop = 1. + .65 * side;\n' +
-      ' return c * heat * (.35 + turb) * dop * 1.6; }\n' +
-      'void main(){ vec2 p = (gl_FragCoord.xy - .5 * res) / res.y * 1.05; float r = length(p); float rs = .1;\n' +
-      ' vec2 dir = p / max(r, 1e-4);\n' +
-      ' vec2 q = p * (1. - rs * rs * 2.4 / max(r * r, rs * rs * .9));\n' +
-      ' float ca = cos(.45), sa = sin(.45); vec2 gq = vec2(ca * q.x - sa * q.y, sa * q.x + ca * q.y);\n' +
-      ' vec3 col = pal(hue + .6) * fbm3(gq * 3. + 5.) * exp(-abs(gq.y) * 5.) * .35 + vec3(.9, .8, 1.) * pow(fbm3(gq * 7.), 3.) * exp(-abs(gq.y) * 7.) * .3;\n' +
-      ' vec2 sp = q * 160.; float st = hash(floor(sp)); col += vec3(1.) * step(.994, st) * smoothstep(.45, .1, length(fract(sp) - .5)) * (1. + 2. * smoothstep(.4, .12, r));\n' +
-      ' float ang = atan(p.y, p.x);\n' +
-      ' float ar = r / rs;\n' +
-      ' float upper = exp(-abs(ar - 1.75) * 3.2) * smoothstep(-.35, .25, p.y / r) ;\n' +
-      ' float lower = exp(-abs(ar - 1.35) * 7.) * smoothstep(.1, -.6, p.y / r) * .5;\n' +
-      ' col += diskCol(1.8 + abs(ar - 1.75) * 2., ang * .5, -cos(ang) * .5) * (upper + lower);\n' +
-      ' if (r < rs) col = vec3(0.);\n' +
-      ' col += vec3(1., .9, .75) * exp(-abs(ar - 1.04) * 55.) * 1.4;\n' +
-      ' vec2 dk = vec2(p.x, p.y / .16); float dr = length(dk) / rs; float da = atan(dk.y, dk.x);\n' +
-      ' float dm = smoothstep(1.7, 2.1, dr) * smoothstep(7., 4.5, dr);\n' +
-      ' vec3 disk = diskCol(dr, da, p.x / max(length(dk), 1e-4));\n' +
-      ' float front = step(p.y, 0.);\n' +
-      ' col = mix(col, col + disk, dm * mix(step(rs * 1.02, r), 1., front));\n' +
-      ' col = 1. - exp(-col * 1.3);\n' +
-      ' gl_FragColor = vec4(col, 1.); }');
-    if (!g) return zoom();
-    text('xpTop', 'BLACK HOLE');
-    loop(function (now) { b.tick(now); var hh = hue.tick(b.hit); spin += .01 + b.e * .03; g.f('spin', spin); g.draw(now, b, hh); }, 30);
-  }
-
-  // 26. LAVA LAMP 3D — big glossy blobs rise, merge and split
   function lava() {
     var b = beatTracker(), hue = beatHue(10, 35), pulse = 0;
     var g = glStart('lava',

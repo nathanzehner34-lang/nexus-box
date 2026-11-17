@@ -75,6 +75,7 @@ jobs:
           node tools/voice-test/smalltalk.test.js
           node tools/voice-test/memory.test.js
           node tools/voice-test/conversation.test.js
+          node tools/voice-test/visual-library.test.js
 
       - name: Build debug APK
         run: |

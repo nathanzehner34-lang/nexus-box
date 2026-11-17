@@ -2100,12 +2100,14 @@
   }
 
   // ---- Beat analyser: turns the music signal into "energy" (0-1) and "kicks" (bass hits) ----
-  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, last: 0, kicks: 0, live: 0 };
+  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, mid: 0, high: 0, last: 0, kicks: 0, live: 0 };
   BEAT.tick = function () { BEAT.k *= .86; BEAT.e *= .97; return Math.max(BEAT.e, BEAT.k); };
-  function feedBeat(all, bass) {
+  function feedBeat(all, bass, mid, high) {
     if (bass === undefined) bass = all;
     var now = Date.now();
     BEAT.avg = BEAT.avg * .97 + all * .03;
+    if (mid !== undefined) BEAT.mid = Math.max(mid, BEAT.mid * .72);
+    if (high !== undefined) BEAT.high = Math.max(high, BEAT.high * .7);
     BEAT.bavg = BEAT.bavg * .94 + bass * .06;
     BEAT.peak = Math.max(BEAT.peak * .995, all);
     if (all > .004) BEAT.live = now;
@@ -2118,8 +2120,8 @@
     }
     return false;
   }
-  Nexus._meter = function (all, bass) {
-    var kick = feedBeat(all, bass);
+  Nexus._meter = function (all, bass, mid, high) {
+    var kick = feedBeat(all, bass, mid, high);
     if (window.XP && XP.onMeter) XP.onMeter(all, bass, kick);
     if (!P.on) return;
     if (all > 0.004) P.lastMeter = Date.now();
@@ -2765,8 +2767,10 @@
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
     ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['worlds', '🏔', 'ALIEN WORLDS'], ['gold', '🥇', 'LIQUID METAL'], ['neural', '🧠', 'NEURAL NETWORK'], ['auroratunnel', '🌌', 'AURORA TUNNEL'], ['ink', '🎨', 'INK IN WATER'],
-    ['crystal', '💎', 'CRYSTALS'], ['datastorm', '💻', 'DATA STORM'], ['blackhole', '⚫', 'BLACK HOLE'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
-    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA']
+    ['datastorm', '💻', 'DATA STORM'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
+    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA'],
+    ['skeletondance', '💀', 'DANCING SKELETON'], ['neonfluid', '🫧', 'NEON FLUID'], ['crystalgrowth', '💎', 'CRYSTALLINE GROWTH'],
+    ['deepsea', '🪼', 'BIOLUMINESCENT DEEP SEA'], ['prismrefraction', '🔮', 'PRISMATIC REFRACTION'], ['quantumparticles', '✦', 'QUANTUM PARTICLES']
   ];
   // ---- BACKGROUNDS button: big picture grid, tap to apply instantly, plus home screen styles ----
   var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER'], ['gold', '🔓 GOLD']];
