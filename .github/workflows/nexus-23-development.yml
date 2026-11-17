@@ -77,6 +77,7 @@ jobs:
           node tools/voice-test/conversation.test.js
           node tools/voice-test/visual-library.test.js
           node tools/voice-test/party-mode.test.js
+          node tools/voice-test/enchanted.test.js
 
       - name: Build debug APK
         run: |

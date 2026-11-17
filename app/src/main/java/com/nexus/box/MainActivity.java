@@ -111,7 +111,7 @@ public class MainActivity extends Activity {
     private final Runnable focusSafety = () -> { audioHolds = 0; releaseFocusNow(); };
     private volatile List<String[]> labelCache = null;
     // Spotify's "Device broadcast status" feed (works even when notification access is blocked on the box)
-    private volatile String spTitle = null, spArtist = null;
+    private volatile String spTitle = null, spArtist = null, spAlbum = null;
     private volatile String partyArtTrack = "", partyArtData = "";
     private volatile boolean spPlaying = false;
     private volatile long spTime = 0;
@@ -126,6 +126,7 @@ public class MainActivity extends Activity {
             if (a.endsWith("metadatachanged")) {
                 spTitle = i.getStringExtra("track");
                 spArtist = i.getStringExtra("artist");
+                spAlbum = i.getStringExtra("album");
                 if (i.hasExtra("playing")) spPlaying = i.getBooleanExtra("playing", spPlaying);
                 spLen = i.getIntExtra("length", 0);
                 spPos = 0; spPosAt = System.currentTimeMillis();
@@ -1737,6 +1738,7 @@ public class MainActivity extends Activity {
                         o.put("playing", spPlaying);
                         if (spTitle != null) o.put("title", spTitle);
                         if (spArtist != null) o.put("artist", spArtist);
+                        if (spAlbum != null) o.put("album", spAlbum);
                         if (spPos >= 0) o.put("pos", spPos + (spPlaying ? System.currentTimeMillis() - spPosAt : 0));
                         if (spLen > 0) o.put("dur", spLen);
                         o.put("app", "com.spotify.music");
@@ -1763,6 +1765,8 @@ public class MainActivity extends Activity {
                     o.put("dur", md.getLong(MediaMetadata.METADATA_KEY_DURATION));
                     o.put("title", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_TITLE)));
                     o.put("artist", String.valueOf(md.getString(MediaMetadata.METADATA_KEY_ARTIST)));
+                    String album = md.getString(MediaMetadata.METADATA_KEY_ALBUM);
+                    if (album != null) o.put("album", album);
                     String artKey = String.valueOf(md.getString(MediaMetadata.METADATA_KEY_TITLE)) + "|" + String.valueOf(md.getString(MediaMetadata.METADATA_KEY_ARTIST));
                     if (!artKey.equals(partyArtTrack)) {
                         partyArtTrack = artKey;

@@ -289,6 +289,33 @@ body.style-sharp .tile .lb { font-family: monospace; }
 #aiSpeed { position: fixed; right: 2vw; bottom: 2vh; z-index: 60; font: 700 2.2vmin monospace; padding: .6vmin 1.4vmin; border-radius: 2vmin; background: rgba(0,0,0,.6); opacity: 0; transition: opacity .4s; pointer-events: none; }
 #aiSpeed.fast { color: #3dff9a; } #aiSpeed.ok { color: #ffd84a; } #aiSpeed.slow { color: #ff5a5a; }
 
+/* ---------- NEXUS ENCHANTED ---------- */
+#xp.enchanted { background:#030713; color:#e9f3ff; }
+#xp.enchanted #xpc { z-index:0; }
+#xp.enchanted #xpTop,#xp.enchanted #xpMid,#xp.enchanted #xpBottom { display:none; }
+#xp.enchanted #xpClose { top:2vh; right:2.4vw; z-index:15; min-width:7.5vmin; min-height:34px; padding:.8vmin 1.4vmin; border:1px solid rgba(164,202,231,.22); border-radius:4vmin; color:rgba(222,239,255,.72); background:rgba(5,11,21,.48); font:500 clamp(12px,1.65vmin,18px) monospace; letter-spacing:.1vmin; text-align:center; backdrop-filter:blur(8px); }
+#xp.enchanted #xpClose::after { content:'NEXUS'; margin-left:.55vmin; font-size:clamp(9px,1.05vmin,12px); letter-spacing:.16vmin; }
+.enchanted-hud { position:absolute; inset:0; z-index:12; pointer-events:none; opacity:1; transition:opacity 1s ease; }
+.enchanted-brand { position:absolute; top:2.2vh; left:2.8vw; display:flex; align-items:center; gap:.9vmin; color:rgba(227,239,255,.76); font-size:clamp(13px,1.72vmin,19px); letter-spacing:.34vmin; font-weight:500; transition:opacity .8s; }
+.enchanted-brand b { color:#f3f7ff; font-weight:700; }.enchanted-brand small { display:block; margin-top:.35vmin; color:rgba(176,199,228,.48); font:500 1.03vmin monospace; letter-spacing:.24vmin; }
+.enchanted-sigil { width:3.5vmin; height:3.5vmin; display:grid; place-items:center; border:1px solid rgba(128,192,229,.36); border-radius:50%; color:#a5e9ff; font-size:2vmin; text-shadow:0 0 1.4vmin rgba(96,192,255,.8); box-shadow:inset 0 0 1vmin rgba(85,160,224,.12),0 0 1.5vmin rgba(81,167,220,.1); }
+.enchanted-actions { position:absolute; top:2vh; right:12vw; display:flex; align-items:center; gap:.7vmin; transition:opacity .8s; pointer-events:auto; }
+.enchanted-actions button,.enchanted-menu button { min-height:34px; border:1px solid rgba(164,198,231,.2); border-radius:4vmin; color:rgba(222,239,255,.76); background:rgba(5,11,21,.5); font:500 clamp(10px,1.2vmin,14px) monospace; letter-spacing:.1vmin; padding:.95vmin 1.5vmin; backdrop-filter:blur(9px); }
+.enchanted-actions button:active,.enchanted-menu button:active { background:rgba(82,144,188,.26); transform:scale(.97); }
+.enchanted-menu { position:absolute; top:7.6vh; right:12vw; display:grid; grid-template-columns:repeat(2,minmax(12vmin,1fr)); gap:.7vmin; width:min(31vw,390px); padding:1vmin; border:1px solid rgba(155,191,222,.19); border-radius:1.3vmin; background:rgba(4,9,17,.82); box-shadow:0 1vmin 3vmin rgba(0,0,0,.32); backdrop-filter:blur(12px); pointer-events:auto; }
+.enchanted-menu button { display:flex; align-items:center; gap:.8vmin; padding:1.1vmin 1.25vmin; border-radius:.8vmin; text-align:left; font:500 clamp(11px,1.27vmin,15px) sans-serif; letter-spacing:.015vmin; white-space:nowrap; }
+.enchanted-menu button i { width:2vmin; color:#9de7ff; font:normal clamp(14px,1.8vmin,21px) Georgia; text-align:center; text-shadow:0 0 1vmin rgba(79,185,242,.55); }
+.enchanted-track { position:absolute; right:2.7vw; bottom:3vh; width:min(31vw,390px); padding:1.1vmin 1.4vmin; border:1px solid rgba(142,174,221,.2); border-right-color:rgba(155,131,227,.32); border-radius:1.1vmin; color:#eef4ff; background:rgba(4,8,18,.62); box-shadow:inset 0 1px rgba(255,255,255,.045),0 0 1.8vmin rgba(83,102,186,.1); backdrop-filter:blur(10px); transition:opacity .8s,transform .8s; }
+.enchanted-track-title { overflow:hidden; color:rgba(239,246,255,.88); font-size:clamp(12px,1.55vmin,17px); font-weight:600; white-space:nowrap; text-overflow:ellipsis; }
+.enchanted-track-detail { margin-top:.4vmin; overflow:hidden; color:rgba(190,205,231,.64); font-size:clamp(10px,1.18vmin,13px); white-space:nowrap; text-overflow:ellipsis; }
+.enchanted-track.track-arrive { animation:enchantedTrackIn .65s ease both; }
+@keyframes enchantedTrackIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+.enchanted-hud.enchanted-dim .enchanted-brand,.enchanted-hud.enchanted-dim .enchanted-actions { opacity:.24; }
+.enchanted-hud.enchanted-minimal .enchanted-brand,.enchanted-hud.enchanted-minimal .enchanted-menu { opacity:0; pointer-events:none; }
+.enchanted-hud.enchanted-minimal .enchanted-menu-toggle { opacity:.25; }
+.enchanted-hud.enchanted-minimal .enchanted-ui-toggle { color:#d5eaff; border-color:rgba(164,198,231,.38); }
+@media(max-height:560px) { .enchanted-brand {top:1.5vh}.enchanted-actions{top:1.3vh}.enchanted-menu{top:7vh}.enchanted-track{bottom:2vh;padding:.8vmin 1.1vmin}.enchanted-menu button{padding:.8vmin 1vmin} }
+
 /* phones */
 .phwrap { display: flex; gap: 3vmin; align-items: center; }
 .phwrap .qr { width: 34vmin; height: 34vmin; border-radius: 1.5vmin; background: #fff; padding: .6vmin; image-rendering: pixelated; }

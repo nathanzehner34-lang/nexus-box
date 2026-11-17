@@ -2974,6 +2974,7 @@
     weather: function () {  return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
   var VISUALS = [
+    ['enchanted', '✧', 'NEXUS ENCHANTED'],
     ['aliens', '👽', 'TRIPPY ALIENS'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['tornado', '🌪', 'FIRE TORNADO'],
     ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
     ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
@@ -3076,7 +3077,7 @@
   window.onXpUserClose = function () { saverOn = false; stopPlaythrough(); backToVisuals(); };
   $('xpNext').addEventListener('click', function (e) { e.stopPropagation(); if (play) { play.i++; playStep(); } });
 
-  var xpLoaded = false;
+  var xpLoaded = false, resumeExperienceAfterPause = null;
   Nexus.openExperience = function (n) { openExperience(n); };
   function openExperience(name) {
     if (P.on) exitParty(true);
@@ -3102,11 +3103,13 @@
     if (st === 'failed') { if (install) install.style.display = 'none'; if (updateTimer) clearInterval(updateTimer); }
   };
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
-  Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
+  Nexus.home = function () { resumeExperienceAfterPause = null; stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
-  Nexus.paused = function () { wakeStop(); if (LS && LS.followup) { voiceGen++; orbBusy = false; lsCancel(); } stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.paused = function () { wakeStop(); if (LS && LS.followup) { voiceGen++; orbBusy = false; lsCancel(); } stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) { if (XP.current === 'enchanted') resumeExperienceAfterPause = XP.current; XP.close(); } try { if (A && P.on) A.meter(false); } catch (e) {} };
   Nexus.resumed = function () {
-    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); wakeSchedule(1500); };
+    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); wakeSchedule(1500);
+    if (resumeExperienceAfterPause) { var restoreExperience = resumeExperienceAfterPause; resumeExperienceAfterPause = null; setTimeout(function () { if (!P.on && !(window.XP && XP.active)) openExperience(restoreExperience); }, 350); }
+  };
 
   // ------------------------------------------------------------------
   // Start

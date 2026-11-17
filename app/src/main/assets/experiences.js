@@ -250,22 +250,273 @@
   function prismaticRefraction(){premiumVisual('prism');}
   function quantumParticles(){premiumVisual('quantum');}
 
+  // A living, code-drawn world. The scene uses the shared adaptive canvas and only
+  // allocates a small fixed set of stars, leaves, plants, crystals and creatures.
+  function enchanted() {
+    var bt = beatTracker(), seed = 23017, stars = [], dust = [], clouds = [], leaves = [], plants = [], crystals = [],
+      trees = [0, 0], ripples = [], meteors = [], creatures = [], plantWave = 0, plantWaveAt = 0, crystalWave = -1, crystalWaveAt = 0,
+      energyWaveAt = 0, worldEnergy = 0, aurora = 0, nextEvent = performance.now() + 17000, lastHit = 0, musicKey = '', hud, trackCard, trackTitle, trackArtist, menu, hideTimer;
+    function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+    function range(a, b) { return a + rnd() * (b - a); }
+    for (var i = 0; i < 64; i++) stars.push({ x:rnd(), y:rnd() * .68, r:.35 + rnd() * 1.2, phase:rnd() * 6.28, hue:rnd() });
+    for (i = 0; i < 34; i++) dust.push({ x:rnd(), y:rnd(), z:.3 + rnd() * .7, phase:rnd() * 6.28, sway:range(.003, .012) });
+    for (i = 0; i < 5; i++) clouds.push({ x:rnd(), y:.12 + rnd() * .27, w:.1 + rnd() * .2, speed:.0007 + rnd() * .0012, phase:rnd() * 6.28 });
+    for (i = 0; i < 22; i++) leaves.push({ tree:i % 2, branch:Math.floor(i / 2), phase:rnd() * 6.28, light:rnd() });
+    for (i = 0; i < 19; i++) plants.push({ x:.04 + rnd() * .92, y:.79 + rnd() * .12, h:.035 + rnd() * .105, phase:rnd() * 6.28, bend:range(-.025, .025), energy:0, hue:rnd() });
+    [[.38,.65,.92],[.46,.59,.78],[.54,.66,.98],[.61,.61,.72],[.69,.69,.85],[.32,.71,.62],[.75,.71,.66]].forEach(function (p) { crystals.push({ x:p[0], y:p[1], z:p[2], phase:range(0,6.28), energy:0 }); });
+
+    layer.classList.add('enchanted');
+    text('xpTop', ''); text('xpMid', ''); text('xpBottom', '');
+    var back = $('xpClose'); back.textContent = '‹'; back.setAttribute('aria-label', 'Return to Nexus');
+    hud = document.createElement('div'); hud.className = 'enchanted-hud';
+    hud.innerHTML = '<div class="enchanted-brand"><span class="enchanted-sigil">✧</span><span>NEXUS <b>ENCHANTED</b><small>A LIVING WORLD</small></span></div>' +
+      '<div class="enchanted-actions"><button class="enchanted-menu-toggle" aria-expanded="false">INTERACT <i>⌄</i></button><button class="enchanted-ui-toggle">HIDE UI</button></div>' +
+      '<div class="enchanted-menu hidden" role="group" aria-label="World interactions">' +
+      '<button data-world="tree"><i>⌁</i>Awaken tree</button><button data-world="crystal"><i>◇</i>Touch crystal</button>' +
+      '<button data-world="water"><i>≈</i>Ripple water</button><button data-world="sky"><i>☾</i>Call the sky</button>' +
+      '<button data-world="summon"><i>✧</i>Summon a being</button><button data-world="energy"><i>◈</i>Release energy</button></div>';
+    trackCard = document.createElement('div'); trackCard.className = 'enchanted-track hidden'; trackCard.setAttribute('aria-live', 'polite');
+    trackTitle = document.createElement('div'); trackTitle.className = 'enchanted-track-title';
+    trackArtist = document.createElement('div'); trackArtist.className = 'enchanted-track-detail';
+    trackCard.appendChild(trackTitle); trackCard.appendChild(trackArtist); hud.appendChild(trackCard); layer.appendChild(hud); xpDom.push(hud);
+    menu = hud.querySelector('.enchanted-menu');
+    var menuToggle = hud.querySelector('.enchanted-menu-toggle'), uiToggle = hud.querySelector('.enchanted-ui-toggle');
+    function showHud() { hud.classList.remove('enchanted-dim'); if (hideTimer) clearTimeout(hideTimer); hideTimer = setTimeout(function () { if (!menu.classList.contains('hidden')) return; hud.classList.add('enchanted-dim'); }, 9000); }
+    XP.cleanupCurrent = function () { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; } };
+    menuToggle.addEventListener('click', function () { var open = menu.classList.contains('hidden'); menu.classList.toggle('hidden', !open); menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false'); showHud(); });
+    uiToggle.addEventListener('click', function () { hud.classList.toggle('enchanted-minimal'); uiToggle.textContent = hud.classList.contains('enchanted-minimal') ? 'SHOW UI' : 'HIDE UI'; if(hud.classList.contains('enchanted-minimal')){menu.classList.add('hidden');menuToggle.setAttribute('aria-expanded','false');} showHud(); });
+    Array.prototype.forEach.call(menu.querySelectorAll('[data-world]'), function (button) { button.addEventListener('click', function () {
+      var kind = button.getAttribute('data-world'), x = W * .5, y = H * .56;
+      if (kind === 'tree') { x = W * .13; y = H * .54; } else if (kind === 'crystal') y = H * .65;
+      else if (kind === 'water') { x = W * .78; y = H * .84; } else if (kind === 'sky') y = H * .2;
+      else if (kind === 'summon') y = H * .63;
+      activate(kind, x, y); menu.classList.add('hidden'); menuToggle.setAttribute('aria-expanded', 'false'); showHud();
+    }); });
+    hud.addEventListener('pointerdown', showHud);
+    function pollTrack() {
+      if (!XP.active || XP.current !== 'enchanted' || !A || !A.nowPlaying) return;
+      var np = {}; try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
+      var title = np.title && np.title !== 'null' ? np.title : '', artist = np.artist && np.artist !== 'null' ? np.artist : '', album = np.album && np.album !== 'null' ? np.album : '';
+      if (!title || !np.playing) { trackCard.classList.add('hidden'); musicKey = ''; return; }
+      trackTitle.textContent = title;
+      trackArtist.textContent = [artist, album].filter(Boolean).join('  ·  ');
+      trackCard.classList.remove('hidden');
+      var key = title + '|' + artist + '|' + album;
+      if (key !== musicKey) { musicKey = key; trackCard.classList.remove('track-arrive'); void trackCard.offsetWidth; trackCard.classList.add('track-arrive'); }
+    }
+    pollTrack(); every(pollTrack, 4500);
+
+    function activate(kind, x, y) {
+      showHud(); var now = performance.now(), idx;
+      if (kind === 'tree') {
+        idx = x < W * .5 ? 0 : 1; trees[idx] = 1; worldEnergy = Math.max(worldEnergy, .42);
+        plants.forEach(function (p) { if (Math.abs(p.x - (idx ? .86 : .14)) < .32) p.energy = 1; });
+      } else if (kind === 'crystal') {
+        crystalWave = 0; crystalWaveAt = now; worldEnergy = Math.max(worldEnergy, .45);
+      } else if (kind === 'water') {
+        if (ripples.length >= 7) ripples.shift(); ripples.push({ x:x / W, y:y / H, life:1, r:0, strength:.9 }); worldEnergy = Math.max(worldEnergy, .24);
+      } else if (kind === 'sky') {
+        aurora = 1; var count = DEVICE_MEMORY >= 6 ? 5 : 3;
+        for (idx = 0; idx < count; idx++) { if(meteors.length>=12)meteors.shift(); meteors.push({ x:range(.18,.9), y:range(.05,.34), vx:-range(.35,.65), vy:range(.24,.46), life:1, len:range(.08,.16) }); }
+      } else if (kind === 'summon') {
+        if (creatures.length >= 2) creatures.shift(); creatures.push({ type:Math.floor(rnd() * 3), x:.5, y:.62, phase:range(0,6.28), start:now, life:30 + rnd() * 10, summoned:true });
+        plants.forEach(function(p){if(Math.abs(p.x-.5)<.12)p.energy=Math.max(p.energy,.45);});
+        worldEnergy = Math.max(worldEnergy, .55); if(ripples.length>=7)ripples.shift(); ripples.push({ x:.5, y:.66, life:1, r:0, strength:.7 });
+      } else {
+        worldEnergy = 1; energyWaveAt = now; aurora = Math.max(aurora, .75); crystalWave = 0; crystalWaveAt = now;
+        if(ripples.length>=7)ripples.shift(); ripples.push({ x:x / W, y:y / H, life:1, r:0, strength:1 }); trees[0] = Math.max(trees[0], .7); trees[1] = Math.max(trees[1], .7);
+        plants.forEach(function (p) { p.energy = Math.max(p.energy, .65); });
+      }
+    }
+    cv.onpointerdown = function (e) {
+      if (!XP.active || XP.current !== 'enchanted') return;
+      var rect = cv.getBoundingClientRect(), x = (e.clientX - rect.left) / rect.width * W, y = (e.clientY - rect.top) / rect.height * H;
+      if (y < H * .4) activate('sky', x, y);
+      else if (x < W * .31) activate('tree', x, y);
+      else if (x > W * .68 && y > H * .5) activate('water', x, y);
+      else if (y > H * .44 && y < H * .78 && x > W * .29 && x < W * .73) activate('crystal', x, y);
+      else activate('energy', x, y);
+      if (e.preventDefault) e.preventDefault();
+    };
+
+    function path(points, color, width, alpha) {
+      cx.beginPath(); cx.moveTo(points[0][0], points[0][1]);
+      for (var pi = 1; pi < points.length; pi += 3) cx.bezierCurveTo(points[pi][0], points[pi][1], points[pi + 1][0], points[pi + 1][1], points[pi + 2][0], points[pi + 2][1]);
+      cx.strokeStyle = color; cx.lineWidth = width; cx.globalAlpha = alpha; cx.stroke(); cx.globalAlpha = 1;
+    }
+    function drawTree(side, now, energy) {
+      var x = W * (side ? .92 : .08), base = H * 1.04, dir = side ? -1 : 1, drift = Math.sin(now * .00016 + side) * W * .006;
+      var gx = cx.createLinearGradient(x - W * .05, 0, x + W * .06, 0); gx.addColorStop(0, '#07111c'); gx.addColorStop(.32, '#142638'); gx.addColorStop(.53, '#52718a'); gx.addColorStop(.67, '#15293d'); gx.addColorStop(1, '#060b13');
+      cx.lineCap = 'round'; cx.lineJoin = 'round'; cx.strokeStyle = '#050912'; cx.lineWidth = H * .16; cx.beginPath(); cx.moveTo(x, base); cx.bezierCurveTo(x + dir * W * .02, H * .75, x - dir * W * .025, H * .54, x + drift, H * .34); cx.stroke();
+      cx.strokeStyle = gx; cx.lineWidth = H * .122; cx.beginPath(); cx.moveTo(x, base); cx.bezierCurveTo(x + dir * W * .02, H * .75, x - dir * W * .025, H * .54, x + drift, H * .34); cx.stroke();
+      // Exposed roots and the old branches make the tree read as carved wood, not a glow blob.
+      for (var root = -2; root <= 2; root++) { cx.strokeStyle = root === 0 ? '#71849a' : '#27394b'; cx.globalAlpha = root === 0 ? .3 : .7; cx.lineWidth = H * (.014 + (2 - Math.abs(root)) * .003); cx.beginPath(); cx.moveTo(x, H * .89); cx.quadraticCurveTo(x + root * W * .018, H * .96, x + root * W * .043, H); cx.stroke(); } cx.globalAlpha = 1;
+      var branchPaths = [
+        [[x,H*.48],[x+dir*W*.045,H*.41],[x+dir*W*.12,H*.42],[x+dir*W*.21,H*.31]],
+        [[x,H*.4],[x-dir*W*.04,H*.34],[x-dir*W*.11,H*.34],[x-dir*W*.18,H*.22]],
+        [[x,H*.35],[x+dir*W*.02,H*.26],[x+dir*W*.08,H*.23],[x+dir*W*.13,H*.1]],
+        [[x,H*.55],[x+dir*W*.05,H*.48],[x+dir*W*.12,H*.5],[x+dir*W*.18,H*.43]],
+        [[x,H*.34],[x-dir*W*.02,H*.26],[x-dir*W*.07,H*.2],[x-dir*W*.1,H*.09]]
+      ];
+      branchPaths.forEach(function (p, bi) {
+        cx.lineCap = 'round'; cx.strokeStyle = '#07101a'; cx.lineWidth = H * (.049 - bi * .003); cx.beginPath(); cx.moveTo(p[0][0],p[0][1]); cx.bezierCurveTo(p[1][0],p[1][1],p[2][0],p[2][1],p[3][0],p[3][1]); cx.stroke();
+        cx.strokeStyle = '#263b50'; cx.lineWidth = H * (.032 - bi * .0025); cx.beginPath(); cx.moveTo(p[0][0],p[0][1]); cx.bezierCurveTo(p[1][0],p[1][1],p[2][0],p[2][1],p[3][0],p[3][1]); cx.stroke();
+        cx.strokeStyle = '#98c3db'; cx.globalAlpha = .12; cx.lineWidth = H * .004; cx.beginPath(); cx.moveTo(p[0][0]-W*.004,p[0][1]); cx.bezierCurveTo(p[1][0]-W*.004,p[1][1],p[2][0]-W*.004,p[2][1],p[3][0]-W*.004,p[3][1]); cx.stroke(); cx.globalAlpha=1;
+      });
+      // Veins of light travel from the roots into the crown after a touch.
+      if (trees[side] > .015) {
+        cx.globalCompositeOperation='lighter'; cx.strokeStyle='rgba(112,227,255,'+(.18+trees[side]*.72)+')'; cx.shadowColor='#55dfff'; cx.shadowBlur=10*S;
+        cx.lineWidth=H*.004; cx.beginPath(); cx.moveTo(x,H*.92); cx.bezierCurveTo(x+dir*W*.018,H*.7,x-dir*W*.018,H*.51,x+drift,H*.34); cx.stroke();
+        branchPaths.forEach(function(p){cx.beginPath();cx.moveTo(p[0][0],p[0][1]);cx.bezierCurveTo(p[1][0],p[1][1],p[2][0],p[2][1],p[3][0],p[3][1]);cx.stroke();});
+        cx.shadowBlur=0;cx.globalCompositeOperation='source-over';
+      }
+    }
+    function drawCanopy(now) {
+      leaves.forEach(function (leaf) {
+        var side=leaf.tree, dir=side?-1:1, rootX=W*(side?.92:.08), n=leaf.branch,
+          x=rootX+dir*W*(.035+(n%5)*.032), y=H*(.13+Math.floor(n/5)*.082)+Math.sin(now*.0005+leaf.phase)*H*.008,
+          pulse=.45+.25*Math.sin(now*.001+leaf.phase)+(trees[side]*.42)+plantWave*.1;
+        cx.fillStyle='rgba(22,65,82,.56)'; cx.beginPath(); cx.ellipse(x,y,W*.043,H*.029,dir*.24,0,6.283); cx.fill();
+        cx.fillStyle='rgba(61,173,194,'+Math.max(.08,Math.min(.56,pulse*.35))+')'; cx.beginPath(); cx.ellipse(x-dir*W*.009,y-H*.008,W*.027,H*.012,dir*.22,0,6.283); cx.fill();
+        cx.fillStyle='rgba(158,240,241,'+Math.max(.05,pulse*.35)+')'; cx.beginPath(); cx.arc(x-dir*W*.018,y-H*.004,Math.max(1,H*.0022),0,6.28); cx.fill();
+      });
+    }
+    function drawPlants(now) {
+      plants.forEach(function (p, i) {
+        var x=p.x*W, y=p.y*H, h=p.h*H, sequence=Math.max(0,1-Math.abs((now-plantWaveAt)-i*82)/680), energy=Math.max(p.energy,plantWave*sequence), sway=Math.sin(now*.0008+p.phase)*W*.007+p.bend*W;
+        p.energy=Math.max(0,p.energy-.008);
+        cx.strokeStyle='rgba(39,120,137,.85)'; cx.lineWidth=Math.max(1,H*.004); cx.beginPath(); cx.moveTo(x,y); cx.quadraticCurveTo(x+sway*.35,y-h*.6,x+sway,y-h); cx.stroke();
+        for(var l=0;l<3;l++){var ly=y-h*(.28+l*.2), side=l%2?1:-1; cx.fillStyle='rgba(50,143,153,.42)'; cx.beginPath(); cx.ellipse(x+sway*(1-ly/y)+side*h*.1,ly,h*.11,h*.035,side*.48,0,6.28); cx.fill(); cx.strokeStyle='rgba(97,201,203,.24)'; cx.lineWidth=1; cx.beginPath(); cx.moveTo(x+sway*(1-ly/y),ly); cx.lineTo(x+sway*(1-ly/y)+side*h*.17,ly-h*.015); cx.stroke();}
+        var bud=.5+.22*Math.sin(now*.0015+p.phase)+energy*.5; cx.fillStyle='rgba(114,234,244,'+(.35+bud*.5)+')'; cx.beginPath(); cx.arc(x+sway,y-h,Math.max(1.5,H*.005),0,6.28); cx.fill();
+        if(i%4===0){cx.fillStyle='rgba(117,208,229,.32)';cx.beginPath();cx.ellipse(x+W*.018,y-h*.32,H*.025,H*.01,Math.sin(now*.001+p.phase)*.3,0,6.28);cx.fill();}
+      });
+    }
+    function drawMushrooms(now) {
+      for(var i=0;i<7;i++){var x=W*(.12+i*.125), y=H*(.88+(i%3)*.02), h=H*(.032+(i%3)*.012), pulse=.6+.3*Math.sin(now*.0012+i*2)+plantWave*.18;
+        cx.fillStyle='rgba(22,38,54,.95)';cx.beginPath();cx.moveTo(x-h*.09,y);cx.lineTo(x-h*.06,y-h*.66);cx.quadraticCurveTo(x,y-h*.8,x+h*.06,y-h*.66);cx.lineTo(x+h*.11,y);cx.closePath();cx.fill();
+        cx.fillStyle='rgba(73,176,194,'+(.44+pulse*.32)+')';cx.beginPath();cx.ellipse(x,y-h*.7,h*.2,h*.105,0,Math.PI,6.28);cx.quadraticCurveTo(x+h*.12,y-h*.57,x,y-h*.58);cx.quadraticCurveTo(x-h*.12,y-h*.57,x-h*.2,y-h*.7);cx.fill();
+        cx.fillStyle='rgba(178,248,249,'+(.28+pulse*.5)+')';cx.beginPath();cx.arc(x-h*.07,y-h*.72,Math.max(1,H*.002),0,6.28);cx.arc(x+h*.05,y-h*.75,Math.max(1,H*.0024),0,6.28);cx.fill();
+      }
+    }
+    function drawCrystal(c, now, i) {
+      var x=c.x*W+Math.sin(now*.0007+c.phase)*W*.006, y=c.y*H+Math.sin(now*.001+c.phase)*H*.012, r=H*(.025+c.z*.034), power=Math.max(c.energy,crystalWave>=0&&now-crystalWaveAt>i*230?Math.max(0,1-(now-crystalWaveAt-i*230)/1800):0);
+      c.energy=Math.max(0,c.energy-.008);
+      var glow=cx.createRadialGradient(x,y,1,x,y,r*3);glow.addColorStop(0,'rgba(121,206,255,'+(.16+power*.27)+')');glow.addColorStop(1,'rgba(42,91,164,0)');cx.fillStyle=glow;cx.fillRect(x-r*3,y-r*3,r*6,r*6);
+      var facets=[[x,y-r*1.35],[x+r*.48,y-r*.4],[x+r*.35,y+r*.9],[x,y+r*1.18],[x-r*.4,y+r*.45],[x-r*.55,y-r*.42]];
+      cx.beginPath();facets.forEach(function(q,k){if(k===0)cx.moveTo(q[0],q[1]);else cx.lineTo(q[0],q[1]);});cx.closePath();
+      var cg=cx.createLinearGradient(x-r,y-r,x+r,y+r);cg.addColorStop(0,'rgba(220,251,255,.92)');cg.addColorStop(.28,'rgba(80,194,233,.72)');cg.addColorStop(.57,'rgba(41,54,110,.9)');cg.addColorStop(1,'rgba(152,116,232,.75)');cx.fillStyle=cg;cx.fill();
+      cx.strokeStyle='rgba(210,246,255,'+(.42+power*.5)+')';cx.lineWidth=Math.max(1,S*1.4);cx.stroke();
+      cx.beginPath();cx.moveTo(x,y-r*1.32);cx.lineTo(x+r*.04,y+r*.58);cx.lineTo(x-r*.4,y-r*.42);cx.closePath();cx.fillStyle='rgba(235,255,255,.25)';cx.fill();
+      cx.beginPath();cx.moveTo(x,y-r*1.32);cx.lineTo(x+r*.48,y-r*.4);cx.lineTo(x+r*.04,y+r*.58);cx.closePath();cx.fillStyle='rgba(137,220,255,.24)';cx.fill();
+      if(power>.05){cx.globalCompositeOperation='lighter';cx.strokeStyle='rgba(178,235,255,'+power*.45+')';cx.lineWidth=1;cx.beginPath();cx.arc(x,y,r*(1.4+(1-power)*2),0,6.28);cx.stroke();cx.globalCompositeOperation='source-over';}
+    }
+    function drawCreature(c, now) {
+      var age=(now-c.start)/1000, fade=Math.min(1,age*1.8,(c.life-age)*.6), sway=Math.sin(now*.0011+c.phase)*W*.025, x=c.x*W+sway, y=c.y*H+Math.sin(now*.0015+c.phase)*H*.035;
+      c.x+=.00013*Math.sin(c.phase+now*.0002); c.y+=.00005*Math.cos(c.phase+now*.0003);
+      cx.save();cx.translate(x,y);cx.globalAlpha=Math.max(0,fade);cx.globalCompositeOperation='lighter';cx.shadowColor='#68d9ff';cx.shadowBlur=12*S;
+      if(c.type===0){ // long-winged night moth, drawn as an illuminated silhouette
+        var flap=Math.sin(now*.009+c.phase)*.28;cx.fillStyle='rgba(118,204,239,.34)';
+        cx.beginPath();cx.moveTo(0,0);cx.bezierCurveTo(-W*.025,-H*(.015+flap*.02),-W*.05,-H*.06,-W*.065,-H*.035);cx.quadraticCurveTo(-W*.048,H*.006,0,H*.01);cx.closePath();cx.fill();
+        cx.beginPath();cx.moveTo(0,0);cx.bezierCurveTo(W*.025,-H*(.015-flap*.02),W*.05,-H*.06,W*.065,-H*.035);cx.quadraticCurveTo(W*.048,H*.006,0,H*.01);cx.closePath();cx.fill();
+        cx.strokeStyle='rgba(190,239,255,.66)';cx.lineWidth=1;cx.beginPath();cx.moveTo(0,0);cx.lineTo(-W*.054,-H*.034);cx.moveTo(0,0);cx.lineTo(W*.054,-H*.034);cx.stroke();
+      }else if(c.type===1){ // a distant manta-like spirit gliding over the canopy
+        cx.fillStyle='rgba(126,118,227,.42)';cx.beginPath();cx.moveTo(-W*.055,0);cx.quadraticCurveTo(-W*.02,-H*.05,0,-H*.012);cx.quadraticCurveTo(W*.02,-H*.05,W*.055,0);cx.quadraticCurveTo(W*.02,H*.018,0,H*.012);cx.quadraticCurveTo(-W*.02,H*.018,-W*.055,0);cx.fill();
+        cx.strokeStyle='rgba(161,225,255,.7)';cx.lineWidth=1;cx.beginPath();cx.moveTo(-W*.05,0);cx.quadraticCurveTo(-W*.02,H*.035,0,H*.01);cx.quadraticCurveTo(W*.02,H*.035,W*.05,0);cx.stroke();cx.beginPath();cx.moveTo(0,H*.01);cx.quadraticCurveTo(W*.018,H*.05,W*.03,H*.07);cx.stroke();
+      }else{ // narrow antlered wisp; no face or cartoon proportions
+        cx.fillStyle='rgba(115,225,245,.48)';cx.beginPath();cx.moveTo(0,-H*.035);cx.quadraticCurveTo(W*.027,-H*.005,W*.014,H*.03);cx.quadraticCurveTo(0,H*.054,-W*.014,H*.03);cx.quadraticCurveTo(-W*.027,-H*.005,0,-H*.035);cx.fill();
+        cx.strokeStyle='rgba(190,246,255,.75)';cx.beginPath();cx.moveTo(-W*.006,-H*.015);cx.quadraticCurveTo(-W*.026,-H*.055,-W*.035,-H*.044);cx.moveTo(W*.006,-H*.015);cx.quadraticCurveTo(W*.026,-H*.055,W*.035,-H*.044);cx.stroke();
+      }
+      cx.shadowBlur=0;cx.globalAlpha=fade*.55;cx.strokeStyle='rgba(112,220,255,.5)';cx.beginPath();cx.moveTo(0,H*.02);cx.quadraticCurveTo(-W*.018,H*.07,Math.sin(now*.001+c.phase)*W*.03,H*.12);cx.stroke();cx.restore();cx.globalAlpha=1;cx.globalCompositeOperation='source-over';
+    }
+    function activateEvent(now) {
+      var choice=Math.floor(rnd()*5);
+      if(choice===0){plantWave=1;plantWaveAt=now;}
+      else if(choice===1){crystalWave=0;crystalWaveAt=now;}
+      else if(choice===2){for(var i=0;i<1+Math.floor(rnd()*2);i++){if(meteors.length>=12)meteors.shift();meteors.push({x:range(.45,.95),y:range(.04,.26),vx:-range(.3,.65),vy:range(.25,.45),life:1,len:range(.08,.15)});}}
+      else if(choice===3&&creatures.length<2){creatures.push({type:Math.floor(rnd()*3),x:range(.42,.7),y:.47,phase:range(0,6.28),start:now,life:22+range(0,12),summoned:false});}
+      else {worldEnergy=Math.max(worldEnergy,.45);energyWaveAt=now;var side=Math.floor(rnd()*2);trees[side]=Math.max(.45,trees[side]);}
+      nextEvent=now+range(19000,39000);
+    }
+    function drawScene(now) {
+      var beat=bt.tick(now), t=now*.001, daylight=.5+.5*Math.sin(now*.000025), light=.78+daylight*.12+worldEnergy*.14;
+      trees[0]=Math.max(0,trees[0]-.003);trees[1]=Math.max(0,trees[1]-.003);worldEnergy=Math.max(0,worldEnergy-.003);aurora=Math.max(0,aurora-.0007);plantWave=Math.max(0,plantWave-.0025);
+      if(now>nextEvent)activateEvent(now);
+      if(bt.hit&&now-lastHit>650){lastHit=now;worldEnergy=Math.max(worldEnergy,.12+bt.k*.18);if(ripples.length<7)ripples.push({x:.51,y:.83,life:.5,r:0,strength:.18+bt.k*.16});}
+      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;
+      var sky=cx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#030713');sky.addColorStop(.34,'#0b1830');sky.addColorStop(.61,'#101b2d');sky.addColorStop(1,'#050b13');cx.fillStyle=sky;cx.fillRect(0,0,W,H);
+      // Star field and slow atmospheric nebula.
+      stars.forEach(function(s){var tw=.25+.5*(.5+.5*Math.sin(t*.8+s.phase));cx.fillStyle='rgba(189,222,255,'+(tw*.62)+')';cx.fillRect(s.x*W,s.y*H,Math.max(1,s.r*S*2),Math.max(1,s.r*S*2));});
+      var neb=cx.createRadialGradient(W*.51,H*.34,1,W*.51,H*.34,H*.52);neb.addColorStop(0,'rgba(56,84,159,'+(.075+aurora*.06)+')');neb.addColorStop(.58,'rgba(52,44,116,.05)');neb.addColorStop(1,'rgba(0,0,0,0)');cx.fillStyle=neb;cx.fillRect(0,0,W,H*.83);
+      // Moon, halo and understated surface marks.
+      var mx=W*.55+Math.sin(t*.035)*W*.012,my=H*.225,mr=H*.115,moon=cx.createRadialGradient(mx-mr*.34,my-mr*.38,mr*.03,mx,my,mr*1.12);moon.addColorStop(0,'#f0f7ff');moon.addColorStop(.35,'#b8c9e3');moon.addColorStop(.75,'#7489a9');moon.addColorStop(1,'rgba(79,104,142,.1)');
+      cx.fillStyle='rgba(101,145,205,.12)';cx.beginPath();cx.arc(mx,my,mr*1.85,0,6.28);cx.fill();cx.fillStyle=moon;cx.beginPath();cx.arc(mx,my,mr,0,6.28);cx.fill();
+      cx.fillStyle='rgba(46,61,85,.18)';[[.25,-.2,.07],[ -.3,.13,.11],[.05,.4,.055]].forEach(function(q){cx.beginPath();cx.arc(mx+q[0]*mr,my+q[1]*mr,q[2]*mr,0,6.28);cx.fill();});
+      // Slow moving cloud banks cross in front of the moon.
+      clouds.forEach(function(c){var x=((c.x+now*c.speed/1000)%1.4-.2)*W,y=c.y*H;cx.fillStyle='rgba(28,43,66,.42)';cx.beginPath();cx.ellipse(x,y,c.w*W,H*.025,c.phase*.03,0,6.28);cx.ellipse(x+c.w*W*.34,y-H*.012,c.w*W*.48,H*.033,0,0,6.28);cx.ellipse(x-c.w*W*.3,y+H*.009,c.w*W*.4,H*.022,0,0,6.28);cx.fill();});
+      // Mountain line, ruined towers, and a distant ceremonial arch.
+      cx.fillStyle='#080f1b';cx.beginPath();cx.moveTo(0,H*.63);for(var m=0;m<=16;m++){var xx=m/16*W,yy=H*(.47+Math.abs(Math.sin(m*2.31))*.1+(m%3===0?.05:0));cx.lineTo(xx,yy);}cx.lineTo(W,H*.8);cx.lineTo(0,H*.8);cx.closePath();cx.fill();
+      cx.fillStyle='#101a29';for(var tower=0;tower<7;tower++){var tx=W*(.12+tower*.12),ty=H*(.53+(tower%3)*.032),tw=W*(.018+(tower%2)*.006);cx.fillRect(tx,ty,tw,H*.18);cx.beginPath();cx.moveTo(tx-W*.006,ty);cx.lineTo(tx+tw*.5,ty-H*.036);cx.lineTo(tx+tw+W*.006,ty);cx.closePath();cx.fill();cx.fillStyle='rgba(115,202,226,.28)';cx.fillRect(tx+tw*.42,ty+H*.03,Math.max(1,tw*.12),H*.034);cx.fillStyle='#101a29';}
+      // Main broken arch with chipped stone courses and luminous runes.
+      var archX=W*.5,archY=H*.64,archW=W*.19,archH=H*.25;cx.fillStyle='#101a28';cx.beginPath();cx.moveTo(archX-archW*.58,archY+archH);cx.lineTo(archX-archW*.55,archY+archH*.26);cx.quadraticCurveTo(archX-archW*.48,archY-archH*.12,archX,archY-archH*.12);cx.quadraticCurveTo(archX+archW*.48,archY-archH*.12,archX+archW*.55,archY+archH*.26);cx.lineTo(archX+archW*.58,archY+archH);cx.lineTo(archX+archW*.37,archY+archH);cx.lineTo(archX+archW*.36,archY+archH*.24);cx.quadraticCurveTo(archX+archW*.3,archY+archH*.05,archX,archY+archH*.04);cx.quadraticCurveTo(archX-archW*.3,archY+archH*.05,archX-archW*.36,archY+archH*.24);cx.lineTo(archX-archW*.37,archY+archH);cx.closePath();cx.fill();
+      cx.strokeStyle='rgba(112,167,200,.34)';cx.lineWidth=Math.max(1,S*1.4);cx.beginPath();cx.moveTo(archX-archW*.5,archY+archH*.3);cx.lineTo(archX-archW*.49,archY+archH*.91);cx.moveTo(archX+archW*.5,archY+archH*.3);cx.lineTo(archX+archW*.49,archY+archH*.91);cx.stroke();
+      for(var rune=0;rune<5;rune++){var rx=archX-archW*.34+rune*archW*.17,ry=archY+archH*.68+Math.sin(rune*2)*H*.015;cx.strokeStyle='rgba(90,213,239,'+(.22+worldEnergy*.5)+')';cx.beginPath();cx.moveTo(rx,ry-H*.01);cx.lineTo(rx+W*.006,ry);cx.lineTo(rx,ry+H*.012);cx.stroke();}
+      // Aurora ribbons are occasional, translucent and slow.
+      if(aurora>.02){cx.globalCompositeOperation='lighter';for(var au=0;au<4;au++){cx.beginPath();for(var ap=0;ap<=24;ap++){var ax=ap/24*W,ay=H*(.28+au*.035)+Math.sin(ap*.4+t*.42+au)*H*.035;if(!ap)cx.moveTo(ax,ay);else cx.lineTo(ax,ay);}cx.strokeStyle='rgba(91,141,234,'+(aurora*.075)+')';cx.lineWidth=H*.035;cx.stroke();}cx.globalCompositeOperation='source-over';}
+      // Distant falls and pools, with several independent ribbons moving downhill.
+      var fx=W*.77,top=H*.48,waterY=H*.82;cx.fillStyle='rgba(32,72,104,.42)';cx.beginPath();cx.moveTo(fx-W*.037,top);cx.lineTo(fx+W*.033,top);cx.lineTo(fx+W*.055,waterY);cx.quadraticCurveTo(fx,waterY+H*.018,fx-W*.05,waterY);cx.closePath();cx.fill();
+      for(var fall=0;fall<5;fall++){var off=(now*.00016+fall*.21)%1;cx.strokeStyle=fall%2?'rgba(131,222,245,.3)':'rgba(220,249,255,.44)';cx.lineWidth=Math.max(1,W*(.0015+fall%2*.001));cx.beginPath();for(var fy=0;fy<=15;fy++){var yy=top+(waterY-top)*fy/15,wx=fx+Math.sin(fy*.72-off*9+fall)*W*.006+Math.cos(fy*.2+fall)*W*.002;if(!fy)cx.moveTo(wx,yy);else cx.lineTo(wx,yy);}cx.stroke();}
+      cx.fillStyle='rgba(15,48,74,.9)';cx.beginPath();cx.moveTo(W*.17,waterY);cx.quadraticCurveTo(W*.4,H*.78,W*.58,H*.84);cx.quadraticCurveTo(W*.8,H*.77,W,H*.82);cx.lineTo(W,H);cx.lineTo(0,H);cx.quadraticCurveTo(W*.08,H*.85,W*.17,waterY);cx.fill();
+      var reflection=cx.createLinearGradient(0,waterY,0,H);reflection.addColorStop(0,'rgba(111,193,228,.38)');reflection.addColorStop(.4,'rgba(50,109,155,.18)');reflection.addColorStop(1,'rgba(7,20,36,.78)');cx.fillStyle=reflection;cx.fillRect(0,waterY,W,H-waterY);
+      for(var wave=0;wave<12;wave++){var wy=waterY+H*.016+wave*H*.014,shift=(now*.00012+wave*.23)%1;cx.strokeStyle='rgba(122,202,231,'+(.07+(wave%3)*.025)+')';cx.lineWidth=Math.max(1,S);cx.beginPath();for(var wxi=0;wxi<=34;wxi++){var wxx=((wxi/34+shift)%1)*W,wyy=wy+Math.sin(wxi*.42+now*.001+wave)*H*.003;if(!wxi)cx.moveTo(wxx,wyy);else cx.lineTo(wxx,wyy);}cx.stroke();}
+      // The light path leads the eye through reflective water toward the old gate.
+      var pg=cx.createLinearGradient(W*.5,H*.68,W*.5,H);pg.addColorStop(0,'rgba(127,209,232,.02)');pg.addColorStop(.55,'rgba(110,180,211,.12)');pg.addColorStop(1,'rgba(98,166,201,.27)');cx.fillStyle=pg;cx.beginPath();cx.moveTo(W*.48,H*.69);cx.lineTo(W*.52,H*.69);cx.lineTo(W*.7,H);cx.lineTo(W*.27,H);cx.closePath();cx.fill();
+      for(var stone=0;stone<8;stone++){var sy=H*(.72+stone*.038),sw=W*(.014+stone*.009);cx.fillStyle='rgba(89,130,158,'+( .09+worldEnergy*.12)+')';cx.beginPath();cx.ellipse(W*.5+Math.sin(stone*4)*sw*1.3,sy,sw,H*.004,0,0,6.28);cx.fill();}
+      var energyAge=now-energyWaveAt;
+      if(energyWaveAt>0&&energyAge<3600){var route=[[.08,.8],[.25,.73],[.39,.7],[.5,.67],[.63,.72],[.78,.81],[.92,.82]],seg=Math.min(route.length-2,Math.floor(energyAge/600)),part=(energyAge-seg*600)/600,ex=(route[seg][0]+(route[seg+1][0]-route[seg][0])*part)*W,ey=(route[seg][1]+(route[seg+1][1]-route[seg][1])*part)*H;cx.globalCompositeOperation='lighter';cx.beginPath();cx.moveTo(route[0][0]*W,route[0][1]*H);for(var ep=1;ep<=seg;ep++)cx.lineTo(route[ep][0]*W,route[ep][1]*H);cx.lineTo(ex,ey);cx.strokeStyle='rgba(116,218,255,'+(.22+worldEnergy*.5)+')';cx.lineWidth=H*.009;cx.shadowColor='#6adfff';cx.shadowBlur=14*S;cx.lineCap='round';cx.stroke();cx.shadowBlur=0;cx.fillStyle='rgba(210,249,255,.86)';cx.beginPath();cx.arc(ex,ey,H*.012,0,6.28);cx.fill();cx.globalCompositeOperation='source-over';}
+      // Deep trees frame the valley and expose fine, electric branches.
+      drawTree(0,now,trees[0]);drawTree(1,now,trees[1]);drawCanopy(now);
+      // Falling glints are re-used in place; they are not recreated each frame.
+      dust.forEach(function(d){d.y+=d.z*.00012;if(d.y>.97)d.y=-.02;d.x+=Math.sin(t+d.phase)*d.sway*.0002;if(d.x<0)d.x=1;if(d.x>1)d.x=0;var a=.2+.35*(.5+.5*Math.sin(t*1.4+d.phase));cx.fillStyle='rgba(128,222,237,'+a+')';cx.beginPath();cx.arc(d.x*W,d.y*H,Math.max(1,d.z*1.3*S),0,6.28);cx.fill();});
+      drawPlants(now);drawMushrooms(now);crystals.forEach(function(c,i){drawCrystal(c,now,i);});
+      // Mana motes drift around tree roots and the path.
+      for(var mote=0;mote<8;mote++){var mx2=W*(.18+((mote*.137+t*.006)% .64)),my2=H*(.7+Math.sin(t*.7+mote)*.14);cx.fillStyle='rgba(125,219,249,'+(.2+.18*Math.sin(t+mote)+worldEnergy*.2)+')';cx.beginPath();cx.arc(mx2,my2,1.1+((mote%3)*.6),0,6.28);cx.fill();}
+      // Touch ripples travel through the water and softly tint reflections.
+      for(var ri=ripples.length-1;ri>=0;ri--){var rp=ripples[ri];rp.r+=H*.0022;rp.life-=.009;if(rp.life<=0){ripples.splice(ri,1);continue;}cx.strokeStyle='rgba(154,225,246,'+(rp.life*.48)+')';cx.lineWidth=Math.max(1,S*1.2);cx.beginPath();cx.ellipse(rp.x*W,rp.y*H,rp.r*1.7,rp.r*.56,0,0,6.28);cx.stroke();cx.strokeStyle='rgba(134,186,245,'+(rp.life*.24)+')';cx.beginPath();cx.ellipse(rp.x*W,rp.y*H,rp.r*2.35,rp.r*.74,0,0,6.28);cx.stroke();}
+      // Distant beings glide through the branches, then leave the scene.
+      creatures.forEach(function(c){drawCreature(c,now);if((now-c.start)/1000>c.life)c.remove=true;});creatures=creatures.filter(function(c){return !c.remove;});
+      // Meteors are brief, angled light trails, not a continuous shower.
+      for(var mi=meteors.length-1;mi>=0;mi--){var me=meteors[mi];me.x+=me.vx*.006;me.y+=me.vy*.006;me.life-=.012;if(me.life<=0){meteors.splice(mi,1);continue;}cx.strokeStyle='rgba(188,226,255,'+(me.life*.78)+')';cx.lineWidth=Math.max(1,S*1.4);cx.beginPath();cx.moveTo(me.x*W,me.y*H);cx.lineTo((me.x+me.len*me.vx)*W,(me.y-me.len*me.vy)*H);cx.stroke();}
+      // Low, layered mist moves across the waterline and foreground.
+      for(var fog=0;fog<3;fog++){var fg=cx.createLinearGradient(0,H*(.72+fog*.07),0,H);fg.addColorStop(0,'rgba(89,145,185,0)');fg.addColorStop(.55,'rgba(70,112,151,'+(.045+fog*.018)+')');fg.addColorStop(1,'rgba(29,49,74,0)');cx.fillStyle=fg;cx.fillRect(0,H*(.7+fog*.07),W,H*.17);cx.strokeStyle='rgba(129,184,218,.075)';cx.lineWidth=H*.035;cx.beginPath();cx.moveTo(-W*.1,H*(.83+fog*.035));cx.bezierCurveTo(W*(.2+Math.sin(t*.1+fog)*.1),H*(.76+fog*.06),W*.58,H*(.9-fog*.025),W*1.1,H*(.79+fog*.03));cx.stroke();}
+      // Gradual environmental light changes and gentle bass response.
+      cx.fillStyle='rgba(94,134,186,'+(Math.max(0,light-.8)*.11+beat*.025)+')';cx.fillRect(0,0,W,H);
+    }
+    loop(drawScene,24); nextEvent=performance.now()+range(14000,27000); showHud();
+  }
+
   var XP = window.XP = {
     active: false,
+    current: null,
     onMeter: null,
+    cleanupCurrent: null,
     open: function (name) {
       XP.close(true);
       layer.classList.remove('hidden');
+      layer.classList.toggle('enchanted', name === 'enchanted');
+      $('xpClose').textContent = name === 'enchanted' ? '‹' : '✕';
+      $('xpClose').setAttribute('aria-label', name === 'enchanted' ? 'Return to Nexus' : 'Close experience');
       size();
       XP.active = true;
+      XP.current = name;
       running = name;
       GLX = 1.25;
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, macrocrystalgrowth: macroCrystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles })[name]();
+      ({ synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, macrocrystalgrowth: macroCrystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles, enchanted: enchanted })[name]();
     },
     close: function (quiet) {
       running = null;
+      if (XP.cleanupCurrent) { XP.cleanupCurrent(); XP.cleanupCurrent = null; }
       glStop();
       xpDom.forEach(function (d) { if (d.parentNode) d.parentNode.removeChild(d); }); xpDom = [];
       cancelAnimationFrame(raf);
@@ -275,6 +526,10 @@
       try { if (A) A.meter(false); } catch (e) {}
       if (XP.active && !quiet) N.stopTalking();
       XP.active = false;
+      XP.current = null;
+      cv.onpointerdown = null;
+      layer.classList.remove('enchanted');
+      $('xpClose').textContent = '✕'; $('xpClose').setAttribute('aria-label', 'Close experience');
       layer.classList.add('hidden');
       layer.onclick = null;
     }
