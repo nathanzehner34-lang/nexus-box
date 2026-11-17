@@ -18,7 +18,7 @@
   var mode = 'pulse', palette = 'blue', active = false, raf = 0, lastFrame = 0, lastPoll = 0;
   var w = 1, h = 1, scale = 1, energy = .12, bass = .08, source = 'fallback';
   var orbs = [], trails = [], waves = [], stars = [], selected = null, pointer = null;
-  var audio = null, soundOn = false, lastSong = '', artUrl = '', albumKey = '';
+  var audio = null, soundOn = false, lastSong = '', artUrl = '', albumKey = '', pollTimer = 0, dragVel = { x: 0, y: 0 };
   var rootStyle = root.style;
 
   function rgb(a) { return 'rgba(' + palettes[palette].join(',') + ',' + a + ')'; }
@@ -149,7 +149,7 @@
           o.x -= nx * overlap; o.y -= ny * overlap; b.x += nx * overlap; b.y += ny * overlap;
           var impulse = (o.vx - b.vx) * nx + (o.vy - b.vy) * ny;
           o.vx -= impulse * nx * .72; o.vy -= impulse * ny * .72; b.vx += impulse * nx * .72; b.vy += impulse * ny * .72;
-          if (impulse > 1.4) { o.r = Math.min(31, o.r + .12); b.r = Math.min(31, b.r + .12); sound(420, .08, .012); }
+          if (impulse > 2.6 && Math.abs(o.r - b.r) < 6 && orbs.length > 3) { o.r = Math.min(35, Math.sqrt(o.r * o.r + b.r * b.r) * .82); orbs.splice(j, 1); j--; wave(o.x, o.y, .65, 9); sound(420, .12, .025); } else if (impulse > 1.4) { o.r = Math.min(31, o.r + .12); b.r = Math.min(31, b.r + .12); sound(420, .08, .012); }
         }
       }
     }
@@ -213,20 +213,20 @@
     if (!active) return;
     var p = point(e), nearest = null, best = 1e9;
     for (var i = 0; i < orbs.length; i++) { var d = Math.hypot(orbs[i].x - p.x, orbs[i].y - p.y); if (d < orbs[i].r + 24 && d < best) { nearest = orbs[i]; best = d; } }
-    pointer = p; selected = nearest;
+    pointer = p; dragVel = { x: 0, y: 0 }; selected = nearest;
     if (!selected && orbs.length < 10) { selected = { x: p.x, y: p.y, vx: 0, vy: 0, r: random(14, 23), phase: random(0, 6.28) }; orbs.push(selected); }
     canvas.setPointerCapture(e.pointerId); trails.push({ points: [p], life: 1 }); wave(p.x, p.y, .6, 5); sound(620, .08, .014);
     e.preventDefault();
   });
   canvas.addEventListener('pointermove', function (e) {
     if (!pointer || !active) return;
-    var p = point(e); pointer = p;
+    var p = point(e); dragVel = { x: clamp((p.x - pointer.x) * .65, -8, 8), y: clamp((p.y - pointer.y) * .65, -8, 8) }; pointer = p;
     var path = trails[trails.length - 1]; if (path) { path.points.push(p); if (path.points.length > 24) path.points.shift(); }
   });
   function release(e) {
     if (!pointer) return;
     var p = point(e);
-    if (selected) { selected.vx += clamp((p.x - pointer.x) * .2, -8, 8); selected.vy += clamp((p.y - pointer.y) * .2, -8, 8); }
+    if (selected) { selected.vx += dragVel.x; selected.vy += dragVel.y; }
     wave(p.x, p.y, .75, 8); selected = null; pointer = null;
   }
   canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
@@ -326,11 +326,12 @@
     if (active) return;
     active = true; lastFrame = 0; resize();
     if (!raf) raf = requestAnimationFrame(render);
+    if (pollTimer) clearInterval(pollTimer); pollTimer = setInterval(updateMedia, 1800);
     updateMedia();
   }
   function stop() {
     active = false; if (raf) cancelAnimationFrame(raf); raf = 0;
-    if (window.Android && Android.partyMediaInfo) { /* polling is activity-scoped */ }
+    if (pollTimer) clearInterval(pollTimer); pollTimer = 0;
   }
   function visibility() {
     var hidden = root.classList.contains('hidden');
@@ -342,7 +343,5 @@
   catch (e) { setPalette('blue'); }
   soundButton.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
   soundButton.querySelector('span').textContent = soundOn ? 'SOUND FX ON' : 'SOUND FX OFF';
-  var appLoop = function (t) { poll(t); window.setTimeout(function () { requestAnimationFrame(appLoop); }, 700); };
-  requestAnimationFrame(appLoop);
   setMode('pulse');
 })();
