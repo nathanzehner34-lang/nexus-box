@@ -1536,6 +1536,8 @@ public class MainActivity extends Activity {
                         artworkData = partyArtworkCacheValue;
                     }
                     if (!artworkData.isEmpty()) o.put("artwork", artworkData);
+                } else {
+                    synchronized (this) { partyArtworkCacheKey = null; partyArtworkCacheValue = ""; }
                 }
             } catch (Exception ignored) {}
             return o.toString();
