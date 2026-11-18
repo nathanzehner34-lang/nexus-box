@@ -634,7 +634,17 @@ public class MainActivity extends Activity {
     private void warmSpotify() {
         try { getPackageManager().getPackageInfo("com.spotify.music", 0); } catch (Exception e) { return; }
         try {
-            if (spotifyWarm != null) { try { spotifyWarm.disconnect(); } catch (Exception ignored) {} spotifyWarm = null; }
+            if (spotifyWarm != null) {
+                try {
+                    if (spotifyWarm.isConnected() || spotifyWarm.isConnecting()) {
+                        ui.removeCallbacks(spotifyRewarm);
+                        ui.postDelayed(spotifyRewarm, 8 * 60 * 1000L);
+                        return;
+                    }
+                    spotifyWarm.disconnect();
+                } catch (Exception ignored) {}
+                spotifyWarm = null;
+            }
             final android.media.browse.MediaBrowser[] holder = new android.media.browse.MediaBrowser[1];
             holder[0] = new android.media.browse.MediaBrowser(this,
                     new ComponentName("com.spotify.music", "com.spotify.mobile.android.service.media.browser.SpotifyBrowserService"),
