@@ -4,10 +4,13 @@
   'use strict';
   var N = window.NX, A = N.A, $ = N.$;
   var layer = $('xp'), cv = $('xpc'), cx = cv.getContext('2d', { alpha: false });
-  // Quality: S = drawing resolution. Starts from what worked last time, then quietly
-  // steps up while the box keeps up, and steps back down the moment it struggles.
-  var QMIN = 0.4, QMAX = 0.8;
-  var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || 0.5));
+  var reportedMemoryGb = 0;
+  try { reportedMemoryGb = Number(A && A.deviceMemoryGb ? A.deviceMemoryGb() : 0); } catch (e) {}
+  if (!reportedMemoryGb) reportedMemoryGb = Number(navigator.deviceMemory) || 2;
+  var HIGH_MEMORY_DEVICE = reportedMemoryGb >= 6;
+  // Quality adjusts to frame time, while the RAM tier sets safe resolution and particle ceilings.
+  var QMIN = HIGH_MEMORY_DEVICE ? 0.42 : 0.34, QMAX = HIGH_MEMORY_DEVICE ? 0.9 : 0.8;
+  var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || (HIGH_MEMORY_DEVICE ? 0.68 : 0.48)));
   var W = 0, H = 0;
   var running = null, raf = 0, timers = [], last = 0, xpDom = [];
   var perf = { n: 0, slow: 0, since: 0 };
@@ -29,10 +32,103 @@
   function size() {
     W = cv.width = Math.max(1, Math.floor(layer.clientWidth * S)); H = cv.height = Math.max(1, Math.floor(layer.clientHeight * S));
     if (glc) { glc.width = Math.max(1, Math.floor(layer.clientWidth * S * GLX)); glc.height = Math.max(1, Math.floor(layer.clientHeight * S * GLX)); }
+    if (atmosphereCanvas) { atmosphereCanvas.width = W; atmosphereCanvas.height = H; }
   }
 
   // ---- Graphics-chip (WebGL) visuals: the sharpest, smoothest look for the least effort ----
   var glc = null, gl = null, GLX = 1.25, glBuf = null, glProgs = {};
+  var atmosphereCanvas = null, atmosphereCtx = null, atmosphereParticles = [], atmosphereProfile = null, atmosphereLast = 0;
+  var ATMOSPHERE_PROFILES = {
+    space: ['hyper zoom fractal wormhole blackhole auroratunnel worlds planet dragon'.split(' '), 212, 0],
+    fluid: ['water waterclub gold ink lava neonfluid deepsea liquiddreams'.split(' '), 184, 1],
+    prism: ['kaleido shatter prismrefraction macrocrystalgrowth'.split(' '), 296, 2],
+    organic: ['aliens skeletondance skull eye neural portrait datastorm'.split(' '), 326, 3],
+    neon: ['outrun synth bluefire vapor ring friend mirror tornado'.split(' '), 258, 4]
+  };
+  function atmosphereFamily(name) {
+    var keys = Object.keys(ATMOSPHERE_PROFILES);
+    for (var i = 0; i < keys.length; i++) if (ATMOSPHERE_PROFILES[keys[i]][0].indexOf(name) >= 0) return keys[i];
+    return 'neon';
+  }
+  function ensureAtmosphere() {
+    if (!atmosphereCanvas) {
+      atmosphereCanvas = document.createElement('canvas');
+      atmosphereCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0';
+      atmosphereCanvas.setAttribute('aria-hidden', 'true');
+      atmosphereCtx = atmosphereCanvas.getContext('2d', { alpha: true });
+    }
+    var anchor = glc || cv;
+    if (atmosphereCanvas.parentNode !== layer || atmosphereCanvas.previousSibling !== anchor) layer.insertBefore(atmosphereCanvas, anchor.nextSibling);
+    atmosphereCanvas.width = W; atmosphereCanvas.height = H;
+  }
+  function resetAtmosphere(name) {
+    atmosphereProfile = ATMOSPHERE_PROFILES[atmosphereFamily(name)]; atmosphereLast = 0;
+    ensureAtmosphere();
+    var seed = 271 + String(name).split('').reduce(function (n, c) { return (n * 33 + c.charCodeAt(0)) >>> 0; }, 0), count = HIGH_MEMORY_DEVICE ? 88 : 30;
+    function random() { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }
+    atmosphereParticles = [];
+    for (var i = 0; i < count; i++) atmosphereParticles.push({ x: random(), y: random(), z: .18 + random() * .82, phase: random() * 6.283, drift: .25 + random() * .9 });
+  }
+  function renderAtmosphere(now) {
+    if (!atmosphereCtx || !atmosphereProfile || !XP.active) return;
+    var dt = atmosphereLast ? Math.min(48, now - atmosphereLast) : 16; atmosphereLast = now;
+    var energy = window.BEAT && window.BEAT.live && Date.now() - window.BEAT.live < 1500 ? Math.min(1, window.BEAT.e || 0) : 0;
+    var bass = energy ? Math.min(1, window.BEAT.k || 0) : 0, mid = energy ? Math.min(1, window.BEAT.mid || 0) : 0, treble = energy ? Math.min(1, window.BEAT.high || 0) : 0;
+    var t = now * .001, hue = (atmosphereProfile[1] + t * (4 + mid * 18) + treble * 38) % 360, ctx = atmosphereCtx;
+    ctx.clearRect(0, 0, W, H); ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    var strength = HIGH_MEMORY_DEVICE ? .22 : .16, pulse = .08 + bass * .23 + energy * .11;
+    if (atmosphereProfile[2] === 0) {
+      // Space scenes gain a layered star parallax and soft radial lensing.
+      for (var s = 0; s < atmosphereParticles.length; s++) {
+        var star = atmosphereParticles[s], sx = ((star.x + t * star.drift * .006 * star.z) % 1) * W;
+        var sy = (star.y + Math.sin(t * .18 + star.phase) * .008) * H, radius = (.45 + star.z * 1.6 + treble * 1.2) * S;
+        ctx.fillStyle = 'hsla(' + (hue + star.phase * 16) % 360 + ',100%,82%,' + (strength * (.2 + star.z * .5 + energy * .18)) + ')';
+        ctx.beginPath(); ctx.arc(sx, sy, radius, 0, 6.283); ctx.fill();
+        if (bass > .25 && s % 5 === 0) { ctx.strokeStyle = 'hsla(' + hue + ',100%,75%,' + (bass * .15) + ')'; ctx.lineWidth = S; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - star.drift * bass * 12 * S, sy); ctx.stroke(); }
+      }
+      var lens = ctx.createRadialGradient(W * (.5 + Math.sin(t * .13) * .13), H * .5, 0, W * .5, H * .5, Math.max(W, H) * .62);
+      lens.addColorStop(0, 'hsla(' + hue + ',100%,64%,' + (.035 + energy * .035) + ')'); lens.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = lens; ctx.fillRect(0, 0, W, H);
+    } else if (atmosphereProfile[2] === 1) {
+      // Fluid scenes gain independent caustic currents at three depths.
+      for (var w = 0; w < 5; w++) {
+        var phase = t * (.22 + w * .035) * (w % 2 ? -1 : 1) + w * 1.27, base = H * (.16 + w * .16), amp = H * (.035 + energy * .025 + bass * .02);
+        var grad = ctx.createLinearGradient(0, base - amp, W, base + amp);
+        grad.addColorStop(0, 'hsla(' + (hue + w * 27) % 360 + ',100%,70%,0)'); grad.addColorStop(.48, 'hsla(' + (hue + w * 27) % 360 + ',100%,82%,' + (strength * .3) + ')'); grad.addColorStop(1, 'hsla(' + (hue + w * 27) % 360 + ',100%,70%,0)');
+        ctx.beginPath();
+        for (var x = 0; x <= 20; x++) { var u = x / 20, y = base + Math.sin(u * 7 + phase) * amp + Math.sin(u * 15 - phase * 1.4) * amp * .28; if (!x) ctx.moveTo(u * W, y); else ctx.lineTo(u * W, y); }
+        ctx.strokeStyle = grad; ctx.lineWidth = (1.2 + treble * 2) * S; ctx.stroke();
+      }
+    } else if (atmosphereProfile[2] === 2) {
+      // Optical scenes gain a mirrored spectral corona and beat-driven refraction arcs.
+      var cx0 = W * (.5 + Math.sin(t * .19) * .045), cy0 = H * (.5 + Math.cos(t * .17) * .035), radius0 = Math.min(W, H) * (.19 + pulse * .12);
+      for (var ray = 0; ray < 12; ray++) {
+        var angle = t * (.08 + mid * .12) + ray * 6.283 / 12, reach = radius0 * (1.25 + .22 * Math.sin(t * .7 + ray));
+        ctx.strokeStyle = 'hsla(' + (hue + ray * 9) % 360 + ',100%,78%,' + (strength * (.12 + treble * .18)) + ')'; ctx.lineWidth = (1 + treble * 1.4) * S;
+        ctx.beginPath(); ctx.moveTo(cx0 + Math.cos(angle) * radius0 * .35, cy0 + Math.sin(angle) * radius0 * .35); ctx.lineTo(cx0 + Math.cos(angle) * reach, cy0 + Math.sin(angle) * reach); ctx.stroke();
+      }
+      ctx.strokeStyle = 'hsla(' + hue + ',100%,82%,' + (strength * (.12 + bass * .2)) + ')'; ctx.lineWidth = Math.max(S, 1 + bass * 2) * S;
+      ctx.beginPath(); ctx.ellipse(cx0, cy0, radius0 * (1 + bass * .28), radius0 * .48, t * .11, 0, 6.283); ctx.stroke();
+    } else if (atmosphereProfile[2] === 3) {
+      // Organic scenes gain drifting depth spores and living filaments.
+      for (var p = 0; p < atmosphereParticles.length; p++) {
+        var mote = atmosphereParticles[p], mx = ((mote.x + Math.sin(t * .15 + mote.phase) * .025 + t * .002 * mote.drift) % 1) * W;
+        var my = (mote.y + Math.cos(t * .19 + mote.phase) * .018 - dt * .000012 * mote.z + 1) % 1 * H, mr = (.8 + mote.z * 2 + treble * 1.4) * S;
+        ctx.fillStyle = 'hsla(' + (hue + mote.phase * 12) % 360 + ',100%,75%,' + (strength * (.18 + mote.z * .36 + energy * .18)) + ')'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 6.283); ctx.fill();
+        if (p % 6 === 0) { ctx.strokeStyle = 'hsla(' + hue + ',100%,68%,' + (strength * .12) + ')'; ctx.lineWidth = S; ctx.beginPath(); ctx.moveTo(mx, my); ctx.quadraticCurveTo(mx + Math.sin(t + p) * W * .025, my - H * .025, mx + Math.cos(t + p) * W * .04, my - H * .06); ctx.stroke(); }
+      }
+    } else {
+      // Neon and architectural scenes gain independent perspective beams and pulse halos.
+      for (var beam = 0; beam < 7; beam++) {
+        var bx = W * (.12 + beam * .13 + Math.sin(t * .2 + beam) * .025), sway = Math.sin(t * .35 + beam * .8) * W * (.035 + mid * .02);
+        var bg = ctx.createLinearGradient(bx, 0, bx + sway, H); bg.addColorStop(0, 'hsla(' + (hue + beam * 24) % 360 + ',100%,68%,0)'); bg.addColorStop(.52, 'hsla(' + (hue + beam * 24) % 360 + ',100%,74%,' + (strength * (.08 + treble * .08)) + ')'); bg.addColorStop(1, 'hsla(' + (hue + beam * 24) % 360 + ',100%,68%,0)');
+        ctx.strokeStyle = bg; ctx.lineWidth = (2 + bass * 5) * S; ctx.beginPath(); ctx.moveTo(bx, 0); ctx.bezierCurveTo(bx + sway, H * .32, bx - sway, H * .66, bx + sway * .3, H); ctx.stroke();
+      }
+    }
+    // A restrained chromatic vignette adds depth without flattening the source scene.
+    var edge = ctx.createRadialGradient(W * .5, H * .5, Math.min(W, H) * .18, W * .5, H * .5, Math.max(W, H) * .72);
+    edge.addColorStop(0, 'rgba(0,0,0,0)'); edge.addColorStop(1, 'hsla(' + (hue + 215) % 360 + ',100%,30%,' + (.035 + energy * .025) + ')'); ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = edge; ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
   var GL_HEAD = '#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n' +
     'uniform vec2 res; uniform float time, hue, kick, energy;\n' +
     'vec3 pal(float t){ return .5 + .5 * cos(6.28318 * (t + vec3(0., .33, .67))); }\n' +
@@ -89,18 +185,15 @@
     function f(now) {
       if (!running) return;
       raf = requestAnimationFrame(f);
-      if (now - last < gap) return;
+      var targetGap = Math.max(gap, 1000 / (HIGH_MEMORY_DEVICE ? 30 : 20));
+      if (now - last < targetGap) return;
       last = now;
-      var t0 = performance.now(); draw(now); tuneQuality(now, gap, performance.now() - t0);
+      var t0 = performance.now(); draw(now); renderAtmosphere(now); tuneQuality(now, targetGap, performance.now() - t0);
     }
     perf = { n: 0, slow: 0, since: 0 };
     raf = requestAnimationFrame(f);
   }
 
-  var reportedMemoryGb = 0;
-  try { reportedMemoryGb = Number(A && A.deviceMemoryGb ? A.deviceMemoryGb() : 0); } catch (e) {}
-  if (!reportedMemoryGb) reportedMemoryGb = Number(navigator.deviceMemory) || 2;
-  var HIGH_MEMORY_DEVICE = reportedMemoryGb >= 6;
   function premiumBackdrop(hue, energy, vertical) {
     cx.globalCompositeOperation = 'source-over';
     cx.fillStyle = '#02040b'; cx.fillRect(0, 0, W, H);
@@ -733,14 +826,17 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       XP.current = name;
       running = name;
       GLX = 1.25;
+      resetAtmosphere(name);
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, crystal: crystal, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, macrocrystalgrowth: macroCrystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles, liquiddreams: liquidDreams })[name]();
+      ({ holo: holo, synth: synth, zoom: zoom, aura: aura, outrun: outrun, bluefire: bluefire, vapor: vapor, kaleido: kaleido, ring: ring, shatter: shatter, hyper: hyper, water: water, friend: friend, fractal: fractal, wormhole: wormhole, mirror: mirror, eye: eye, planet: planet, skull: skull, webcams: webcams, worlds: worlds, gold: gold, auroratunnel: auroratunnel, ink: ink, blackhole: blackhole, lava: lava, neural: neural, datastorm: datastorm, portrait: portrait, tornado: tornado, clockface: clockface, lyrics: lyrics, waterclub: waterclub, dragon: dragon, aliens: aliens, skeletondance: skeletonDance, neonfluid: neonFluid, macrocrystalgrowth: macroCrystalGrowth, deepsea: bioluminescentDeepSea, prismrefraction: prismaticRefraction, quantumparticles: quantumParticles, liquiddreams: liquidDreams })[name]();
     },
     close: function (quiet) {
       running = null;
       if (XP.cleanupCurrent) { XP.cleanupCurrent(); XP.cleanupCurrent = null; }
       glStop();
+      if (atmosphereCtx) atmosphereCtx.clearRect(0, 0, atmosphereCanvas.width, atmosphereCanvas.height);
+      atmosphereParticles = []; atmosphereProfile = null;
       xpDom.forEach(function (d) { if (d.parentNode) d.parentNode.removeChild(d); }); xpDom = [];
       cancelAnimationFrame(raf);
       timers.forEach(function (t) { clearTimeout(t); clearInterval(t); });
@@ -2393,42 +2489,8 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
     }, 30);
   }
 
-  // 24. CRYSTAL GEOMETRY — rotating diamonds refract rainbow light; they split apart on the drop
-  function crystal() {
-    var b = beatTracker(), hue = beatHue(200, 60), spin = 0, split = 0;
-    var g = glStart('crystal',
-      'uniform float spin, split;\n' +
-      'mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }\n' +
-      'float octa(vec3 p, float s){ p = abs(p); return (p.x + p.y + p.z - s) * .577; }\n' +
-      'float sdf(vec3 p){ vec3 q = p; q.xz = rot(spin) * q.xz; q.xy = rot(spin * .7) * q.xy;\n' +
-      ' float d = octa(q, .55);\n' +
-      ' for (int i = 0; i < 4; i++) { float a = float(i) * 1.5708 + spin * .5; vec3 o = vec3(cos(a), sin(a * 1.3) * .4, sin(a)) * (.95 + split * .9);\n' +
-      '  vec3 r = p - o; r.xy = rot(spin * 1.3 + float(i)) * r.xy; d = min(d, octa(r, .22)); }\n' +
-      ' return d; }\n' +
-      'void main(){ vec2 uv = (gl_FragCoord.xy - .5 * res) / res.y; vec3 ro = vec3(0., 0., -3.2), rd = normalize(vec3(uv, 1.6));\n' +
-      ' vec3 col = vec3(.005, .005, .02) + pal(hue + .6) * .06 * (1. - length(uv));\n' +
-      ' float t = 0.; bool hit = false;\n' +
-      ' for (int i = 0; i < 56; i++) { float d = sdf(ro + rd * t); if (d < .001) { hit = true; break; } t += d; if (t > 8.) break; }\n' +
-      ' if (hit) { vec3 p = ro + rd * t; vec2 e = vec2(.002, 0.);\n' +
-      '  vec3 n = normalize(vec3(sdf(p + e.xyy) - sdf(p - e.xyy), sdf(p + e.yxy) - sdf(p - e.yxy), sdf(p + e.yyx) - sdf(p - e.yyx)));\n' +
-      '  float fr = pow(1. - abs(dot(n, rd)), 2.);\n' +
-      '  vec3 rf = refract(rd, n, .7);\n' +
-      '  col = pal(hue + rf.x * .6 + rf.y * .4 + dot(n, vec3(.3, .5, .2))) * (.25 + .75 * fr) * 1.3;\n' +
-      '  col += vec3(1.) * pow(max(dot(reflect(rd, n), normalize(vec3(.4, .6, -.6))), 0.), 40.) * 1.5;\n' +
-      '  col += pal(hue + .5) * kick * .12; }\n' +
-      ' col += pal(hue) * .15 / (1. + length(uv) * 6.);\n' +
-      ' gl_FragColor = vec4(col, 1.); }');
-    if (!g) return kaleido();
-    text('xpTop', 'CRYSTAL GEOMETRY');
-    loop(function (now) {
-      b.tick(now); var hh = hue.tick(b.hit);
-      spin += .005 + b.e * .012; split += ((b.live && b.k > .6 ? 1 : 0) - split) * .05;
-      g.f('spin', spin); g.f('split', split); g.draw(now, b, hh);
-    }, 30);
-  }
-
-  // 25. BLACK HOLE — movie-style black hole: thin blazing accretion disk, light bent over the top and under,
-  //     a razor photon ring, lensed galaxy behind. Disk spins faster with the music; no pulsing.
+  // 24. BLACK HOLE - cinematic accretion disk and razor photon ring, with a lensed galaxy behind.
+  //     The disk spins faster with music; its central shadow stays sharp.
   function blackhole() {
     var b = beatTracker(), hue = beatHue(25, 20), spin = 0;
     var g = glStart('blackhole', FBM3 +

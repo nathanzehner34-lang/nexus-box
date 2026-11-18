@@ -2086,7 +2086,7 @@
     ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
     ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['worlds', '🏔', 'ALIEN WORLDS'], ['gold', '🥇', 'LIQUID METAL'], ['neural', '🧠', 'NEURAL NETWORK'], ['auroratunnel', '🌌', 'AURORA TUNNEL'], ['ink', '🎨', 'INK IN WATER'],
-    ['crystal', '💎', 'CRYSTALS'], ['datastorm', '💻', 'DATA STORM'], ['blackhole', '⚫', 'BLACK HOLE'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
+    ['datastorm', '💻', 'DATA STORM'], ['blackhole', '⚫', 'BLACK HOLE'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
     ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA'],
     ['skeletondance', '💀', 'DANCING SKELETON'], ['neonfluid', '🫧', 'NEON FLUID'], ['macrocrystalgrowth', '💎', 'MACRO CRYSTAL GROWTH'],
     ['deepsea', '🪼', 'BIOLUMINESCENT DEEP SEA'], ['prismrefraction', '🌈', 'PRISMATIC LIGHT REFRACTION'], ['quantumparticles', '✧', 'QUANTUM PARTICLE FIELDS']

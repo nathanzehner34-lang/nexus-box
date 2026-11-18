@@ -234,6 +234,7 @@ body.party .tile { border-color: rgba(255,255,255,.35); }
 #xpTop { position: absolute; left: 3vw; right: 3vw; top: 3vh; font-family: monospace; font-size: 2.6vmin; letter-spacing: .4vmin; color: #9fd0ff; }
 #xpMid { position: absolute; left: 0; right: 0; top: 40%; text-align: center; font-size: 6vmin; letter-spacing: 1vmin; color: #fff; font-weight: 700; }
 #xpBottom { position: absolute; left: 3vw; right: 3vw; bottom: 4vh; text-align: center; font-size: 2.8vmin; letter-spacing: .3vmin; color: #cfe3ff; }
+#xpTop, #xpMid, #xpBottom { z-index: 2; }
 #xpClose { position: absolute; right: 2vw; top: 2vh; font-size: 6vmin; color: rgba(255,255,255,.7); padding: 1vmin 2vmin; z-index: 5; }
 
 body.photo .tile { background: rgba(4,8,24,.62); border-color: rgba(170,200,255,.22); }
