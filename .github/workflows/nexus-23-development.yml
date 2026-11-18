@@ -1,74 +1,144 @@
-name: Nexus 23 Development APK
+name: Nexus Development APK
 
 on:
+  push:
+    branches:
+      - nexus-36-download-button
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: nexus-development-apk
+  cancel-in-progress: false
 
 jobs:
   build:
-    name: Build downloadable development APK
+    name: Verify and publish a truck-installable development build
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check out selected branch
-        uses: actions/checkout@v5
+      - name: Require the development branch
+        run: test "${GITHUB_REF_NAME}" = "nexus-36-download-button"
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Restore Nexus signing key
+      - name: Restore the existing Nexus signing identity
         id: keycache
         uses: actions/cache/restore@v4
         with:
           path: ~/nexus-signing/nexus.keystore
           key: nexus-signing-key-v2
 
-      - name: Create signing key if needed
-        if: steps.keycache.outputs.cache-hit != 'true'
+      - name: Require the existing signing identity
         run: |
-          mkdir -p ~/nexus-signing
-          keytool -genkeypair -keystore ~/nexus-signing/nexus.keystore -alias androiddebugkey \
-            -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 20000 \
-            -dname "CN=Nexus Box, O=Nexus, C=CA"
+          test "${{ steps.keycache.outputs.cache-hit }}" = "true"
+          test -s "$HOME/nexus-signing/nexus.keystore"
 
-      - name: Save signing key for future builds
-        if: steps.keycache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/nexus-signing/nexus.keystore
-          key: nexus-signing-key-v2
-
-      - name: Add AI key
+      - name: Add configured Nexus AI key
         env:
           GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
         run: |
           if [ -n "$GEMINI_KEY" ]; then
             printf 'window.NEXUS_DEFAULT_KEY = %s;\n' "$(printf '%s' "$GEMINI_KEY" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" > app/src/main/assets/key.js
           else
-            echo '' > app/src/main/assets/key.js
+            : > app/src/main/assets/key.js
           fi
 
-      - name: Build APK
+      - name: Run source checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify JavaScript and feature wiring
+        run: |
+          node --check app/src/main/assets/app.js
+          node --check app/src/main/assets/party.js
+          node --check app/src/main/assets/experiences.js
+          node tools/voice-test/liquid-dreams-development.test.js
+
+      - name: Select next version above all published Nexus builds
+        run: |
+          set -euo pipefail
+          PROD_NAME="$(gh release view latest --json name --jq '.name')"
+          PROD_VERSION="$(printf '%s' "$PROD_NAME" | sed -nE 's/.*build ([0-9]+).*/\1/p')"
+          DEV_VERSION="$(gh api 'repos/nathanzehner34-lang/nexus-box/releases?per_page=100' --jq '[.[] | select(.tag_name | startswith("nexus-dev-build-")) | (.tag_name | capture("^nexus-dev-build-(?<v>[0-9]+)-").v | tonumber)] | max // 0')"
+          test -n "$PROD_VERSION"
+          NEXT_VERSION=$((PROD_VERSION > DEV_VERSION ? PROD_VERSION : DEV_VERSION))
+          NEXT_VERSION=$((NEXT_VERSION + 1))
+          echo "NEXUS_VERSION_CODE=$NEXT_VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$NEXT_VERSION" >> "$GITHUB_ENV"
+          echo "Preparing Nexus development build $NEXT_VERSION"
+
+      - name: Build APK with the existing signing key
         run: |
           export NEXUS_KEYSTORE="$HOME/nexus-signing/nexus.keystore"
           gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk nexus-23-development.apk
+      - name: Verify package, version and update signature
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          TOOLS="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          AAPT="$TOOLS/aapt"
+          APKSIGNER="$TOOLS/apksigner"
+          test -s "$APK"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+          PACKAGE="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")"
+          VERSION="$("$AAPT" dump badging "$APK" | sed -n "s/^package:.*versionCode='\\([^']*\\)'.*/\\1/p")"
+          test "$PACKAGE" = "com.nexus.box"
+          test "$VERSION" = "$VERSION_CODE"
+          "$APKSIGNER" verify --print-certs "$APK" > /tmp/nexus-dev-cert.txt
+          NEW_CERT="$(sed -n 's/.*certificate SHA-256 digest: //p' /tmp/nexus-dev-cert.txt | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          KEY_CERT="$(keytool -list -v -keystore "$HOME/nexus-signing/nexus.keystore" -storepass android -alias androiddebugkey | sed -n 's/.*SHA256: *//p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$NEW_CERT"
+          test "$NEW_CERT" = "$KEY_CERT"
+          curl --fail --silent --show-error --location "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk" -o /tmp/nexus-production.apk
+          OLD_PACKAGE="$("$AAPT" dump badging /tmp/nexus-production.apk | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")"
+          test "$OLD_PACKAGE" = "$PACKAGE"
+          "$APKSIGNER" verify --print-certs /tmp/nexus-production.apk > /tmp/nexus-production-cert.txt
+          OLD_CERT="$(sed -n 's/.*certificate SHA-256 digest: //p' /tmp/nexus-production-cert.txt | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$OLD_CERT"
+          test "$NEW_CERT" = "$OLD_CERT"
+          sha256sum "$APK"
+          echo "Verified package=$PACKAGE versionCode=$VERSION and signing certificate matches current truck production APK."
 
-      - name: Upload downloadable APK
+      - name: Prepare development APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk nexus-development.apk
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-23-development-apk
-          path: nexus-23-development.apk
+          name: nexus-development-build-${{ env.VERSION_CODE }}
+          path: nexus-development.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
+
+      - name: Publish immutable development release
+        id: publish
+        run: |
+          TAG="nexus-dev-build-${VERSION_CODE}-run-${GITHUB_RUN_ID}"
+          gh release create "$TAG" nexus-development.apk \
+            --title "Nexus Development Build ${VERSION_CODE}" \
+            --notes "Verified development APK for the nexus-36-download-button branch. Package and signing identity are checked against the truck's current production APK before publication." \
+            --prerelease --target "$GITHUB_SHA"
+          gh release view "$TAG" --json assets --jq '.assets | any(.[]; .name == "nexus-development.apk")' | grep -qx true
+
+      - name: Remove this run's release if final verification fails
+        if: failure()
+        run: |
+          TAG="nexus-dev-build-${VERSION_CODE:-0}-run-${GITHUB_RUN_ID}"
+          gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
