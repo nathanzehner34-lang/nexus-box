@@ -156,7 +156,6 @@ public class MainActivity extends Activity {
         startTts();
         pool.execute(this::labels);
         // passengers' phones connect to the box (song requests, photos, shout-outs, remote)
-        ui.postDelayed(this::startPhones, 1500);
         // wake Spotify up quietly in the background so tapping it opens fast
         ui.postDelayed(this::warmSpotify, 3000);
         try {
@@ -549,14 +548,14 @@ public class MainActivity extends Activity {
     }
 
     // ---------- PHONES: passengers join from their phones ----------
-    private PhoneServer phones = null;
+    private volatile PhoneServer phones = null;
     private volatile String phoneStateJson = "{}";
     private String phonePin() {
         String p = prefs.getString("phonePin", "");
         if (p.isEmpty()) { p = String.valueOf(1000 + new java.util.Random().nextInt(9000)); prefs.edit().putString("phonePin", p).apply(); }
         return p;
     }
-    private void startPhones() {
+    private synchronized void startPhones() {
         if (phones != null) return;
         byte[] page;
         try (InputStream is = getAssets().open("phone.html")) { ByteArrayOutputStream bo = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n; while ((n = is.read(b)) > 0) bo.write(b, 0, n); page = bo.toByteArray(); }
@@ -1278,7 +1277,8 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String phoneInfo() {
             try {
-                if (phones == null || phones.port == 0) return "{\"ok\":false}";
+                if (phones == null) { startPhones(); return "{\"ok\":false,\"starting\":true}"; }
+                if (phones.port == 0) return "{\"ok\":false,\"starting\":true}";
                 JSONObject o = new JSONObject(); JSONArray urls = new JSONArray();
                 for (String ip : PhoneServer.addresses()) urls.put("http://" + ip + ":" + phones.port + "/");
                 o.put("ok", true); o.put("pin", phonePin()); o.put("urls", urls);
