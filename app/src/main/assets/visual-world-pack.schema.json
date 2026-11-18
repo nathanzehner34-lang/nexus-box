@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus-box.app/schemas/visual-world-pack-v1.json",
+  "title": "Nexus Visual World Pack",
+  "description": "Declarative, content-only world package. Executable scripts are not accepted.",
+  "type": "object",
+  "required": ["id", "version", "description", "preview", "variants"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "description": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "preview": { "type": "string", "minLength": 1 },
+    "engine": { "type": "string", "const": "nexus-scene-v1" },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": ["minMemoryGb", "assets"],
+        "properties": {
+          "minMemoryGb": { "type": "number", "minimum": 0, "maximum": 64 },
+          "assets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 96,
+            "items": {
+              "type": "object",
+              "required": ["path", "url", "sha256", "size", "mime"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!/)(?!.*\\.\\.)[a-zA-Z0-9_./-]+$" },
+                "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+                "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+                "size": { "type": "integer", "minimum": 1, "maximum": 268435456 },
+                "mime": { "type": "string", "maxLength": 100 }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

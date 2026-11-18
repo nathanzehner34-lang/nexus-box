@@ -33,6 +33,198 @@
     W = cv.width = Math.max(1, Math.floor(layer.clientWidth * S)); H = cv.height = Math.max(1, Math.floor(layer.clientHeight * S));
     if (glc) { glc.width = Math.max(1, Math.floor(layer.clientWidth * S * GLX)); glc.height = Math.max(1, Math.floor(layer.clientHeight * S * GLX)); }
     if (atmosphereCanvas) { atmosphereCanvas.width = W; atmosphereCanvas.height = H; }
+    if (worldFx && worldCanvas) { worldCanvas.width = W; worldCanvas.height = H; }
+  }
+
+  // ---- Visuals-only scene finishing pass -------------------------------------
+  // This renderer is restricted to the 37 entries in the Visuals gallery. It
+  // adds concept-matched depth, detail and frequency response over the existing
+  // scenes without changing Liquid Dreams, Party Mode, or utility experiences.
+  var VISUAL_WORLD_PROFILES = {
+    aliens: { motif: 'orbit', hue: 166, focus: [.5,.5], drift: .7 }, dragon: { motif: 'ember', hue: 276, focus: [.5,.5], drift: 1.1 },
+    waterclub: { motif: 'ribbon', hue: 190, focus: [.5,.55], drift: .8 }, tornado: { motif: 'ember', hue: 22, focus: [.5,.56], drift: 1.3 },
+    outrun: { motif: 'horizon', hue: 326, focus: [.5,.55], drift: 1.2 }, bluefire: { motif: 'ember', hue: 202, focus: [.5,.66], drift: .8 },
+    vapor: { motif: 'horizon', hue: 304, focus: [.5,.56], drift: .55 }, kaleido: { motif: 'prism', hue: 294, focus: [.5,.5], drift: .9 },
+    ring: { motif: 'orbit', hue: 188, focus: [.5,.5], drift: 1 }, shatter: { motif: 'prism', hue: 204, focus: [.5,.48], drift: .65 },
+    hyper: { motif: 'tunnel', hue: 224, focus: [.5,.5], drift: 1.6 }, water: { motif: 'ribbon', hue: 196, focus: [.5,.53], drift: .6 },
+    friend: { motif: 'organic', hue: 188, focus: [.5,.48], drift: .65 }, eye: { motif: 'orbit', hue: 186, focus: [.5,.5], drift: .7 },
+    fractal: { motif: 'tunnel', hue: 278, focus: [.5,.5], drift: .72 }, wormhole: { motif: 'tunnel', hue: 285, focus: [.5,.5], drift: 1.2 },
+    mirror: { motif: 'ribbon', hue: 270, focus: [.5,.55], drift: .46 }, planet: { motif: 'orbit', hue: 32, focus: [.5,.5], drift: .56 },
+    skull: { motif: 'ember', hue: 148, focus: [.5,.54], drift: .9 }, worlds: { motif: 'orbit', hue: 280, focus: [.5,.5], drift: .55 },
+    gold: { motif: 'ribbon', hue: 42, focus: [.5,.56], drift: .45 }, neural: { motif: 'network', hue: 188, focus: [.5,.5], drift: .6 },
+    auroratunnel: { motif: 'ribbon', hue: 152, focus: [.5,.5], drift: .65 }, ink: { motif: 'organic', hue: 328, focus: [.5,.5], drift: .7 },
+    datastorm: { motif: 'network', hue: 142, focus: [.5,.5], drift: 1.1 }, blackhole: { motif: 'orbit', hue: 28, focus: [.5,.5], drift: .75 },
+    portrait: { motif: 'network', hue: 205, focus: [.5,.5], drift: .52 }, lava: { motif: 'organic', hue: 12, focus: [.5,.56], drift: .38 },
+    synth: { motif: 'horizon', hue: 312, focus: [.5,.55], drift: .82 }, zoom: { motif: 'tunnel', hue: 206, focus: [.5,.5], drift: 1.18 },
+    aura: { motif: 'organic', hue: 270, focus: [.5,.5], drift: .42 }, skeletondance: { motif: 'prism', hue: 190, focus: [.5,.49], drift: 1.08 },
+    neonfluid: { motif: 'ribbon', hue: 206, focus: [.5,.5], drift: .92 }, macrocrystalgrowth: { motif: 'prism', hue: 236, focus: [.5,.5], drift: .42 },
+    deepsea: { motif: 'organic', hue: 192, focus: [.5,.55], drift: .5 }, prismrefraction: { motif: 'prism', hue: 222, focus: [.5,.5], drift: .78 },
+    quantumparticles: { motif: 'network', hue: 248, focus: [.5,.5], drift: 1.15 }
+  };
+  var worldCanvas = null, worldCtx = null, worldFx = null;
+  function ensureWorldCanvas() {
+    if (!worldCanvas) {
+      worldCanvas = document.createElement('canvas');
+      worldCanvas.id = 'xpWorldFinish';
+      worldCanvas.setAttribute('aria-hidden', 'true');
+      worldCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none';
+      worldCtx = worldCanvas.getContext('2d', { alpha: true, desynchronized: true });
+    }
+    if (worldCanvas.parentNode !== layer) layer.insertBefore(worldCanvas, $('xpTop'));
+    worldCanvas.width = W; worldCanvas.height = H; worldCanvas.style.display = 'block';
+  }
+  function beginVisualWorld(name) {
+    var profile = VISUAL_WORLD_PROFILES[name];
+    worldFx = null;
+    if (!profile) { if (worldCanvas) worldCanvas.style.display = 'none'; return; }
+    ensureWorldCanvas();
+    var seed = 113 + name.split('').reduce(function (n, c) { return (n * 31 + c.charCodeAt(0)) >>> 0; }, 0);
+    function rand() { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }
+    var count = HIGH_MEMORY_DEVICE ? 78 : 24, points = [];
+    for (var i = 0; i < count; i++) points.push({ x: rand(), y: rand(), z: .2 + rand() * .8, phase: rand() * 6.2832, speed: .35 + rand() * .9 });
+    worldFx = { profile: profile, points: points, last: 0, t: 0, energy: 0, bass: 0, mid: 0, high: 0, beat: 0, kick: 0, kicks: window.BEAT ? window.BEAT.kicks : 0 };
+  }
+  function drawVisualWorldFinish(now) {
+    if (!worldFx || !XP.active || !worldCtx) return;
+    var fx = worldFx, p = fx.profile, audio = window.BEAT, live = !!(audio && audio.live && Date.now() - audio.live < 1500);
+    var dt = fx.last ? Math.max(0, Math.min(48, now - fx.last)) : 16; fx.last = now;
+    var k = live ? Math.min(1, Math.max(0, audio.k || 0)) : 0;
+    fx.energy += ((live ? Math.min(1, audio.e || 0) : 0) - fx.energy) * (live ? .17 : .045);
+    fx.bass += (k - fx.bass) * (k > fx.bass ? .34 : .075);
+    fx.mid += ((live ? Math.min(1, audio.mid || 0) : 0) - fx.mid) * .12;
+    fx.high += ((live ? Math.min(1, audio.high || 0) : 0) - fx.high) * .16;
+    if (live && audio.kicks !== fx.kicks) { fx.kicks = audio.kicks; fx.kick = Math.max(fx.kick, .78 + fx.bass * .22); }
+    fx.kick *= Math.exp(-dt / 260);
+    var rate = .00016 + fx.mid * .00024 + fx.energy * .00012;
+    fx.t += dt * rate * p.drift;
+    var ctx = worldCtx, t = fx.t, U = Math.min(W, H), cx0 = W * p.focus[0], cy0 = H * p.focus[1];
+    var bass = fx.bass, high = fx.high, kick = fx.kick, energy = fx.energy;
+    ctx.clearRect(0, 0, W, H); ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    // Soft lens light and beat-shaped corona give the underlying renderer depth.
+    var aura = ctx.createRadialGradient(cx0, cy0, U * (.025 + bass * .03), cx0, cy0, U * (.56 + bass * .18 + kick * .08));
+    aura.addColorStop(0, 'hsla(' + p.hue + ',100%,68%,' + (.025 + energy * .045 + kick * .035) + ')');
+    aura.addColorStop(.48, 'hsla(' + ((p.hue + 42) % 360) + ',100%,55%,' + (.012 + energy * .025) + ')');
+    aura.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = aura; ctx.fillRect(0, 0, W, H);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    var alpha = .075 + energy * .055 + kick * .045, detail = HIGH_MEMORY_DEVICE ? 10 : 6;
+    ctx.strokeStyle = 'hsla(' + p.hue + ',100%,76%,' + alpha + ')'; ctx.lineWidth = Math.max(.7, S * (.8 + high * 1.1));
+    if (p.motif === 'tunnel') {
+      for (var tr = 0; tr < detail; tr++) { var z = (tr / detail + (t * .13 + bass * .035) % 1), rr = U * (.06 + z * .68 + kick * .035); ctx.beginPath(); ctx.ellipse(cx0, cy0, rr * (1.12 + Math.sin(t + tr) * .055), rr * (.56 + Math.cos(t * .7 + tr) * .035), t * .11 + tr * .012, 0, 6.2832); ctx.stroke(); }
+      for (var ray = 0; ray < detail; ray++) { var a = ray * 6.2832 / detail + t * .12; ctx.beginPath(); ctx.moveTo(cx0 + Math.cos(a) * U * .07, cy0 + Math.sin(a) * U * .04); ctx.lineTo(cx0 + Math.cos(a + fx.mid * .08) * U * .7, cy0 + Math.sin(a + fx.mid * .08) * U * .7); ctx.stroke(); }
+    } else if (p.motif === 'prism') {
+      var sides = HIGH_MEMORY_DEVICE ? 14 : 9;
+      for (var layerN = 0; layerN < 4; layerN++) { var rad = U * (.12 + layerN * .105 + bass * .045 + kick * .03), rot = t * (.12 + layerN * .018) * (layerN % 2 ? -1 : 1);
+        ctx.strokeStyle = 'hsla(' + ((p.hue + layerN * 19 + high * 24) % 360) + ',100%,' + (68 + layerN * 3) + '%,' + (alpha * (1 - layerN * .13)) + ')'; ctx.beginPath();
+        for (var v = 0; v <= sides; v++) { var va = v / sides * 6.2832 + rot, vr = rad * (1 + .09 * Math.sin(va * 3 + t + layerN)); var vx = cx0 + Math.cos(va) * vr, vy = cy0 + Math.sin(va) * vr; if (!v) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy); } ctx.stroke(); }
+    } else if (p.motif === 'ribbon') {
+      for (var band = 0; band < 5; band++) { var phase = t * (1 + band * .08) * (band % 2 ? -1 : 1) + band * 1.17, base = H * (.18 + band * .16), amp = H * (.025 + fx.mid * .018 + bass * .025 + kick * .025); ctx.strokeStyle = 'hsla(' + ((p.hue + band * 17) % 360) + ',100%,72%,' + (alpha * (1 - band * .1)) + ')'; ctx.beginPath();
+        for (var sx = 0; sx <= 18; sx++) { var u = sx / 18, yy = base + Math.sin(u * 8 + phase) * amp + Math.sin(u * 17 - phase * 1.4) * amp * .22; if (!sx) ctx.moveTo(u * W, yy); else ctx.lineTo(u * W, yy); } ctx.stroke(); }
+    } else if (p.motif === 'horizon') {
+      var horizon = H * p.focus[1];
+      for (var hr = 0; hr < detail + 2; hr++) { var q = (hr / (detail + 2) + (t * .11 + bass * .04) % 1), hy = horizon + (H - horizon) * q * q; ctx.strokeStyle = 'hsla(' + ((p.hue + hr * 7) % 360) + ',100%,72%,' + (alpha * (1 - q * .35)) + ')'; ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke(); }
+      for (var hc = -7; hc <= 7; hc++) { var drift = Math.sin(t * .2) * W * .012; ctx.beginPath(); ctx.moveTo(cx0 + hc * W * .014, horizon); ctx.lineTo(cx0 + hc * W * .15 + drift, H); ctx.stroke(); }
+    } else if (p.motif === 'ember') {
+      for (var helix = 0; helix < 4; helix++) { ctx.strokeStyle = 'hsla(' + ((p.hue + helix * 13) % 360) + ',100%,72%,' + (alpha * .9) + ')'; ctx.beginPath();
+        for (var ey = 0; ey <= 18; ey++) { var u2 = ey / 18, angle = t * (1 + helix * .11) + u2 * 8 + helix * 1.57, radius = U * (.035 + u2 * (.13 + bass * .08 + kick * .04)), ex = cx0 + Math.cos(angle) * radius, yy2 = H * (1 - u2); if (!ey) ctx.moveTo(ex, yy2); else ctx.lineTo(ex, yy2); } ctx.stroke(); }
+    } else if (p.motif === 'network') {
+      var np = fx.points, lim = Math.min(np.length, HIGH_MEMORY_DEVICE ? 52 : 18), reach = U * (.13 + energy * .12 + bass * .12);
+      for (var ni = 0; ni < lim; ni++) { var n1 = np[ni], nx = (n1.x + Math.sin(t * n1.speed + n1.phase) * .035) * W, ny = (n1.y + Math.cos(t * .8 * n1.speed + n1.phase) * .035) * H;
+        ctx.fillStyle = 'hsla(' + ((p.hue + n1.phase * 9 + high * 24) % 360) + ',100%,78%,' + (alpha * (n1.z + .2)) + ')'; ctx.beginPath(); ctx.arc(nx, ny, S * (.7 + n1.z * 1.8 + high * 1.2), 0, 6.2832); ctx.fill();
+        if (ni % 2 === 0) { var n2 = np[(ni + 7) % lim], x2 = (n2.x + Math.sin(t * n2.speed + n2.phase) * .035) * W, y2 = (n2.y + Math.cos(t * .8 * n2.speed + n2.phase) * .035) * H; if (Math.hypot(x2 - nx, y2 - ny) < reach) { ctx.strokeStyle = 'hsla(' + p.hue + ',100%,75%,' + (alpha * .58) + ')'; ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(x2, y2); ctx.stroke(); } }
+      }
+    } else if (p.motif === 'organic') {
+      for (var tendril = 0; tendril < detail; tendril++) { var a0 = tendril * 6.2832 / detail + t * .13, len = U * (.16 + (tendril % 3) * .07 + bass * .06 + kick * .04); ctx.strokeStyle = 'hsla(' + ((p.hue + tendril * 11) % 360) + ',100%,72%,' + (alpha * .92) + ')'; ctx.beginPath(); ctx.moveTo(cx0, cy0); ctx.bezierCurveTo(cx0 + Math.cos(a0 + 1) * len * .44, cy0 + Math.sin(a0 + 1) * len * .38, cx0 + Math.cos(a0 - .6) * len * .78, cy0 + Math.sin(a0 - .6) * len * .78, cx0 + Math.cos(a0) * len, cy0 + Math.sin(a0) * len); ctx.stroke(); }
+    } else {
+      for (var orb = 0; orb < detail; orb++) { var oa = orb * 6.2832 / detail + t * .16, or = U * (.11 + (orb % 4) * .075 + bass * .05 + kick * .04); ctx.beginPath(); ctx.ellipse(cx0, cy0, or, or * (.28 + .035 * Math.sin(t + orb)), oa, 0, 6.2832); ctx.stroke(); }
+    }
+    // Bass expands the scene's main motif; treble lifts a sparse, deterministic
+    // field of detail points. All points are allocated once at scene start.
+    var pts = fx.points, pc = Math.min(pts.length, HIGH_MEMORY_DEVICE ? pts.length : 18);
+    for (var pi = 0; pi < pc; pi++) { var pt = pts[pi], px = ((pt.x + Math.sin(t * pt.speed + pt.phase) * (.008 + fx.mid * .012) + 1) % 1) * W, py = ((pt.y + Math.cos(t * .73 * pt.speed + pt.phase) * (.008 + bass * .01) + 1) % 1) * H;
+      var blink = .18 + .28 * (.5 + .5 * Math.sin(t * (1.2 + pt.speed) + pt.phase)) + high * .45 + kick * .22;
+      ctx.fillStyle = 'hsla(' + ((p.hue + pt.phase * 8 + energy * 16) % 360) + ',100%,' + (72 + pt.z * 14) + '%,' + (alpha * blink) + ')'; ctx.beginPath(); ctx.arc(px, py, S * (.55 + pt.z * 1.5 + high * 1.1), 0, 6.2832); ctx.fill();
+    }
+    if (kick > .025) { ctx.strokeStyle = 'hsla(' + ((p.hue + 35) % 360) + ',100%,84%,' + (kick * .22) + ')'; ctx.lineWidth = Math.max(1, S * (1 + kick * 2)); ctx.beginPath(); ctx.ellipse(cx0, cy0, U * (.12 + (1 - kick) * .25), U * (.06 + (1 - kick) * .12), t * .08, 0, 6.2832); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  // Isolated offline asset-pack store for future downloadable worlds. Packs are
+  // declarative data and verified media only; they cannot execute downloaded JS.
+  // Nothing is fetched until a caller explicitly invokes XP.Packs.install().
+  var PACK_DB = 'nexus-visual-worlds-v1';
+  function openPackDb() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error('Offline world storage is not available')); return; }
+      var req = indexedDB.open(PACK_DB, 1);
+      req.onupgradeneeded = function () { var db = req.result; if (!db.objectStoreNames.contains('packs')) db.createObjectStore('packs', { keyPath: 'id' }); if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'key' }); };
+      req.onsuccess = function () { resolve(req.result); }; req.onerror = function () { reject(req.error || new Error('Could not open offline world storage')); };
+    });
+  }
+  function validateWorldPack(m) {
+    if (!m || !/^[a-z0-9][a-z0-9_-]{1,63}$/.test(m.id || '') || !/^\d+\.\d+\.\d+$/.test(m.version || '') || (m.engine && m.engine !== 'nexus-scene-v1')) throw new Error('Invalid world pack identity, engine or version');
+    if (typeof m.description !== 'string' || !m.description.trim() || m.description.length > 500 || typeof m.preview !== 'string' || !m.preview.trim()) throw new Error('World pack description and preview are required');
+    var variants = Array.isArray(m.variants) && m.variants.length ? m.variants : [{ minMemoryGb: 0, assets: m.assets || [] }];
+    if (variants.length > 4) throw new Error('World packs may provide up to four hardware variants');
+    variants.forEach(function (variant) {
+      if (!isFinite(+variant.minMemoryGb) || !Array.isArray(variant.assets) || !variant.assets.length || variant.assets.length > 96) throw new Error('Invalid world pack quality variant');
+      variant.assets.forEach(function (a) {
+        if (!a || !/^(?!\/)(?!.*\.\.)[a-zA-Z0-9_./-]+$/.test(a.path || '') || !/^https:\/\//i.test(a.url || '') || !/^[a-f0-9]{64}$/i.test(a.sha256 || '') || !isFinite(+a.size) || a.size <= 0 || +a.size > 268435456 || /javascript|text\/html/i.test(a.mime || '') || /\.(?:js|mjs|html?)$/i.test(a.path)) throw new Error('Invalid, executable or unverifiable world asset');
+      });
+    });
+    return variants;
+  }
+  function txDone(tx) { return new Promise(function (resolve, reject) { tx.oncomplete = resolve; tx.onerror = tx.onabort = function () { reject(tx.error || new Error('World storage transaction failed')); }; }); }
+  function packKey(id, version, path) { return id + '@' + version + '/' + path; }
+  async function getPackAssetRecord(db, key) { return new Promise(function (resolve, reject) { var req = db.transaction('assets').objectStore('assets').get(key); req.onsuccess = function () { resolve(req.result || null); }; req.onerror = function () { reject(req.error); }; }); }
+  async function savePackAsset(db, record) { var tx = db.transaction('assets', 'readwrite'); tx.objectStore('assets').put(record); await txDone(tx); }
+  async function packBytes(url, onProgress) {
+    var response = await fetch(url, { credentials: 'omit', cache: 'no-store' });
+    if (!response.ok || !response.body || !response.body.getReader) throw new Error('World asset download failed (' + response.status + ')');
+    var total = +(response.headers.get('Content-Length') || 0), reader = response.body.getReader(), chunks = [], received = 0;
+    while (true) { var part = await reader.read(); if (part.done) break; chunks.push(part.value); received += part.value.length; if (onProgress) onProgress(received, total); }
+    var bytes = new Uint8Array(received), offset = 0; chunks.forEach(function (chunk) { bytes.set(chunk, offset); offset += chunk.length; }); return bytes;
+  }
+  async function sha256Hex(bytes) {
+    if (!window.crypto || !crypto.subtle) throw new Error('Secure SHA-256 verification is unavailable on this WebView');
+    var digest = await crypto.subtle.digest('SHA-256', bytes), out = '';
+    new Uint8Array(digest).forEach(function (b) { out += b.toString(16).padStart(2, '0'); }); return out;
+  }
+  async function installWorldPack(manifest, onProgress) {
+    var variants = validateWorldPack(manifest), memory = reportedMemoryGb || 2, variant = variants.filter(function (v) { return +v.minMemoryGb <= memory; }).sort(function (a, b) { return +a.minMemoryGb - +b.minMemoryGb; }).pop();
+    if (!variant) throw new Error('This world has no quality profile for the available device');
+    var assets = variant.assets, total = assets.reduce(function (n, a) { return n + (+a.size || 0); }, 0), cap = memory >= 6 ? 536870912 : 268435456;
+    if (total > cap) throw new Error('World exceeds the local storage limit for this device');
+    if (navigator.storage && navigator.storage.estimate) { var usage = await navigator.storage.estimate(); if (usage.quota && usage.usage + total > usage.quota * .88) throw new Error('Not enough device storage for this world'); }
+    var installed = await listWorldPacks(), previous = installed.find(function (p) { return p.id === manifest.id; });
+    var db = await openPackDb(), done = 0, completed = 0, record = { id: manifest.id, version: manifest.version, status: 'installing', activeVersion: previous && previous.activeVersion || '', description: manifest.description, preview: manifest.preview, engine: manifest.engine || 'nexus-scene-v1', updated: Date.now(), variantGb: +variant.minMemoryGb };
+    var metaTx = db.transaction('packs', 'readwrite'); metaTx.objectStore('packs').put(record); await txDone(metaTx);
+    try {
+      for (var i = 0; i < assets.length; i++) {
+        var asset = assets[i], key = packKey(manifest.id, manifest.version, asset.path), cached = await getPackAssetRecord(db, key);
+        if (cached && cached.sha256 === asset.sha256.toLowerCase()) { done += asset.size; completed++; if (onProgress) onProgress({ id: manifest.id, version: manifest.version, completed: completed, count: assets.length, loaded: done, total: total }); continue; }
+        var bytes = await packBytes(asset.url, function (loaded, contentLength) { if (onProgress) onProgress({ id: manifest.id, version: manifest.version, path: asset.path, completed: completed, count: assets.length, loaded: done + loaded, total: total || done + contentLength }); });
+        if (bytes.length !== +asset.size) throw new Error('Unexpected size for ' + asset.path);
+        var digest = await sha256Hex(bytes); if (digest !== asset.sha256.toLowerCase()) throw new Error('Integrity check failed for ' + asset.path);
+        await savePackAsset(db, { key: key, id: manifest.id, version: manifest.version, path: asset.path, mime: asset.mime || 'application/octet-stream', sha256: digest, bytes: bytes.buffer });
+        done += bytes.length; completed++; if (onProgress) onProgress({ id: manifest.id, version: manifest.version, completed: completed, count: assets.length, loaded: done, total: total });
+      }
+      record.status = 'ready'; record.activeVersion = manifest.version; var readyTx = db.transaction('packs', 'readwrite'); readyTx.objectStore('packs').put(record); await txDone(readyTx); db.close(); return record;
+    } catch (err) {
+      record.status = record.activeVersion ? 'ready' : 'partial'; record.error = String(err && err.message || err); var failTx = db.transaction('packs', 'readwrite'); failTx.objectStore('packs').put(record); await txDone(failTx); db.close(); throw err;
+    }
+  }
+  async function listWorldPacks() {
+    var db = await openPackDb(); return new Promise(function (resolve, reject) { var req = db.transaction('packs').objectStore('packs').getAll(); req.onsuccess = function () { resolve(req.result || []); db.close(); }; req.onerror = function () { db.close(); reject(req.error); }; });
+  }
+  async function openWorldPackAsset(id, path) {
+    var db = await openPackDb(), packs = await listWorldPacks(), pack = packs.find(function (p) { return p.id === id && p.activeVersion; });
+    if (!pack) { db.close(); throw new Error('World is not installed for offline use'); }
+    var asset = await getPackAssetRecord(db, packKey(id, pack.activeVersion || pack.version, path)); db.close();
+    if (!asset) throw new Error('World asset is missing from local storage'); return URL.createObjectURL(new Blob([asset.bytes], { type: asset.mime }));
+  }
+  async function removeWorldPack(id) {
+    var db = await openPackDb(), all = await new Promise(function (resolve, reject) { var req = db.transaction('assets').objectStore('assets').getAllKeys(); req.onsuccess = function () { resolve(req.result || []); }; req.onerror = function () { reject(req.error); }; });
+    var tx = db.transaction(['assets', 'packs'], 'readwrite'); all.forEach(function (key) { if (String(key).indexOf(id + '@') === 0) tx.objectStore('assets').delete(key); }); tx.objectStore('packs').delete(id); await txDone(tx); db.close(); return true;
   }
 
   // ---- Graphics-chip (WebGL) visuals: the sharpest, smoothest look for the least effort ----
@@ -188,7 +380,7 @@
       var targetGap = Math.max(gap, 1000 / (HIGH_MEMORY_DEVICE ? 30 : 20));
       if (now - last < targetGap) return;
       last = now;
-      var t0 = performance.now(); draw(now); renderAtmosphere(now); tuneQuality(now, targetGap, performance.now() - t0);
+      var t0 = performance.now(); draw(now); if (worldFx) drawVisualWorldFinish(now); renderAtmosphere(now); tuneQuality(now, targetGap, performance.now() - t0);
     }
     perf = { n: 0, slow: 0, since: 0 };
     raf = requestAnimationFrame(f);
@@ -828,6 +1020,7 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
     current: null,
     cleanupCurrent: null,
     onMeter: null,
+    Packs: { schemaVersion: 1, validate: validateWorldPack, install: installWorldPack, list: listWorldPacks, asset: openWorldPackAsset, remove: removeWorldPack },
     open: function (name) {
       XP.close(true);
       layer.classList.remove('hidden');
@@ -838,6 +1031,7 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       XP.current = name;
       running = name;
       GLX = 1.25;
+      beginVisualWorld(name);
       resetAtmosphere(name);
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
@@ -846,6 +1040,9 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
     close: function (quiet) {
       running = null;
       if (XP.cleanupCurrent) { XP.cleanupCurrent(); XP.cleanupCurrent = null; }
+      worldFx = null;
+      if (worldCtx && worldCanvas) worldCtx.clearRect(0, 0, worldCanvas.width, worldCanvas.height);
+      if (worldCanvas) worldCanvas.style.display = 'none';
       glStop();
       if (atmosphereCtx) atmosphereCtx.clearRect(0, 0, atmosphereCanvas.width, atmosphereCanvas.height);
       atmosphereParticles = []; atmosphereProfile = null;
