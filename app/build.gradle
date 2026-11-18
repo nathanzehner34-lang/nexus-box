@@ -2,7 +2,7 @@ plugins {
     id 'com.android.application'
 }
 
-def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1") as Integer
+def runNumber = (System.getenv("NEXUS_VERSION_CODE") ?: System.getenv("GITHUB_RUN_NUMBER") ?: "1") as Integer
 
 android {
     namespace 'com.nexus.box'
