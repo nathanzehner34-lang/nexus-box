@@ -13,6 +13,7 @@ const liquid = xp.slice(xp.indexOf('function liquidDreams()'), xp.indexOf('var X
 assert(liquid.includes("var levels = ['mild','intense','insane']"), 'Liquid Dreams has exactly the requested intensity choices');
 assert(liquid.includes("state.intensity==='calm'||state.intensity==='flow'"), 'existing saved intensity settings migrate safely');
 assert(liquid.includes('var formations=[]') && !liquid.includes('var blobs=[]'), 'Liquid Dreams renders flowing cloud formations, not a ball field');
+assert(liquid.includes('f.drawX=cx0;f.drawY=cy0;f.drawRx=rx;f.drawRy=ry;return f;'), 'animation reuses the fixed cloud formations without per-frame geometry objects');
 assert(liquid.includes('b.mid') && liquid.includes('b.high') && liquid.includes('smoothBass'), 'actual mid, treble and bass bands drive the renderer');
 assert(liquid.includes("setInterval(pollLiquidTrack,1800)") && liquid.includes('A.nowPlaying()'), 'current track is polled from Android media metadata');
 assert(liquid.includes("clearInterval(trackTimer)") && liquid.includes('XP.cleanupCurrent'), 'track polling stops on exit');
@@ -20,7 +21,7 @@ assert(css.includes('.ld-track:empty{display:none}') && css.includes('.ld-ui.ld-
 assert(app.includes('>DOWNLOAD UPDATE</span>') && app.includes("st === 'progress'"), 'settings exposes the one-press downloader and real progress text');
 assert(java.includes('DEV_RELEASES_API') && java.includes('nexus-dev-build-') && java.includes('nexus-development.apk'), 'native updater resolves only published Nexus development releases');
 assert(java.includes('COLUMN_BYTES_DOWNLOADED_SO_FAR') && java.includes('COLUMN_TOTAL_SIZE_BYTES'), 'native updater reports actual DownloadManager progress');
-assert(java.includes('getPackageArchiveInfo') && java.includes('downloadedVersion <= currentVersion'), 'native updater rejects incomplete or non-upgrading APKs');
+assert(java.includes('getPackageArchiveInfo') && java.includes('downloadedVersion < currentVersion'), 'native updater rejects incomplete or non-upgrading APKs');
 assert(java.includes('certificateDigests(downloaded).equals(certificateDigests(installed))'), 'native updater checks package signing identity before installer launch');
 assert(!java.includes('ui.postDelayed(this::startPhones, 1500)') && java.includes('if (phones == null) { startPhones();'), 'phone server starts only when its screen is opened');
 assert(gradle.includes('NEXUS_VERSION_CODE') && gradle.includes("applicationId 'com.nexus.box'"), 'dev versioning preserves the existing app identity');
