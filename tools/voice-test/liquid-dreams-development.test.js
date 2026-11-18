@@ -15,7 +15,7 @@ assert(liquid.includes("state.intensity==='calm'||state.intensity==='flow'"), 'e
 assert(liquid.includes('var formations=[]') && !liquid.includes('var blobs=[]'), 'Liquid Dreams renders flowing cloud formations, not a ball field');
 assert(liquid.includes('f.drawX=cx0;f.drawY=cy0;f.drawRx=rx;f.drawRy=ry;return f;'), 'animation reuses the fixed cloud formations without per-frame geometry objects');
 assert(liquid.includes('b.mid') && liquid.includes('b.high') && liquid.includes('smoothBass'), 'actual mid, treble and bass bands drive the renderer');
-assert(liquid.includes("setInterval(pollLiquidTrack,1800)") && liquid.includes('A.nowPlaying()'), 'current track is polled from Android media metadata');
+assert(liquid.includes("setInterval(pollLiquidTrack,1800)") && liquid.includes('A.nowPlaying()') && liquid.includes('np.playing&&np.title'), 'current track is polled from Android media metadata');
 assert(liquid.includes("clearInterval(trackTimer)") && liquid.includes('XP.cleanupCurrent'), 'track polling stops on exit');
 assert(css.includes('.ld-track:empty{display:none}') && css.includes('.ld-ui.ld-clean .ld-track{display:none}'), 'track display stays discreet and clean-screen hides UI');
 assert(app.includes('>DOWNLOAD UPDATE</span>') && app.includes("st === 'progress'"), 'settings exposes the one-press downloader and real progress text');
