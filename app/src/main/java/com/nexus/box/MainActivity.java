@@ -636,7 +636,7 @@ public class MainActivity extends Activity {
         try {
             if (spotifyWarm != null) {
                 try {
-                    if (spotifyWarm.isConnected() || spotifyWarm.isConnecting()) {
+                    if (spotifyWarm.isConnected()) {
                         ui.removeCallbacks(spotifyRewarm);
                         ui.postDelayed(spotifyRewarm, 8 * 60 * 1000L);
                         return;

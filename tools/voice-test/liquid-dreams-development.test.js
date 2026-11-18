@@ -22,7 +22,7 @@ assert(app.includes('>DOWNLOAD UPDATE</span>') && app.includes("st === 'progress
 assert(java.includes('DEV_RELEASES_API') && java.includes('nexus-dev-build-') && java.includes('nexus-development.apk'), 'native updater resolves only published Nexus development releases');
 assert(java.includes('COLUMN_BYTES_DOWNLOADED_SO_FAR') && java.includes('COLUMN_TOTAL_SIZE_BYTES'), 'native updater reports actual DownloadManager progress');
 assert(java.includes('getPackageArchiveInfo') && java.includes('downloadedVersion < currentVersion'), 'native updater rejects incomplete or non-upgrading APKs');
-assert(java.includes('spotifyWarm.isConnected() || spotifyWarm.isConnecting()'), 'Spotify warm-up reuses an active media connection instead of disconnecting and reconnecting');
+assert(java.includes('spotifyWarm.isConnected()'), 'Spotify warm-up reuses an active media connection instead of disconnecting and reconnecting');
 assert(java.includes('certificateDigests(downloaded).equals(certificateDigests(installed))'), 'native updater checks package signing identity before installer launch');
 assert(!java.includes('ui.postDelayed(this::startPhones, 1500)') && java.includes('if (phones == null) { startPhones();'), 'phone server starts only when its screen is opened');
 assert(gradle.includes('NEXUS_VERSION_CODE') && gradle.includes("applicationId 'com.nexus.box'"), 'dev versioning preserves the existing app identity');
