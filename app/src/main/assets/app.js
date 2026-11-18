@@ -1183,8 +1183,16 @@
       });
     });
   }
-  function openPhones() {
+  function openPhones(retries) {
     var info = {}; try { info = JSON.parse(A && A.phoneInfo ? A.phoneInfo() : '{}'); } catch (e) {}
+    if (info.starting) {
+      openPanel('PHONES', '<p class="muted">Starting phone connection…</p>');
+      var attempt = retries || 0;
+      if (attempt < 8) setTimeout(function () {
+        if (!$('panel').classList.contains('hidden') && $('panelTitle').textContent === 'PHONES') openPhones(attempt + 1);
+      }, 250);
+      return;
+    }
     var urls = info.urls || [];
     var connect = info.ok && urls.length ?
       '<div class="phwrap"><img class="qr" src="' + (info.qr || '') + '"><div class="phtext"><div class="big">SCAN TO JOIN</div>' +
