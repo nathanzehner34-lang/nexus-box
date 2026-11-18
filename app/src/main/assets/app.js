@@ -1980,7 +1980,7 @@
     var homes = [];
     try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
     var html =
-      '<div class="field"><label>NEXUS DOWNLOAD</label><div class="hint">Tap DOWNLOAD to get the latest published Nexus APK automatically (build 35, 36, 37 and onward). When the download finishes, press Install.</div><span class="btn go" id="sUpdate">DOWNLOAD</span><div id="sUpdateMsg" class="hint"></div></div>' +
+      '<div class="field"><label>DOWNLOAD UPDATE</label><div class="hint">Get the newest verified Nexus development build. The install screen opens when the APK download and checks finish.</div><span class="btn go" id="sUpdate">DOWNLOAD UPDATE</span><div id="sUpdateMsg" class="hint"></div></div>' +
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
@@ -2189,11 +2189,14 @@
   // ------------------------------------------------------------------
   // Android hooks
   // ------------------------------------------------------------------
-  Nexus._update = function (st) {
-    var m = { allow: 'Turn ON "Allow from this source" for Nexus on the screen that just opened, then come back and tap UPDATE NEXUS again.',
-      downloading: 'Downloading the newest Nexus… this can take a minute. The install screen will pop up by itself.',
-      ready: 'Press INSTALL on the screen that popped up.', failed: 'Download failed. Check the internet and try again.' }[st] || st;
-    caption(st === 'downloading' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
+  Nexus._update = function (st, progress) {
+    var m = { allow: 'Allow Nexus to install updates in Android settings, return here, then tap DOWNLOAD UPDATE again.',
+      searching: 'Finding the latest successful development build…',
+      downloading: 'Downloading the verified development APK…',
+      ready: 'APK verified. Press INSTALL on the screen that opened.',
+      failed: 'No verified update could be downloaded. Check the connection and try again.' }[st] || st;
+    if (st === 'progress' && isFinite(progress)) m = 'Downloading verified update… ' + Math.max(0, Math.min(100, Math.round(progress))) + '%';
+    caption(st === 'downloading' || st === 'progress' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
     var el = $('sUpdateMsg'); if (el) el.textContent = m;
   };
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
