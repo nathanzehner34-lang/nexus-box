@@ -6,7 +6,7 @@ const html = fs.readFileSync(base + 'assets/index.html', 'utf8');
 const xp = fs.readFileSync(base + 'assets/experiences.js', 'utf8');
 const party = fs.readFileSync(base + 'assets/party.js', 'utf8');
 const java = fs.readFileSync(base + 'java/com/nexus/box/MainActivity.java', 'utf8');
-const gradle = fs.readFileSync(base + 'build.gradle', 'utf8');
+const gradle = fs.readFileSync(__dirname + '/../../app/build.gradle', 'utf8');
 const workflow = fs.readFileSync(__dirname + '/../../.github/workflows/build.yml', 'utf8');
 
 assert(html.includes('data-act="liquiddreams"') && app.includes("case 'liquiddreams': openExperience(name);"), 'Liquid Dreams is a home-screen experience');
