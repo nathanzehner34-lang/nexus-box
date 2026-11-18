@@ -1083,7 +1083,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
-      case 'synth': case 'zoom': case 'holo': case 'aura': openExperience(name); break;
+      case 'synth': case 'zoom': case 'holo': case 'aura': case 'liquiddreams': openExperience(name); break;
       case 'ego': openEgo(); break;
       case 'bgs': openBackgrounds(); break;
       case 'phones': openPhones(); break;
@@ -1309,7 +1309,7 @@
     CATALOG.push([el.getAttribute('data-act'), el.querySelector('.ic').textContent, el.querySelector('.lb').textContent]);
   });
   var DEFAULT_TILES = CATALOG.map(function (c) { return c[0]; });
-  if (['2', '3', '4'].indexOf(pref('homeVer')) < 0) { setPref('homeTiles', ''); setPref('homeVer', '4'); }
+  if (['2', '3', '4', '5'].indexOf(pref('homeVer')) < 0) { setPref('homeTiles', ''); setPref('homeVer', '4'); }
   if (pref('homeVer') === '2') {
     var oldT = (pref('homeTiles') || '').split(',').filter(Boolean);
     if (oldT.length) {
@@ -1323,6 +1323,14 @@
     var t4 = (pref('homeTiles') || '').split(',').filter(Boolean);
     if (t4.length && t4.indexOf('lyrics') < 0) { t4.splice(Math.max(0, t4.indexOf('settings')), 0, 'lyrics'); setPref('homeTiles', t4.join(',')); }
     setPref('homeVer', '4');
+  }
+  if (pref('homeVer') === '4') {
+    var t5 = (pref('homeTiles') || '').split(',').filter(Boolean);
+    if (t5.length && t5.indexOf('liquiddreams') < 0) {
+      t5.splice(Math.max(0, t5.indexOf('settings')), 0, 'liquiddreams');
+      setPref('homeTiles', t5.join(','));
+    }
+    setPref('homeVer', '5');
   }
   function fullCatalog() {
     var out = CATALOG.slice(), have = {};
@@ -1518,10 +1526,12 @@
   }
 
   // ---- Beat analyser: turns the music signal into "energy" (0-1) and "kicks" (bass hits) ----
-  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, last: 0, kicks: 0, live: 0 };
-  BEAT.tick = function () { BEAT.k *= .86; BEAT.e *= .97; return Math.max(BEAT.e, BEAT.k); };
-  function feedBeat(all, bass) {
+  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, mid: 0, high: 0, last: 0, kicks: 0, live: 0 };
+  BEAT.tick = function () { BEAT.k *= .86; BEAT.e *= .97; BEAT.mid *= .9; BEAT.high *= .9; return Math.max(BEAT.e, BEAT.k); };
+  function feedBeat(all, bass, mid, high) {
     if (bass === undefined) bass = all;
+    BEAT.mid = BEAT.mid * .72 + (Number(mid) || 0) * .28;
+    BEAT.high = BEAT.high * .72 + (Number(high) || 0) * .28;
     var now = Date.now();
     BEAT.avg = BEAT.avg * .97 + all * .03;
     BEAT.bavg = BEAT.bavg * .94 + bass * .06;
@@ -1536,9 +1546,9 @@
     }
     return false;
   }
-  Nexus._meter = function (all, bass) {
-    var kick = feedBeat(all, bass);
-    if (window.XP && XP.onMeter) XP.onMeter(all, bass, kick);
+  Nexus._meter = function (all, bass, mid, high) {
+    var kick = feedBeat(all, bass, mid, high);
+    if (window.XP && XP.onMeter) XP.onMeter(all, bass, kick, mid, high);
     if (!P.on) return;
     if (all > 0.004) P.lastMeter = Date.now();
     $('pMeterFill').style.width = Math.round(BEAT.e * 100) + '%';
@@ -2069,7 +2079,9 @@
     ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
     ['worlds', '🏔', 'ALIEN WORLDS'], ['gold', '🥇', 'LIQUID METAL'], ['neural', '🧠', 'NEURAL NETWORK'], ['auroratunnel', '🌌', 'AURORA TUNNEL'], ['ink', '🎨', 'INK IN WATER'],
     ['crystal', '💎', 'CRYSTALS'], ['datastorm', '💻', 'DATA STORM'], ['blackhole', '⚫', 'BLACK HOLE'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
-    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA']
+    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA'],
+    ['skeletondance', '💀', 'DANCING SKELETON'], ['neonfluid', '🫧', 'NEON FLUID'], ['macrocrystalgrowth', '💎', 'MACRO CRYSTAL GROWTH'],
+    ['deepsea', '🪼', 'BIOLUMINESCENT DEEP SEA'], ['prismrefraction', '🌈', 'PRISMATIC LIGHT REFRACTION'], ['quantumparticles', '✧', 'QUANTUM PARTICLE FIELDS']
   ];
   // ---- BACKGROUNDS button: big picture grid, tap to apply instantly, plus home screen styles ----
   var STYLES = [['glass', 'GLASS'], ['neon', 'NEON'], ['minimal', 'MINIMAL'], ['bold', 'BOLD'], ['sharp', 'CYBER'], ['gold', '🔓 GOLD']];

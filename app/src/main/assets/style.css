@@ -174,7 +174,6 @@ body.party .tile { border-color: rgba(255,255,255,.35); }
 .party-modes { display:flex;justify-content:center;gap:.45vw;margin:1.7vh auto 0;pointer-events:auto; }
 .party-mode { min-width:8vw;padding:.85vh .72vw;border:1px solid rgba(163,205,235,.2);border-radius:99px;background:rgba(4,8,14,.86);
   color:#a9c4d9!important;font-size:clamp(10px,1.35vmin,15px)!important;font-weight:800!important;letter-spacing:.12vmin;transition:background .2s,color .2s,border-color .2s,transform .2s; }
-.party-mode[data-mode="chrome"] { min-width:11vw; }
 .party-mode.active { color:#f4ffff!important;border-color:rgba(var(--party-rgb),.9);background:rgba(var(--party-rgb),.19);box-shadow:0 0 1.8vmin rgba(var(--party-rgb),.42); }
 .party-player { position:absolute;left:2.4vw;right:2.4vw;bottom:13vh;z-index:4;display:flex;align-items:center;gap:1.35vw;min-height:11vh;
   padding:1.15vh 1.2vw;border:1px solid rgba(184,216,246,.15);border-radius:1.5vmin;
@@ -209,9 +208,11 @@ body.party .tile { border-color: rgba(255,255,255,.35); }
 .party-bass b { color:#e3ffff;text-shadow:0 0 1.2vmin #34dfff; }
 .party-action[aria-pressed="true"] { border-color:rgba(127,211,255,.7);color:#c8eeff!important; }
 .party-meter { display:none!important; }
-#party[data-preset="voltage"] { --party-rgb:0,213,215; }
-#party[data-preset="aurora"] { --party-rgb:0,205,221; }
-#party[data-preset="neon"] { --party-rgb:35,145,255; }
+#party[data-preset="orb"] { --party-rgb:39,190,255; }
+#party[data-preset="voltage"] { --party-rgb:35,122,255; }
+#party[data-preset="aurora"] { --party-rgb:94,99,255; }
+#party[data-preset="neon"] { --party-rgb:235,71,221; }
+@media (max-width:700px){.party-atmospheres>span{display:none}.party-preset{padding-inline:.62vw}}
 @media (max-width:700px) {
  .party-shell { padding:1.4vh 2vw; }
  .party-header { min-height:6vh; }
@@ -226,7 +227,6 @@ body.party .tile { border-color: rgba(255,255,255,.35); }
  .party-action { padding:.45vh .55vw;font-size:clamp(9px,1.15vmin,12px)!important; }
  .party-modes { gap:.35vw; }
  .party-mode { min-width:7.9vw;padding:.75vh .48vw;font-size:clamp(9px,1.15vmin,12px)!important; }
- .party-mode[data-mode="chrome"] { min-width:11vw; }
 }
 /* ---------- Experiences ---------- */
 #xp { background: #000; overflow: hidden; }
@@ -378,3 +378,41 @@ body.style-gold .tile .ic, body.style-gold .tile .lb { color: #f6dc94; text-shad
 .egocard span:last-child { font-size: 2.4vmin; letter-spacing: 2px; max-height: none; }
 .app.egoOn .ering { animation-duration: 1s; }
 @keyframes eringPulse { 0%,100% { opacity: .75; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.04); } }
+
+/* LIQUID DREAMS controller */
+#xp.liquid-dreams #xpTop,#xp.liquid-dreams #xpMid,#xp.liquid-dreams #xpBottom{display:none}
+#xp.liquid-dreams{background:#05030a;touch-action:manipulation}
+#xp.liquid-dreams .ld-ui{position:absolute;inset:0;z-index:8;pointer-events:none;font-family:system-ui,Arial,sans-serif;color:#f4f7ff}
+#xp.liquid-dreams .ld-float{position:absolute;right:3vw;bottom:3vh;pointer-events:auto;border:1px solid rgba(166,233,255,.52);border-radius:999px;padding:1.2em 1.35em;background:rgba(7,12,25,.72);color:#dbfaff;font-size:clamp(10px,1.6vmin,15px);letter-spacing:.12em;box-shadow:0 0 22px rgba(59,211,255,.18);backdrop-filter:blur(12px)}
+#xp.liquid-dreams .ld-panel{position:absolute;right:2vw;top:2vh;bottom:2vh;width:min(430px,48vw);overflow:auto;pointer-events:auto;padding:18px;border:1px solid rgba(144,216,255,.32);border-radius:22px;background:linear-gradient(145deg,rgba(14,20,38,.9),rgba(5,7,17,.88));box-shadow:0 16px 55px rgba(0,0,0,.48),inset 0 1px rgba(255,255,255,.08);backdrop-filter:blur(18px);transition:transform .22s ease,opacity .22s ease;scrollbar-width:thin}
+#xp.liquid-dreams .ld-panel.ld-hidden{opacity:0;transform:translateX(110%);pointer-events:none}
+#xp.liquid-dreams .ld-panel header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+#xp.liquid-dreams .ld-panel header b{display:block;letter-spacing:.16em;color:#dcfbff;font-size:15px}
+#xp.liquid-dreams .ld-panel header small{display:block;color:#9eb4d0;font-size:9px;letter-spacing:.12em;margin-top:4px}
+#xp.liquid-dreams .ld-panel button,#xp.liquid-dreams .ld-panel select,#xp.liquid-dreams .ld-panel input{font:inherit;color:#f2f6ff}
+#xp.liquid-dreams .ld-panel button{border:1px solid rgba(132,205,255,.24);border-radius:12px;background:rgba(65,97,151,.18);padding:9px 11px}
+#xp.liquid-dreams .ld-panel button.selected{border-color:#7eeaff;background:rgba(65,205,244,.24);box-shadow:0 0 16px rgba(68,221,255,.17)}
+#xp.liquid-dreams .ld-panel label{display:block;color:#aebed5;font-size:10px;letter-spacing:.11em;margin:11px 0}
+#xp.liquid-dreams .ld-panel select{display:block;width:100%;margin-top:6px;padding:10px;border:1px solid rgba(150,205,242,.23);border-radius:10px;background:#101426}
+#xp.liquid-dreams .ld-panel option{background:#101426;color:white}
+#xp.liquid-dreams .ld-label{color:#aebed5;font-size:10px;letter-spacing:.12em;margin:13px 0 7px}
+#xp.liquid-dreams .ld-levels{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+#xp.liquid-dreams .ld-levels button{padding:8px 3px;font-size:9px;letter-spacing:.05em}
+#xp.liquid-dreams .ld-panel input[type=range]{display:block;width:100%;height:20px;accent-color:#7feaff;margin-top:4px}
+#xp.liquid-dreams output{float:right;color:#d3eaff}
+#xp.liquid-dreams .ld-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:14px}
+#xp.liquid-dreams .ld-actions button{font-size:9px;letter-spacing:.05em;padding:10px 4px}
+#xp.liquid-dreams .ld-drive{display:flex;align-items:center;gap:9px;margin-top:11px}
+#xp.liquid-dreams .ld-drive button{font-size:9px;white-space:nowrap}
+#xp.liquid-dreams .ld-drive span,#xp.liquid-dreams .ld-empty{font-size:9px;color:#91a2bd}
+#xp.liquid-dreams .ld-save{display:flex;gap:6px;margin-top:12px}
+#xp.liquid-dreams .ld-save input{min-width:0;flex:1;border:1px solid rgba(150,205,242,.23);border-radius:10px;padding:10px;background:#0b1020}
+#xp.liquid-dreams .ld-save button{font-size:9px}
+#xp.liquid-dreams .ld-preset{display:flex;gap:6px;margin:5px 0}
+#xp.liquid-dreams .ld-preset button:first-child{flex:1;text-align:left}
+#xp.liquid-dreams .ld-preset button:last-child{width:38px}
+#xp.liquid-dreams .ld-ui.ld-clean{pointer-events:none}
+#xp.liquid-dreams .ld-ui.ld-clean .ld-float,#xp.liquid-dreams .ld-ui.ld-clean .ld-panel{display:none}
+@media(max-width:700px){#xp.liquid-dreams .ld-panel{width:min(390px,78vw);top:1vh;bottom:1vh;padding:13px}#xp.liquid-dreams .ld-float{right:4vw;bottom:3vh}}
+
+#xp.liquid-dreams .ld-return{width:100%;margin-top:13px;letter-spacing:.12em;color:#a9dfff}

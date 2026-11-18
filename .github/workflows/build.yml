@@ -53,12 +53,55 @@ jobs:
             echo '' > app/src/main/assets/key.js
           fi
 
+      - name: Set up Node.js for source checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check source integration
+        run: |
+          node --check app/src/main/assets/app.js
+          node --check app/src/main/assets/party.js
+          node --check app/src/main/assets/experiences.js
+          node tools/voice-test/production-visual-upgrade.test.js
+
       - name: Build APK
         run: |
           export NEXUS_KEYSTORE="$HOME/nexus-signing/nexus.keystore"
           ls -l "$NEXUS_KEYSTORE"
           keytool -list -v -keystore "$NEXUS_KEYSTORE" -storepass android | grep -m1 SHA256
           gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Verify production update compatibility
+        env:
+          EXPECTED_VERSION: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          TOOLS="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)"
+          AAPT="$TOOLS/aapt"
+          APKSIGNER="$TOOLS/apksigner"
+          test -s "$APK"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+          PACKAGE="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")"
+          VERSION="$("$AAPT" dump badging "$APK" | sed -n "s/^package:.*versionCode='\\([^']*\\)'.*/\\1/p")"
+          test "$PACKAGE" = "com.nexus.box"
+          test "$VERSION" = "$EXPECTED_VERSION"
+          "$APKSIGNER" verify --print-certs "$APK" > /tmp/nexus-new-certificate.txt
+          NEW_CERT="$(sed -n 's/.*certificate SHA-256 digest: //p' /tmp/nexus-new-certificate.txt | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          KEY_CERT="$(keytool -list -v -keystore "$HOME/nexus-signing/nexus.keystore" -storepass android -alias androiddebugkey | sed -n 's/.*SHA256: *//p' | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$NEW_CERT"
+          test "$NEW_CERT" = "$KEY_CERT"
+          curl --fail --silent --show-error --location "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk" -o /tmp/nexus-current.apk
+          OLD_PACKAGE="$("$AAPT" dump badging /tmp/nexus-current.apk | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p")"
+          test "$OLD_PACKAGE" = "$PACKAGE"
+          "$APKSIGNER" verify --print-certs /tmp/nexus-current.apk > /tmp/nexus-old-certificate.txt
+          OLD_CERT="$(sed -n 's/.*certificate SHA-256 digest: //p' /tmp/nexus-old-certificate.txt | head -n1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$OLD_CERT"
+          test "$NEW_CERT" = "$OLD_CERT"
+          echo "Verified package=$PACKAGE versionCode=$VERSION certificate=$NEW_CERT matches current truck APK and cached key."
 
       - name: Prepare download
         run: cp app/build/outputs/apk/debug/app-debug.apk nexus.apk
