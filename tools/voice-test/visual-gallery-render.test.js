@@ -13,7 +13,8 @@ const memoryGb = Number(process.env.NEXUS_GALLERY_MEMORY_GB || 2);
 assert(names.length > 25, 'expected the full visual gallery catalog');
 const browser = process.env.LIQUID_DREAMS_BROWSER || [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'
 ].find(file => fs.existsSync(file));
 assert(browser && fs.existsSync(browser), 'Edge or Chrome is required for actual gallery rendering verification');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-gallery-render-'));
