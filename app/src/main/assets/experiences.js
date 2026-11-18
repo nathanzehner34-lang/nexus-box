@@ -524,7 +524,7 @@ function skeletonDance() {
         if(!k)cx.moveTo(px,py);else cx.lineTo(px,py);
       }
       cx.closePath();
-      return {x:cx0,y:cy0,rx:rx,ry:ry};
+      f.drawX=cx0;f.drawY=cy0;f.drawRx=rx;f.drawRy=ry;return f;
     }
     var highDrift=0;
     function draw(now){
@@ -561,7 +561,7 @@ function skeletonDance() {
         var swell=1+smoothBass*cfg.bass*.19+e*.12+Math.sin(t*f.rate+f.phase)*(.06+amp*.035);
         var box=cloudPath(f,t,amp,fine,mid,swell,detail,i*.31);
         var hue=colorAt(i,t,e,mid,high),styleShift=style==='oil'?38:style==='psychedelic'?Math.sin(t*.3+i)*42:style==='chrome'?0:style==='morph'?i*9:18;
-        var g=cx.createRadialGradient(box.x-box.rx*.24,box.y-box.ry*.28,U*.005,box.x,box.y,Math.max(box.rx,box.ry)*1.42);
+        var g=cx.createRadialGradient(box.drawX-box.drawRx*.24,box.drawY-box.drawRy*.28,U*.005,box.drawX,box.drawY,Math.max(box.drawRx,box.drawRy)*1.42);
         if(style==='chrome'){
           g.addColorStop(0,'rgba(250,253,255,'+(.44+cfg.shine*.06)+')');
           g.addColorStop(.16,'rgba(194,234,255,.48)');
@@ -579,7 +579,7 @@ function skeletonDance() {
         // Insane mode adds nested liquid-ink folds; the geometry stays soft and continuously morphing.
         if(state.intensity==='insane'||overdrive){
           cloudPath(f,t+f.rate*.35,amp*1.18,fine*1.5,mid*.8,swell*.57,detail,phaseOffsetFor(i));
-          var inner=cx.createRadialGradient(box.x+box.rx*.12,box.y-box.ry*.08,U*.003,box.x,box.y,Math.max(box.rx,box.ry)*.88);
+          var inner=cx.createRadialGradient(box.drawX+box.drawRx*.12,box.drawY-box.drawRy*.08,U*.003,box.drawX,box.drawY,Math.max(box.drawRx,box.drawRy)*.88);
           inner.addColorStop(0,rgba(hue+125,100,68,.36+fine*.04));
           inner.addColorStop(.46,rgba(hue+styleShift+74,100,43,.43));
           inner.addColorStop(1,rgba(hue+styleShift+155,100,28,0));
@@ -587,7 +587,7 @@ function skeletonDance() {
         }
         if(state.intensity==='insane'){
           cloudPath(f,t*.74+f.phase,amp*1.5,fine*1.8,mid,swell*.34,detail,phaseOffsetFor(i+9));
-          var fractal=cx.createRadialGradient(box.x-box.rx*.1,box.y+box.ry*.1,U*.002,box.x,box.y,Math.max(box.rx,box.ry)*.56);
+          var fractal=cx.createRadialGradient(box.drawX-box.drawRx*.1,box.drawY+box.drawRy*.1,U*.002,box.drawX,box.drawY,Math.max(box.drawRx,box.drawRy)*.56);
           fractal.addColorStop(0,rgba(hue+210,100,70,.22+high*.05));
           fractal.addColorStop(.52,rgba(hue+styleShift+116,100,48,.38));
           fractal.addColorStop(1,rgba(hue+styleShift+190,100,26,0));
