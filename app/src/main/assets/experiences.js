@@ -378,12 +378,14 @@ function skeletonDance() {
     var b = beatTracker(), start = performance.now(), lastT = start, kick = 0, smoothBass = 0, smoothTreble = 0;
     var styles = ['chrome','fluid','oil','morph','psychedelic'];
     var colors = ['spectrum','electric','rush','rainbow','ultraviolet','storm'];
-    var levels = ['calm','flow','intense','insane'];
-    var defaults = { style:'chrome', color:'spectrum', intensity:'flow', bass:1, treble:1, music:1, speed:1, drive:'driving' };
+    var levels = ['mild','intense','insane'];
+    var defaults = { style:'chrome', color:'spectrum', intensity:'mild', bass:1, treble:1, music:1, speed:1, drive:'driving' };
     function read(key, fallback) { try { var v = N.pref(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; } }
     function write(key, val) { try { if (A && A.setPref) A.setPref(key, JSON.stringify(val)); else localStorage.setItem('p_'+key, JSON.stringify(val)); } catch(e) {} }
     var state = read('liquidDreams.settings', defaults);
     Object.keys(defaults).forEach(function(k){ if(state[k]===undefined) state[k]=defaults[k]; });
+    if(state.intensity==='calm'||state.intensity==='flow')state.intensity='mild';
+    if(levels.indexOf(state.intensity)<0)state.intensity='mild';
     var presets = read('liquidDreams.presets', []);
     if(!Array.isArray(presets)) presets=[];
     var overdrive = false, overTimer = 0, clean = false, alive = true;
@@ -402,9 +404,9 @@ function skeletonDance() {
       '<div class="ld-actions"><button type="button" data-action="surprise">SURPRISE ME</button><button type="button" data-action="overdrive">OVERDRIVE</button><button type="button" data-action="clean">CLEAN SCREEN</button></div>' +
       '<div class="ld-drive"><button type="button" data-action="drive">DRIVING PRESENTATION</button><span>Restrained motion by default. Immersive mode is intended while parked.</span></div>' +
       '<div class="ld-save"><input data-name maxlength="24" placeholder="Name your vibe"><button type="button" data-action="save">SAVE MY VIBE</button></div>' +
-      '<div class="ld-label">SAVED VIBES</div><div class="ld-presets"></div><button class="ld-return" type="button" data-action="exit">RETURN TO NEXUS</button></section>';
+      '<div class="ld-label">SAVED VIBES</div><div class="ld-presets"></div><button class="ld-return" type="button" data-action="exit">RETURN TO NEXUS</button></section><div class="ld-track" aria-live="polite"></div>';
     layer.appendChild(ui); xpDom.push(ui);
-    var panel=ui.querySelector('.ld-panel'), floatBtn=ui.querySelector('.ld-float'), presetBox=ui.querySelector('.ld-presets');
+    var panel=ui.querySelector('.ld-panel'), floatBtn=ui.querySelector('.ld-float'), presetBox=ui.querySelector('.ld-presets'), trackLabel=ui.querySelector('.ld-track'), trackTimer=0;
     function saveState(){ write('liquidDreams.settings',state); }
     function presetList(){
       presetBox.innerHTML='';
@@ -464,89 +466,154 @@ function skeletonDance() {
     function handleChange(e){var el=e.target;if(!el.dataset.setting)return;state[el.dataset.setting]=el.type==='range'?parseFloat(el.value):el.value;syncUi();saveState();}
     function handleInput(e){var el=e.target;if(!el.dataset.setting||el.type!=='range')return;state[el.dataset.setting]=parseFloat(el.value);syncUi();}
     function revealFromCanvas(e){if(clean){e.preventDefault();reveal();}}
+    function pollLiquidTrack(){
+      if(!alive||!trackLabel||!A||!A.nowPlaying)return;
+      try{
+        var np=JSON.parse(A.nowPlaying()||'{}'),title=np.title&&np.title!=='null'?String(np.title).trim():'',artist=np.artist&&np.artist!=='null'?String(np.artist).trim():'';
+        trackLabel.textContent=title?(title+(artist?' — '+artist:'')):'';
+      }catch(e){trackLabel.textContent='';}
+    }
+    pollLiquidTrack();trackTimer=setInterval(pollLiquidTrack,1800);timers.push(trackTimer);
     ui.addEventListener('click',handleClick); ui.addEventListener('change',handleChange); ui.addEventListener('input',handleInput);
     layer.addEventListener('pointerdown',revealFromCanvas);
     XP.cleanupCurrent=function(){
       alive=false;ui.removeEventListener('click',handleClick);ui.removeEventListener('change',handleChange);ui.removeEventListener('input',handleInput);
-      layer.removeEventListener('pointerdown',revealFromCanvas);if(overTimer)clearTimeout(overTimer);
+      layer.removeEventListener('pointerdown',revealFromCanvas);if(overTimer)clearTimeout(overTimer);if(trackTimer)clearInterval(trackTimer);
     };
     syncUi();presetList();text('xpTop');text('xpMid');text('xpBottom');
     $('xpClose').style.display='none';
-    var blobs=[];
-    for(var i=0;i<18;i++) blobs.push({x:.08+Math.random()*.84,y:.12+Math.random()*.76,r:.035+Math.random()*.075,
-      vx:(Math.random()-.5)*.000055,vy:(Math.random()-.5)*.00005,phase:Math.random()*6.28,rate:.35+Math.random()*1.4,hue:i*47});
-    var levelsCfg={calm:{amp:.22,forms:7,pace:.46,shine:.45},flow:{amp:.48,forms:11,pace:.78,shine:.75},intense:{amp:.82,forms:15,pace:1.16,shine:1.0},insane:{amp:1.12,forms:18,pace:1.5,shine:1.35}};
+    // Flow-field control points shape broad, interconnected cloud formations; no orb field or ball rendering.
+    var formations=[];
+    for(var i=0;i<18;i++)formations.push({x:.1+Math.random()*.8,y:.08+Math.random()*.84,
+      vx:(Math.random()-.5)*.00005,vy:(Math.random()-.5)*.000045,phase:Math.random()*6.28,
+      rx:.18+Math.random()*.23,ry:.2+Math.random()*.34,rate:.28+Math.random()*.75,hue:i*47});
+    var levelsCfg={
+      mild:{amp:1.18,forms:13,pace:1.08,shine:1.15,detail:30,fold:.72},
+      intense:{amp:1.78,forms:16,pace:1.36,shine:1.48,detail:38,fold:1.25},
+      insane:{amp:2.45,forms:18,pace:1.68,shine:1.8,detail:46,fold:1.9}
+    };
     var palettes={
       electric:[190,208,230,258,282],rush:[190,218,278,318,54],rainbow:[0,42,86,145,190,238,282,320],
       ultraviolet:[252,270,288,310,230],storm:[185,200,215,232,268,0],spectrum:[188,215,255,285,320,45]
     };
+    var TAU=Math.PI*2;
     function rgba(h,s,l,a){return 'hsla('+((h%360+360)%360)+','+s+'%,'+l+'%,'+a+')';}
-    function colorAt(i,t,energy){var arr=palettes[state.color]||palettes.spectrum, shift=state.color==='spectrum'?t*(9+energy*45):state.color==='rainbow'?t*18:0;return (arr[i%arr.length]+shift+360)%360;}
-    function controls(){
-      var cfg=levelsCfg[state.intensity]||levelsCfg.flow, drive=state.drive==='driving'?0.62:1, od=overdrive?1.48:1;
-      return {amp:cfg.amp*drive*od, count:Math.min(18,Math.round(cfg.forms*(overdrive?1.18:1))), pace:cfg.pace*(overdrive?1.42:1)*parseFloat(state.speed||1),
-        shine:cfg.shine*(overdrive?1.35:1), bass:parseFloat(state.bass||1), treble:parseFloat(state.treble||1), music:parseFloat(state.music||1), drive:drive};
+    function colorAt(i,t,energy,mid,high){
+      var arr=palettes[state.color]||palettes.spectrum;
+      var shift=state.color==='spectrum'?t*(16+energy*62+mid*18+high*10):state.color==='rainbow'?t*24+energy*28:energy*(state.color==='rush'?20:9);
+      return (arr[i%arr.length]+shift+360)%360;
     }
-    function smoothPath(points){cx.beginPath();cx.moveTo(points[0][0],points[0][1]);for(var j=1;j<points.length;j++){var prev=points[j-1],cur=points[j],midX=(prev[0]+cur[0])*.5,midY=(prev[1]+cur[1])*.5;cx.quadraticCurveTo(prev[0],prev[1],midX,midY);}var p=points[points.length-1];cx.quadraticCurveTo(p[0],p[1],points[0][0],points[0][1]);cx.closePath();}
+    function controls(){
+      var cfg=levelsCfg[state.intensity]||levelsCfg.mild,drive=state.drive==='driving'?.72:1,od=overdrive?1.48:1;
+      return {amp:cfg.amp*drive*od,count:Math.min(18,Math.round(cfg.forms*(overdrive?1.12:1))),
+        pace:cfg.pace*(overdrive?1.25:1)*parseFloat(state.speed||1),shine:cfg.shine*(overdrive?1.25:1),
+        detail:cfg.detail,fold:cfg.fold,bass:parseFloat(state.bass||1),treble:parseFloat(state.treble||1),
+        music:parseFloat(state.music||1),drive:drive};
+    }
+    function cloudPath(f,t,amp,fine,mid,scale,detail,phaseOffset){
+      var cx0=f.x*W+Math.sin(t*.31+f.phase+phaseOffset)*W*.07+mid*W*.035;
+      var cy0=f.y*H+Math.cos(t*.27+f.phase*1.3+phaseOffset)*H*.07-mid*H*.025;
+      var rx=U*f.rx*scale*(1+amp*.09),ry=U*f.ry*scale*(1+amp*.08),phase=f.phase+t*f.rate+phaseOffset;
+      cx.beginPath();
+      for(var k=0;k<=detail;k++){
+        var a=k/detail*TAU;
+        var flow=1+( .24+amp*.055)*Math.sin(a*3+phase)+.15*Math.sin(a*5-phase*1.4+mid*2)+
+          (.08+fine*.055)*Math.sin(a*8-phase*.72+highDrift)+.045*Math.cos(a*2+phase*1.8);
+        var px=cx0+Math.cos(a)*rx*flow+Math.sin(a*2+phase)*rx*.075*amp;
+        var py=cy0+Math.sin(a)*ry*flow+Math.cos(a*3-phase*.8)*ry*.09*amp;
+        if(!k)cx.moveTo(px,py);else cx.lineTo(px,py);
+      }
+      cx.closePath();
+      return {x:cx0,y:cy0,rx:rx,ry:ry};
+    }
+    var highDrift=0;
     function draw(now){
       if(!alive||!XP.active||XP.current!=='liquiddreams')return;
       var dt=Math.min(40,Math.max(0,now-lastT));lastT=now;
-      var energy=b.tick(now), bassTarget=b.live?(b.k||b.e)*parseFloat(state.music||1):0, trebleTarget=b.live?b.high*parseFloat(state.music||1):0;
-      smoothBass+=(Math.min(1.5,bassTarget)-smoothBass)*.18;smoothTreble+=(Math.min(1.5,trebleTarget)-smoothTreble)*.22;
-      if(b.hit)kick=Math.min(1.5,kick+.55+smoothBass*.45);kick*=Math.exp(-dt/(b.hit?240:520));
-      var cfg=controls(), t=(now-start)/1000*cfg.pace, e=Math.min(1.4,energy*cfg.music), U=Math.min(W,H), style=state.style;
-      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;cx.fillStyle='#05030a';cx.fillRect(0,0,W,H);
-      var hue=colorAt(1,t,e), bloom=cx.createRadialGradient(W*(.5+.18*Math.sin(t*.22)),H*(.48+.14*Math.cos(t*.18)),U*.04,W*.5,H*.5,U*(.78+e*.15));
-      bloom.addColorStop(0,rgba(hue,90,30+e*9,.14+e*.07));bloom.addColorStop(.48,rgba(colorAt(3,t,e),95,18,.09+e*.05));bloom.addColorStop(1,'rgba(3,2,10,0)');
-      cx.fillStyle=bloom;cx.fillRect(0,0,W,H);
-      var amp=cfg.amp*(.25+smoothBass*cfg.bass*1.2+e*.35), fine=cfg.amp*(.12+smoothTreble*cfg.treble*.95);
-      if(style==='chrome'){
-        var wave=[];
-        for(var x=0;x<=12;x++){var px=W*x/12,py=H*(.48+.22*Math.sin(x*.43+t*.48)+.08*Math.sin(x*.91-t*.27)+Math.sin(t*.7)*.06*amp);wave.push([px,py]);}
-        cx.beginPath();cx.moveTo(0,H*.18);cx.lineTo(W,H*.18);for(var j=wave.length-1;j>=0;j--)cx.lineTo(wave[j][0],wave[j][1]);cx.closePath();
-        var metal=cx.createLinearGradient(0,H*.12,W,H*.78);metal.addColorStop(0,'#11131e');metal.addColorStop(.15,'#d9f7ff');metal.addColorStop(.22,rgba(210,220,245,70,.92));metal.addColorStop(.32,'#171827');metal.addColorStop(.47,'#fbfdff');metal.addColorStop(.55,rgba(colorAt(2,t,e),100,65,.86));metal.addColorStop(.68,'#202132');metal.addColorStop(.82,'#e9fbff');metal.addColorStop(1,'#10101b');cx.fillStyle=metal;cx.globalAlpha=.72+Math.min(.2,amp*.08);cx.fill();
-        cx.globalAlpha=.7;cx.lineWidth=Math.max(1,U*.006);cx.strokeStyle=rgba(colorAt(2,t,e),100,76,.65);cx.beginPath();for(var k=0;k<wave.length;k++){if(!k)cx.moveTo(wave[k][0],wave[k][1]);else cx.lineTo(wave[k][0],wave[k][1]);}cx.stroke();cx.globalAlpha=1;
-        for(var q=0;q<4;q++){var yy=H*(.35+q*.11)+Math.sin(t*.65+q*2)*H*.035*amp;cx.fillStyle='rgba(245,251,255,'+(.025+cfg.shine*.018)+')';cx.fillRect(0,yy,W,H*.012);}
-      } else if(style==='fluid'){
-        cx.globalCompositeOperation='lighter';
-        for(var r=0;r<7;r++){var y0=H*(.24+r*.1),phase=t*(.7+r*.09)+r*1.4;cx.beginPath();cx.moveTo(0,H);for(var x2=0;x2<=16;x2++){var xx=W*x2/16,yy=y0+Math.sin(x2*.58+phase)*H*(.055+amp*.035)+Math.sin(x2*.2-phase*.7)*H*.04;cx.lineTo(xx,yy);}cx.lineTo(W,H);cx.closePath();var grad=cx.createLinearGradient(0,y0-H*.15,W,y0+H*.3);grad.addColorStop(0,rgba(colorAt(r,t,e),100,48,.08));grad.addColorStop(.48,rgba(colorAt(r+2,t,e),100,60,.18+e*.04));grad.addColorStop(1,rgba(colorAt(r+4,t,e),100,22,.04));cx.fillStyle=grad;cx.fill();}
-        cx.globalCompositeOperation='source-over';
-      } else if(style==='oil'){
-        cx.globalCompositeOperation='screen';
-        for(var o=0;o<cfg.count;o++){var ob=blobs[o], ox=(ob.x+.09*Math.sin(t*.32+ob.phase)+1)%1, oy=(ob.y+.1*Math.cos(t*.26+ob.phase*1.7)+1)%1, rr=U*ob.r*(.78+Math.sin(t*ob.rate+ob.phase)*(.08+amp*.1));
-          var oo=cx.createRadialGradient(ox*W,oy*H,rr*.06,ox*W,oy*H,rr*2.5);oo.addColorStop(0,rgba(colorAt(o,t,e),98,57,.23+e*.06));oo.addColorStop(.38,rgba(colorAt(o+2,t,e),100,44,.15));oo.addColorStop(.7,rgba(colorAt(o+4,t,e),100,27,.08));oo.addColorStop(1,'rgba(0,0,0,0)');cx.fillStyle=oo;cx.fillRect(ox*W-rr*2.5,oy*H-rr*2.5,rr*5,rr*5);
+      var energy=b.tick(now),music=parseFloat(state.music||1);
+      var bassTarget=b.live?(b.k||b.e)*music:0,trebleTarget=b.live?b.high*music:0;
+      smoothBass+=(Math.min(1.5,bassTarget)-smoothBass)*.2;
+      smoothTreble+=(Math.min(1.5,trebleTarget)-smoothTreble)*.24;
+      var mid=b.live?b.mid:0,high=b.live?b.high:0;
+      highDrift+=(high*parseFloat(state.treble||1)-highDrift)*.18;
+      if(b.hit)kick=Math.min(1.6,kick+.52+smoothBass*.5);kick*=Math.exp(-dt/(b.hit?220:540));
+      var cfg=controls(),t=(now-start)/1000*cfg.pace,e=Math.min(1.6,energy*cfg.music),style=state.style;
+      var amp=cfg.amp*(.48+smoothBass*cfg.bass*1.35+e*.46),fine=cfg.amp*(.12+smoothTreble*cfg.treble*1.2);
+      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;cx.fillStyle='#05030c';cx.fillRect(0,0,W,H);
+      // Wide atmospheric washes make the whole screen breathe with the spectrum.
+      var wash=cx.createLinearGradient(W*(.08+Math.sin(t*.12)*.25),H*(.08+Math.cos(t*.1)*.2),W*(.92+Math.cos(t*.13)*.18),H*(.95+Math.sin(t*.11)*.16));
+      wash.addColorStop(0,rgba(colorAt(0,t,e,mid,high),92,22,.24+e*.08));
+      wash.addColorStop(.32,rgba(colorAt(2,t,e,mid,high),96,18,.3+e*.1));
+      wash.addColorStop(.68,rgba(colorAt(4,t,e,mid,high),95,17,.26+e*.08));
+      wash.addColorStop(1,rgba(colorAt(1,t,e,mid,high),90,20,.3+e*.08));
+      cx.fillStyle=wash;cx.fillRect(0,0,W,H);
+      var bloom=cx.createRadialGradient(W*(.5+.22*Math.sin(t*.18+mid)),H*(.47+.2*Math.cos(t*.15-mid)),U*.025,W*.5,H*.5,U*(.82+smoothBass*.18));
+      bloom.addColorStop(0,rgba(colorAt(1,t,e,mid,high),100,44,.25+e*.12+kick*.08));
+      bloom.addColorStop(.42,rgba(colorAt(3,t,e,mid,high),100,27,.23+e*.1));
+      bloom.addColorStop(1,'rgba(3,2,10,0)');cx.fillStyle=bloom;cx.fillRect(0,0,W,H);
+      var detail=cfg.detail,forms=cfg.count;
+      // Formations drift and fold through one another like ink in water.
+      for(var i=0;i<forms;i++){
+        var f=formations[i], flow=cfg.pace*(.000018+Math.min(1,mid)*.00002+e*.000009);
+        f.x+=f.vx*dt*cfg.pace+Math.sin(t*.19+f.phase)*flow*dt;
+        f.y+=f.vy*dt*cfg.pace+Math.cos(t*.17+f.phase*1.5)*flow*dt+mid*.000012*dt;
+        if(f.x<-.5)f.x=1.5;if(f.x>1.5)f.x=-.5;if(f.y<-.5)f.y=1.5;if(f.y>1.5)f.y=-.5;
+        var swell=1+smoothBass*cfg.bass*.19+e*.12+Math.sin(t*f.rate+f.phase)*(.06+amp*.035);
+        var box=cloudPath(f,t,amp,fine,mid,swell,detail,i*.31);
+        var hue=colorAt(i,t,e,mid,high),styleShift=style==='oil'?38:style==='psychedelic'?Math.sin(t*.3+i)*42:style==='chrome'?0:style==='morph'?i*9:18;
+        var g=cx.createRadialGradient(box.x-box.rx*.24,box.y-box.ry*.28,U*.005,box.x,box.y,Math.max(box.rx,box.ry)*1.42);
+        if(style==='chrome'){
+          g.addColorStop(0,'rgba(250,253,255,'+(.44+cfg.shine*.06)+')');
+          g.addColorStop(.16,'rgba(194,234,255,.48)');
+          g.addColorStop(.3,rgba(hue,92,70,.72));
+          g.addColorStop(.54,'rgba(11,14,31,.7)');
+          g.addColorStop(.73,rgba(hue+36,95,78,.8));
+          g.addColorStop(1,rgba(hue+12,100,28,0));
+        }else{
+          g.addColorStop(0,rgba(hue+styleShift,100,57,.68+Math.min(.15,fine*.04)));
+          g.addColorStop(.34,rgba(hue+48+styleShift,100,48,.48+e*.05));
+          g.addColorStop(.68,rgba(hue-32+styleShift,100,32,.34));
+          g.addColorStop(1,rgba(hue+95+styleShift,100,25,0));
         }
-        cx.globalCompositeOperation='source-over';
-      } else if(style==='morph'){
-        cx.globalCompositeOperation='screen';
-        for(var m=0;m<4;m++){var oxm=W*(.22+m*.19)+Math.sin(t*.2+m*2)*W*.13, oym=H*(.5+Math.cos(t*.25+m*1.7)*.2), radius=U*(.22+.035*Math.sin(t*.53+m+smoothBass*cfg.bass))*cfg.amp+.05*U;
-          var pts=[];for(var z=0;z<12;z++){var a=z*Math.PI/6,dist=radius*(1+(.12+amp*.08)*Math.sin(a*3+t*.64+m)+.07*Math.cos(a*5-t*.43));pts.push([oxm+Math.cos(a)*dist,oym+Math.sin(a)*dist]);}
-          smoothPath(pts);var mg=cx.createRadialGradient(oxm-radius*.2,oym-radius*.25,2,oxm,oym,radius*1.25);mg.addColorStop(0,'rgba(245,253,255,.68)');mg.addColorStop(.14,rgba(colorAt(m,t,e),100,60,.48));mg.addColorStop(.58,rgba(colorAt(m+2,t,e),100,42,.25));mg.addColorStop(1,rgba(colorAt(m+4,t,e),100,22,0));cx.fillStyle=mg;cx.fill();
+        cx.globalCompositeOperation='screen';cx.fillStyle=g;cx.fill();
+        // Insane mode adds nested liquid-ink folds; the geometry stays soft and continuously morphing.
+        if(state.intensity==='insane'||overdrive){
+          cloudPath(f,t+f.rate*.35,amp*1.18,fine*1.5,mid*.8,swell*.57,detail,phaseOffsetFor(i));
+          var inner=cx.createRadialGradient(box.x+box.rx*.12,box.y-box.ry*.08,U*.003,box.x,box.y,Math.max(box.rx,box.ry)*.88);
+          inner.addColorStop(0,rgba(hue+125,100,68,.36+fine*.04));
+          inner.addColorStop(.46,rgba(hue+styleShift+74,100,43,.43));
+          inner.addColorStop(1,rgba(hue+styleShift+155,100,28,0));
+          cx.fillStyle=inner;cx.fill();
         }
-        cx.globalCompositeOperation='source-over';
-      } else {
-        cx.globalCompositeOperation='lighter';
-        for(var s=0;s<5;s++){var sx=W*(.5+.18*Math.sin(t*.22+s*1.25)),sy=H*(.5+.17*Math.cos(t*.19+s*1.5)),r0=U*(.09+s*.025),steps=36;
-          cx.beginPath();for(var p=0;p<=steps;p++){var a=p/steps*Math.PI*2,rad=r0*(1+.24*Math.sin(a*3+t*.45+s)+.13*Math.sin(a*5-t*.3+s*1.3)+amp*.04*Math.sin(a*2+t));var px=sx+Math.cos(a)*rad,py=sy+Math.sin(a)*rad*(.55+.12*Math.sin(t*.4+s));if(!p)cx.moveTo(px,py);else cx.lineTo(px,py);}cx.closePath();
-          var pg=cx.createRadialGradient(sx-r0*.3,sy-r0*.3,1,sx,sy,r0*1.5);pg.addColorStop(0,rgba(colorAt(s,t,e),100,67,.35));pg.addColorStop(.45,rgba(colorAt(s+2,t,e),100,50,.2));pg.addColorStop(1,'rgba(0,0,0,0)');cx.fillStyle=pg;cx.fill();
+        if(state.intensity==='insane'){
+          cloudPath(f,t*.74+f.phase,amp*1.5,fine*1.8,mid,swell*.34,detail,phaseOffsetFor(i+9));
+          var fractal=cx.createRadialGradient(box.x-box.rx*.1,box.y+box.ry*.1,U*.002,box.x,box.y,Math.max(box.rx,box.ry)*.56);
+          fractal.addColorStop(0,rgba(hue+210,100,70,.22+high*.05));
+          fractal.addColorStop(.52,rgba(hue+styleShift+116,100,48,.38));
+          fractal.addColorStop(1,rgba(hue+styleShift+190,100,26,0));
+          cx.fillStyle=fractal;cx.fill();
         }
-        cx.globalCompositeOperation='source-over';
       }
-      // Audio drives real deformation: bass expands the large forms, mids steer the currents, treble adds fine reflective movement.
-      for(var i=0;i<cfg.count;i++){
-        var o2=blobs[i], drift=cfg.pace*(.000018+e*.000008), mid=b.live?b.mid:0;
-        o2.x+=o2.vx*dt*cfg.pace+Math.sin(t*.28+o2.phase)*drift*dt;
-        o2.y+=o2.vy*dt*cfg.pace+Math.cos(t*.25+o2.phase)*drift*dt+mid*.000018*dt;
-        if(o2.x<-.1)o2.x=1.1;if(o2.x>1.1)o2.x=-.1;if(o2.y<-.1)o2.y=1.1;if(o2.y>1.1)o2.y=-.1;
-        var x3=o2.x*W,y3=o2.y*H,rad=U*o2.r*(.74+Math.sin(t*o2.rate+o2.phase)*(.06+amp*.06)+smoothBass*cfg.bass*.05+smoothTreble*cfg.treble*.018);
-        var h=colorAt(i,t,e), shine=cx.createRadialGradient(x3-rad*.27,y3-rad*.32,rad*.04,x3,y3,rad);
-        shine.addColorStop(0,'rgba(255,255,255,'+(.18+Math.min(.32,fine*.14))+')');shine.addColorStop(.18,rgba(h,100,60,.18+cfg.shine*.07));shine.addColorStop(.62,rgba(h+24,100,48,.10));shine.addColorStop(1,'rgba(0,0,0,0)');
-        cx.globalCompositeOperation='screen';cx.fillStyle=shine;cx.fillRect(x3-rad,y3-rad,rad*2,rad*2);cx.globalCompositeOperation='source-over';
+      cx.globalCompositeOperation='screen';
+      // Treble creates fine liquid-surface shimmer; bass and midrange bend the large cloud masses.
+      if(fine>.13){
+        for(var q=0;q<3;q++){
+          var qy=H*(.22+q*.27)+Math.sin(t*.52+q*2)*H*(.035+fine*.012),qh=colorAt(q+2,t,e,mid,high);
+          var fog=cx.createLinearGradient(0,qy-H*.12,W,qy+H*.14);
+          fog.addColorStop(0,rgba(qh,100,62,0));fog.addColorStop(.5,rgba(qh+28,100,68,Math.min(.23,fine*.075)));fog.addColorStop(1,rgba(qh+58,100,50,0));
+          cx.fillStyle=fog;cx.fillRect(0,qy-H*.12,W,H*.24);
+        }
       }
-      // Short restrained bass bloom; driving mode caps luminance and blocks strobing.
-      if(kick>.08){cx.globalCompositeOperation='screen';cx.fillStyle=rgba(colorAt(0,t,e),90,54,Math.min(state.drive==='driving'?.08:.17,kick*.09)*cfg.drive);cx.fillRect(0,0,W,H);cx.globalCompositeOperation='source-over';}
+      if(kick>.1){
+        var impact=cx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,U*(.48+kick*.14));
+        impact.addColorStop(0,rgba(colorAt(0,t,e,mid,high),100,70,Math.min(.3,kick*.13)));
+        impact.addColorStop(.55,rgba(colorAt(3,t,e,mid,high),100,55,Math.min(.22,kick*.1)));
+        impact.addColorStop(1,'rgba(0,0,0,0)');
+        cx.fillStyle=impact;cx.fillRect(0,0,W,H);
+      }
+      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;
     }
-    layer.onclick=function(e){if(clean)reveal();};
+    function phaseOffsetFor(i){return formations[i%formations.length].phase;}
     loop(draw,24);
   }
 
