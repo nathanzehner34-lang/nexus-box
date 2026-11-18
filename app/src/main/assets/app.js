@@ -1980,7 +1980,7 @@
     var homes = [];
     try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
     var html =
-      '<div class="field"><label>UPDATE NEXUS</label><div class="hint">After you run a new build on GitHub, tap this. It downloads the newest Nexus and opens the install screen. Just press Install.</div><span class="btn go" id="sUpdate">UPDATE NEXUS</span><div id="sUpdateMsg" class="hint"></div></div>' +
+      '<div class="field"><label>NEXUS DOWNLOAD</label><div class="hint">Tap DOWNLOAD to get the latest published Nexus APK automatically (build 35, 36, 37 and onward). When the download finishes, press Install.</div><span class="btn go" id="sUpdate">DOWNLOAD</span><div id="sUpdateMsg" class="hint"></div></div>' +
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
