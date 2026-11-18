@@ -396,7 +396,7 @@ body.style-gold .tile .ic, body.style-gold .tile .lb { color: #f6dc94; text-shad
 #xp.liquid-dreams .ld-panel select{display:block;width:100%;margin-top:6px;padding:10px;border:1px solid rgba(150,205,242,.23);border-radius:10px;background:#101426}
 #xp.liquid-dreams .ld-panel option{background:#101426;color:white}
 #xp.liquid-dreams .ld-label{color:#aebed5;font-size:10px;letter-spacing:.12em;margin:13px 0 7px}
-#xp.liquid-dreams .ld-levels{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+#xp.liquid-dreams .ld-levels{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
 #xp.liquid-dreams .ld-levels button{padding:8px 3px;font-size:9px;letter-spacing:.05em}
 #xp.liquid-dreams .ld-panel input[type=range]{display:block;width:100%;height:20px;accent-color:#7feaff;margin-top:4px}
 #xp.liquid-dreams output{float:right;color:#d3eaff}
@@ -416,3 +416,7 @@ body.style-gold .tile .ic, body.style-gold .tile .lb { color: #f6dc94; text-shad
 @media(max-width:700px){#xp.liquid-dreams .ld-panel{width:min(390px,78vw);top:1vh;bottom:1vh;padding:13px}#xp.liquid-dreams .ld-float{right:4vw;bottom:3vh}}
 
 #xp.liquid-dreams .ld-return{width:100%;margin-top:13px;letter-spacing:.12em;color:#a9dfff}
+
+#xp.liquid-dreams .ld-track{position:absolute;left:2.4vw;bottom:2vh;max-width:58vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;color:rgba(235,244,255,.78);font:500 clamp(10px,1.45vmin,14px)/1.3 system-ui,Arial,sans-serif;letter-spacing:.025em;text-shadow:0 1px 8px #05030c,0 0 14px rgba(115,97,255,.38)}
+#xp.liquid-dreams .ld-track:empty{display:none}
+#xp.liquid-dreams .ld-ui.ld-clean .ld-track{display:none}
