@@ -97,6 +97,14 @@
     <header class="party-header">
       <div class="party-brand"><span class="party-mark">N</span><span>NEXUS <b>PARTY</b><small>OBSIDIAN</small></span></div>
       <div id="partyMediaStatus" class="party-status" data-state="disconnected"><i></i><span>MEDIA SESSION UNAVAILABLE</span></div>
+      <section class="party-player" aria-label="Now playing">
+        <div class="party-track"><div class="party-track-source">NOW PLAYING</div><div id="pSong" class="party-song">No media playing</div><div id="partyArtist" class="party-artist">Connect a media player</div></div>
+        <div class="party-transport">
+          <button id="partyPrev" class="pbtn party-icon" data-fx="prev" aria-label="Previous track">|‹</button>
+          <button id="partyToggle" class="pbtn party-icon party-play" data-fx="toggle" aria-label="Play or pause">▶</button>
+          <button id="partyNext" class="pbtn party-icon" data-fx="next" aria-label="Next track">›|</button>
+        </div>
+      </section>
       <button id="partyAccess" class="party-access" type="button">MEDIA ACCESS</button>
       <button class="pbtn party-exit" data-fx="exit" aria-label="Exit Party Mode">×</button>
     </header>
@@ -110,23 +118,6 @@
         <button class="party-mode" data-mode="vortex">VORTEX</button>
         <button class="party-mode" data-mode="chaos">CHAOS</button>
         <button class="party-mode" data-mode="ripple">RIPPLE</button>
-      </div>
-    </section>
-
-    <section class="party-player" aria-label="Current media session">
-      <div class="party-artwork" id="partyArtwork"><span>◈</span></div>
-      <div class="party-track">
-        <div class="party-track-source">ACTIVE MEDIA SESSION</div>
-        <div id="pSong" class="party-song">No media playing</div>
-        <div id="partyArtist" class="party-artist">Connect Spotify or another media player</div>
-        <div id="partyAlbum" class="party-album"></div>
-        <div class="party-progress"><i id="partyProgressFill"></i></div>
-        <div class="party-time"><span id="partyPosition">0:00</span><span id="partyDuration">--:--</span></div>
-      </div>
-      <div class="party-transport">
-        <button id="partyPrev" class="pbtn party-icon" data-fx="prev" aria-label="Previous track">|‹</button>
-        <button id="partyToggle" class="pbtn party-icon party-play" data-fx="toggle" aria-label="Play or pause">▶</button>
-        <button id="partyNext" class="pbtn party-icon" data-fx="next" aria-label="Next track">›|</button>
       </div>
     </section>
 

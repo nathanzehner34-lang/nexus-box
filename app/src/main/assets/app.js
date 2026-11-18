@@ -1516,21 +1516,9 @@
     return 'hsl(' + Math.round((P.hue + i * 12) % 360) + ',100%,55%)';
   }
   function beat(power) {
-    var now = Date.now(); P.lastBeat = now; P.flip++;
-    P.hue = (P.hue + 37 + Math.random() * 60) % 360;
-    var col = themeColor(Math.floor(Math.random() * 24));
-    var w = $('pWash'); w.style.backgroundColor = col; w.style.opacity = Math.min(.55, .2 + power * .4);
-    var t = $('pTitle'); t.style.transform = 'scale(' + (1.04 + power * .1) + ')'; t.style.color = col;
-    var lit = Math.max(4, Math.round(24 * Math.min(1, .3 + power)));
-    ['pTop', 'pBottom'].forEach(function (id, k) {
-      var segs = $(id).children;
-      for (var i = 0; i < segs.length; i++) {
-        var on = k ? (i >= (24 - lit) / 2 && i < (24 + lit) / 2) : (Math.random() < lit / 24);
-        segs[i].style.backgroundColor = on ? themeColor(THEMES[P.theme] === 'POLICE' ? (i < 12 ? 0 : 1) : i) : '#151515';
-      }
-    });
-    clearTimeout(P.decay);
-    P.decay = setTimeout(function () { w.style.opacity = .12; t.style.transform = 'scale(1)'; }, 140);
+    P.lastBeat = Date.now(); P.flip++;
+    // The dedicated Party canvas consumes the measured spectrum. Do not repaint
+    // the legacy full-screen wash here; its random theme flash caused green bursts.
   }
 
   // ---- Beat analyser: turns the music signal into "energy" (0-1) and "kicks" (bass hits) ----
@@ -1566,31 +1554,29 @@
   Nexus._meterSource = function (src) {
     $('pHint').textContent = src === 'music' ? 'LIGHTS ARE SYNCED TO THE MUSIC' : 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
   };
-  Nexus._meterError = function () { $('pHint').textContent = 'MIC UNAVAILABLE · LIGHTS RUNNING ON AUTO BEAT'; };
+  Nexus._meterError = function () { $('pHint').textContent = 'MUSIC ANALYSIS UNAVAILABLE · FIELD MOTION IS AMBIENT'; };
 
   function pollSong() {
     if (!P.on || !A) return;
     var np = {};
     try { np = JSON.parse(A.nowPlaying() || '{}'); } catch (e) {}
-    if (np.access === false) { $('pSong').textContent = '🎵 Spotify → Settings → turn ON "Device broadcast status"'; return; }
-    if (!np.title || np.title === 'null') { $('pSong').textContent = ''; return; }
+    if (np.access === false) { $('pSong').textContent = 'Media access unavailable'; $('partyArtist').textContent = 'Enable notification access'; P.song = ''; return; }
+    if (!np.title || np.title === 'null') { $('pSong').textContent = 'No media playing'; $('partyArtist').textContent = 'Connect a media player'; P.song = ''; return; }
     var artist = np.artist && np.artist !== 'null' ? np.artist : '';
-    $('pSong').textContent = '🎵 ' + np.title + (artist ? ' · ' + artist : '');
+    $('pSong').textContent = np.title; $('partyArtist').textContent = artist || 'Artist unavailable';
     var key = np.title + '|' + artist;
     if (np.playing && key !== P.song) {
       var first = !P.song; P.song = key;
-      var by = artist ? ' by ' + artist : '';
-      partyTalk(pick(first ? ['Now playing, ' + np.title + by + '! Let\'s go!'] :
-        ['Up next, ' + np.title + by + '! Turn it up!', 'Here comes ' + np.title + by + '!', 'Next track, ' + np.title + by + '! Let\'s go!', 'Oh, ' + np.title + '! Good one!']));
+      if (!first) partyTalk(pick(['Up next, ' + np.title + '! Turn it up!', 'Here comes ' + np.title + '!', 'Next track, ' + np.title + '! Let\'s go!', 'Oh, ' + np.title + '! Good one!']));
       beat(1);
     }
   }
   function partyListen() {
-    try { if (A) A.meter(false); } catch (e) {}
+    try { if (A) A.partyMeter(false); } catch (e) {}
     $('pHint').textContent = 'LISTENING… SAY "NEXT SONG", "TURN IT UP", OR ASK ANYTHING';
     listen().then(function (res) {
       $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
-      try { if (A && P.on) A.meter(true); } catch (e) {}
+      try { if (A && P.on) A.partyMeter(true); } catch (e) {}
       var done = function () { resumeAfterTalk(); };
       if (typeof res === 'string' && res.trim()) return handleSpeech(res).then(done, done);
       done();
@@ -1606,10 +1592,9 @@
     buildBars(); badges();
     $('party').classList.remove('hidden');
     $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
-    try { if (A) A.meter(true); } catch (e) {}
+    try { if (A) A.partyMeter(true); } catch (e) {}
     clearInterval(P.auto); P.auto = null; // Orb motion is driven by the active Party renderer; no background beat timer needed.
     P.lastShout = Date.now();
-    partyTalk(egoLine('partyIn'), true, true);
     var vb = document.querySelector('.pbtn[data-fx=voice] span'); if (vb) vb.textContent = P.voice ? 'VOICE ON' : 'VOICE OFF';
     $('pThemeName').textContent = THEMES[P.theme]; $('pLaserCol').textContent = 'LASER ' + LASER_COLORS[P.lcol]; $('pLaserSty').textContent = 'BEAM ' + LASER_STYLES[P.lsty];
     clearInterval(P.talk);
@@ -1618,13 +1603,12 @@
   function exitParty(silent) {
     P.on = mode.party = false;
     clearInterval(P.auto); clearInterval(P.strobe); P.strobe = null;
-    try { if (A) A.meter(false); } catch (e) {}
+    try { if (A) A.partyMeter(false); } catch (e) {}
     $('party').classList.add('hidden');
     Array.prototype.forEach.call(document.querySelectorAll('.pbtn'), function (b) { b.classList.remove('on'); });
     badges();
     clearInterval(P.talk); clearInterval(P.songTimer);
     clearTimeout(P.decay); P.lasersOn = false;
-    if (!silent) sayEgo('partyOut', true);
   }
   function toggleParty() { if (P.on) exitParty(); else enterParty(); }
 
@@ -2210,9 +2194,9 @@
   Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
   Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
-  Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.meter(false); } catch (e) {} };
+  Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.partyMeter(false); } catch (e) {} };
   Nexus.resumed = function () {
-    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.meter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.partyMeter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
 
   // ------------------------------------------------------------------
   // Start

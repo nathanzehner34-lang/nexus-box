@@ -1163,6 +1163,20 @@ public class MainActivity extends Activity {
         meterThread.start();
     }
 
+    // Party Mode follows device playback only. It never falls back to microphone capture,
+    // which would light Android's microphone privacy indicator during ordinary playback.
+    private void startPartyMeter() {
+        if (meterOn && visualizer != null) return;
+        stopMeter();
+        if (startVisualizer()) {
+            meterOn = true;
+            js("Nexus._meterSource && Nexus._meterSource('music')");
+        } else {
+            js("Nexus._meterSource && Nexus._meterSource('unavailable')");
+            js("Nexus._meterError && Nexus._meterError('playback')");
+        }
+    }
+
     private void stopMeter() {
         meterOn = false;
         if (visualizer != null) {
@@ -1245,9 +1259,6 @@ public class MainActivity extends Activity {
     // ---------- JS bridge ----------
 
     private class Bridge {
-        private String partyArtworkCacheKey = null;
-        private String partyArtworkCacheValue = "";
-
         @JavascriptInterface
         public int deviceMemoryGb() {
             try {
@@ -1630,13 +1641,11 @@ public class MainActivity extends Activity {
             try {
                 if (!hasMediaAccess()) {
                     o.put("access", false);
-                    synchronized (this) { partyArtworkCacheKey = null; partyArtworkCacheValue = ""; }
                     return o.toString();
                 }
                 o.put("access", true);
                 MediaController c = activeController();
                 if (c == null) {
-                    synchronized (this) { partyArtworkCacheKey = null; partyArtworkCacheValue = ""; }
                     return o.toString();
                 }
                 o.put("app", c.getPackageName());
@@ -1663,33 +1672,6 @@ public class MainActivity extends Activity {
                     if (artist != null) o.put("artist", artist);
                     if (album != null) o.put("album", album);
                     o.put("duration", Math.max(0L, metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)));
-                    Bitmap art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ART);
-                    if (art == null) art = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
-                    String artKey = c.getPackageName() + "|" + String.valueOf(title) + "|" + String.valueOf(artist) + "|" +
-                        String.valueOf(album) + "|" + (art == null ? "none" : (art.getWidth() + "x" + art.getHeight() + ":" + art.getGenerationId()));
-                    String artworkData;
-                    synchronized (this) {
-                        if (!artKey.equals(partyArtworkCacheKey)) {
-                            partyArtworkCacheKey = artKey;
-                            partyArtworkCacheValue = "";
-                            if (art != null) {
-                                Bitmap small = art;
-                                if (art.getWidth() > 192 || art.getHeight() > 192) {
-                                    float scale = Math.min(192f / art.getWidth(), 192f / art.getHeight());
-                                    small = Bitmap.createScaledBitmap(art, Math.max(1, Math.round(art.getWidth() * scale)), Math.max(1, Math.round(art.getHeight() * scale)), true);
-                                }
-                                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                                small.compress(Bitmap.CompressFormat.JPEG, 74, bytes);
-                                partyArtworkCacheValue = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
-                                if (small != art) small.recycle();
-                                bytes.close();
-                            }
-                        }
-                        artworkData = partyArtworkCacheValue;
-                    }
-                    if (!artworkData.isEmpty()) o.put("artwork", artworkData);
-                } else {
-                    synchronized (this) { partyArtworkCacheKey = null; partyArtworkCacheValue = ""; }
                 }
             } catch (Exception ignored) {}
             return o.toString();
@@ -1752,6 +1734,9 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void meter(boolean on) { if (on) startMeter(); else stopMeter(); }
+
+        @JavascriptInterface
+        public void partyMeter(boolean on) { if (on) startPartyMeter(); else stopMeter(); }
 
         @JavascriptInterface
         public String getLocation() {

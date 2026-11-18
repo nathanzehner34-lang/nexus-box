@@ -35,10 +35,21 @@ for (const mode of ['pulse','wave','vortex','chaos','ripple']) assert(party.incl
 assert(!party.includes("'chrome'") && !html.includes('data-mode="chrome"'), 'Liquid Chrome is removed from Party Mode');
 for (const preset of ['orb','voltage','aurora','neon']) assert(party.includes(preset + ': {') && html.includes('data-preset="' + preset + '"'), preset + ' is a selectable Party preset');
 assert(!/#[0-9a-f]*39ff14|#[0-9a-f]*47ff31|#[0-9a-f]*42ff76/i.test(party), 'old green Party preset colors are removed');
-for (const branch of ["preset==='orb'","preset==='voltage'","preset==='aurora'"]) assert(party.includes(branch), branch + ' has its own ambient renderer');
-assert(party.includes("oldMeter(all, low, mid, high)") && party.includes('bassPulse=clamp(bass*3'), 'Party responds to actual spectral data and bass hits');
+assert(party.includes('root.setAttribute(\'data-preset\', name)') && party.includes('var accentRgb = presets[preset].accent') && party.includes('paletteRgb(r + 1)'), 'Party presets drive the independent orbital environment and orb color identity');
+assert(party.includes("oldMeter(all, low, mid, high)") && party.includes('inputBass = clamp(bass * 11') && party.includes("if (mode === 'ripple') ripple(w * .5, h * .5"), 'Party responds to measured spectrum and detected bass hits');
+assert(party.includes('drawAtmosphere(now)') && party.includes('drawConnections(now)') && party.includes('drawOrbs(now)'), 'Party draws its own layered orbital energy environment and luminous orb field');
+assert(party.includes('function tapOrb(') && party.includes('lastTap && lastTap.orb === o') && party.includes('o.charge = Math.min(1') && party.includes('!(o === selected && gesture && pointer && !gesture.moved)') && party.includes('energyWave('), 'single taps, double taps, accumulating long presses, and background swipes have distinct effects');
+assert(party.includes('function addTrail(') && party.includes('function drawTrails(') && party.includes('quadraticCurveTo') && party.includes('drawImage(sprite'), 'orb drags leave trails and nearby orbs render animated energy connections');
+assert(party.includes('frameInterval = highMemory ? 16 : 32') && party.includes('highMemory ? 1.25 : .76') && party.includes('highMemory ? 96 : 44'), 'Party scales frame rate, resolution, and particle count with available device memory');
+assert(party.includes('new MutationObserver(syncVisibility)') && party.includes('function stop()') && party.includes('cancelAnimationFrame(raf)') && party.includes('if (pollTimer) clearInterval(pollTimer)'), 'Party rendering and media polling stop when hidden or exited');
+assert(html.includes('aria-label="Now playing"') && !html.includes('partyAlbum') && !html.includes('partyProgressFill') && !html.includes('class="party-artwork"'), 'now playing is a compact title and artist display without the old full-width banner');
+assert(app.includes('A.partyMeter(true)') && app.includes('A.partyMeter(false)') && !app.includes("partyTalk(egoLine('partyIn')") && !app.includes("sayEgo('partyOut'"), 'Party playback meter is isolated and entry/exit announcements are removed');
+assert(app.includes('if (!first) partyTalk(') && !java.includes('partyArtworkCache') && !java.includes('metadata.getBitmap(MediaMetadata.METADATA_KEY_ART'), 'entering a track stays silent and unused album artwork is no longer converted to base64');
+assert(!app.includes('w.style.backgroundColor = col') && !app.includes('w.style.opacity = Math.min(.55'), 'the legacy random beat wash that caused full-screen green flashes is removed at its source');
 
 assert(java.includes('double bass = 0, mid = 0, high = 0, all = 0') && java.includes('midBins') && java.includes('highBins'), 'Android music Visualizer calculates bass, midrange and treble bands');
+const partyMeter = java.slice(java.indexOf('private void startPartyMeter()'), java.indexOf('private void stopMeter()'));
+assert(partyMeter.includes('startVisualizer()') && !partyMeter.includes('AudioRecord') && java.includes('public void partyMeter(boolean on)'), 'Party Mode uses playback capture only and cannot start the microphone fallback');
 assert(java.includes('Nexus._meter && Nexus._meter(') && app.includes('function feedBeat(all, bass, mid, high)') && app.includes('BEAT.mid') && app.includes('BEAT.high'), 'measured spectrum reaches Nexus visual scenes');
 assert(gradle.includes("applicationId 'com.nexus.box'") && gradle.includes('versionCode runNumber'), 'production package identity and versioning remain unchanged');
 assert(java.includes('https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk'), 'truck Download Recent URL remains unchanged');

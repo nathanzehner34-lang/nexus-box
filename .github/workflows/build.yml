@@ -65,6 +65,7 @@ jobs:
           node --check app/src/main/assets/experiences.js
           node tools/voice-test/production-visual-upgrade.test.js
           node tools/voice-test/liquid-dreams-development.test.js
+          node tools/voice-test/party-mode-render.test.js
 
       - name: Build APK
         run: |
