@@ -2194,7 +2194,7 @@
       searching: 'Finding the latest successful development build…',
       downloading: 'Downloading the verified development APK…',
       ready: 'APK verified. Press INSTALL on the screen that opened.',
-      failed: 'No verified update could be downloaded. Check the connection and try again.' }[st] || st;
+      current: 'The newest development APK is already installed.', failed: 'No verified update could be downloaded. Check the connection and try again.' }[st] || st;
     if (st === 'progress' && isFinite(progress)) m = 'Downloading verified update… ' + Math.max(0, Math.min(100, Math.round(progress))) + '%';
     caption(st === 'downloading' || st === 'progress' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
     var el = $('sUpdateMsg'); if (el) el.textContent = m;
