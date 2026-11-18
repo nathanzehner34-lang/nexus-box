@@ -214,12 +214,11 @@
           var sideX=Math.cos(ang+1.57)*half, sideY=-Math.sin(ang+1.57)*half;
           var col=(h+c*29+n*17)%360;
           cx.beginPath();cx.moveTo(x-sideX,y-sideY);cx.lineTo(tipX,tipY);cx.lineTo(x+sideX,y+sideY);cx.closePath();
-          var cg=cx.createLinearGradient(x,y,tipX,tipY);
-          cg.addColorStop(0,'hsla('+col+',100%,42%,'+(.28*fade)+')');
-          cg.addColorStop(.62,'hsla('+col+',100%,67%,'+(.2*fade)+')');
-          cg.addColorStop(1,'hsla('+(col+35)%360+',100%,88%,'+(.42*fade)+')');
-          cx.fillStyle=cg;cx.strokeStyle='hsla('+col+',100%,82%,'+(.64*fade)+')';cx.lineWidth=1.15*S;
-          cx.shadowColor='hsl('+col+',100%,62%)';cx.shadowBlur=(5+high*6+kick*4)*S;cx.fill();cx.stroke();cx.shadowBlur=0;
+          cx.fillStyle='hsla('+col+',100%,57%,'+(.24*fade)+')';
+          cx.strokeStyle='hsla('+col+',100%,82%,'+(.58*fade)+')';cx.lineWidth=1.05*S;cx.fill();cx.stroke();
+          // One translucent facet adds depth without allocating a gradient for every point.
+          cx.beginPath();cx.moveTo(x,y);cx.lineTo(tipX,tipY);cx.lineTo(x+sideX,y+sideY);cx.closePath();
+          cx.fillStyle='rgba(255,255,255,'+(.07+high*.035)*fade+')';cx.fill();
           cx.beginPath();cx.moveTo(x,y);cx.lineTo(tipX,tipY);cx.strokeStyle='rgba(255,255,255,'+(.12+high*.12)*fade+')';cx.lineWidth=.65*S;cx.stroke();
         }
         var core=cx.createRadialGradient(x,y,1,x,y,base*.34);
