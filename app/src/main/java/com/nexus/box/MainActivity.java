@@ -395,11 +395,6 @@ public class MainActivity extends Activity {
         }
     };
 
-    private long installedVersionCode() throws Exception {
-        android.content.pm.PackageInfo p = getPackageManager().getPackageInfo(getPackageName(), 0);
-        return Build.VERSION.SDK_INT >= 28 ? p.getLongVersionCode() : p.versionCode;
-    }
-
     private void startUpdate() {
         if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
             Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
@@ -412,7 +407,6 @@ public class MainActivity extends Activity {
         pool.execute(() -> {
             HttpURLConnection connection = null;
             try {
-                long installed = installedVersionCode();
                 connection = (HttpURLConnection) new URL(DEV_RELEASES_API).openConnection();
                 connection.setConnectTimeout(9000);
                 connection.setReadTimeout(12000);
@@ -435,7 +429,7 @@ public class MainActivity extends Activity {
                     String versionText = tag.substring(DEV_TAG_PREFIX.length()).split("-", 2)[0];
                     int version;
                     try { version = Integer.parseInt(versionText); } catch (Exception ignored) { continue; }
-                    if (version <= installed || version <= bestVersion) continue;
+                    if (version <= bestVersion) continue;
                     JSONArray assets = release.optJSONArray("assets");
                     if (assets == null) continue;
                     for (int a = 0; a < assets.length(); a++) {
@@ -448,12 +442,7 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (bestUrl == null) {
-                    ui.post(() -> {
-                        try {
-                            if (installedVersionCode() >= 36) js("Nexus._update && Nexus._update('current')");
-                            else js("Nexus._update && Nexus._update('failed')");
-                        } catch (Exception ignored) { js("Nexus._update && Nexus._update('failed')"); }
-                    });
+                    js("Nexus._update && Nexus._update('failed')");
                     return;
                 }
                 final String selectedUrl = bestUrl;
@@ -537,8 +526,12 @@ public class MainActivity extends Activity {
             if (downloaded == null || !getPackageName().equals(downloaded.packageName)) throw new Exception("Wrong application package");
             long downloadedVersion = Build.VERSION.SDK_INT >= 28 ? downloaded.getLongVersionCode() : downloaded.versionCode;
             long currentVersion = Build.VERSION.SDK_INT >= 28 ? installed.getLongVersionCode() : installed.versionCode;
-            if (downloadedVersion != updateExpectedVersion || downloadedVersion <= currentVersion) throw new Exception("APK version is not a newer verified build");
+            if (downloadedVersion != updateExpectedVersion || downloadedVersion < currentVersion) throw new Exception("APK version is older than this installation");
             if (!certificateDigests(downloaded).equals(certificateDigests(installed))) throw new Exception("APK signing identity does not match this installation");
+            if (downloadedVersion == currentVersion) {
+                js("Nexus._update && Nexus._update('current')");
+                return;
+            }
             android.net.Uri uri = dm.getUriForDownloadedFile(id);
             if (uri == null) throw new Exception("Verified APK URI unavailable");
             Intent install = new Intent(Intent.ACTION_VIEW);
