@@ -1,6 +1,7 @@
 package com.nexus.box;
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
@@ -356,10 +357,10 @@ public class MainActivity extends Activity {
     }
     private Runnable bootGreetPending = null;
 
-    // ---------- DEVELOPMENT UPDATE: resolve and validate the newest published dev APK ----------
-    private static final String DEV_RELEASES_API = "https://api.github.com/repos/nathanzehner34-lang/nexus-box/releases?per_page=100";
-    private static final String DEV_TAG_PREFIX = "nexus-dev-build-";
-    private static final String DEV_ASSET_NAME = "nexus-development.apk";
+    // ---------- UPDATE: resolve the stable Nexus APK published at the truck's download endpoint ----------
+    private static final String NEXUS_LATEST_RELEASE_API = "https://api.github.com/repos/nathanzehner34-lang/nexus-box/releases/tags/latest";
+    private static final String NEXUS_LATEST_APK_URL = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk";
+    private static final String NEXUS_APK_NAME = "nexus.apk";
     private long updateId = -1;
     private int updateExpectedVersion = -1;
     private BroadcastReceiver updateReceiver;
@@ -406,47 +407,35 @@ public class MainActivity extends Activity {
         pool.execute(() -> {
             HttpURLConnection connection = null;
             try {
-                connection = (HttpURLConnection) new URL(DEV_RELEASES_API).openConnection();
+                connection = (HttpURLConnection) new URL(NEXUS_LATEST_RELEASE_API).openConnection();
                 connection.setConnectTimeout(9000);
                 connection.setReadTimeout(12000);
                 connection.setRequestProperty("Accept", "application/vnd.github+json");
-                connection.setRequestProperty("User-Agent", "Nexus-Box-Development-Updater");
+                connection.setRequestProperty("User-Agent", "Nexus-Box-Android-Updater");
                 if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new Exception("Release lookup failed");
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                 try (InputStream in = connection.getInputStream()) {
                     byte[] buf = new byte[8192]; int n;
                     while ((n = in.read(buf)) != -1) bytes.write(buf, 0, n);
                 }
-                JSONArray releases = new JSONArray(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
-                int bestVersion = -1;
-                String bestUrl = null;
-                for (int i = 0; i < releases.length(); i++) {
-                    JSONObject release = releases.optJSONObject(i);
-                    if (release == null || release.optBoolean("draft", true) || !release.optBoolean("prerelease", false)) continue;
-                    String tag = release.optString("tag_name", "");
-                    if (!tag.startsWith(DEV_TAG_PREFIX)) continue;
-                    String versionText = tag.substring(DEV_TAG_PREFIX.length()).split("-", 2)[0];
-                    int version;
-                    try { version = Integer.parseInt(versionText); } catch (Exception ignored) { continue; }
-                    if (version <= bestVersion) continue;
-                    JSONArray assets = release.optJSONArray("assets");
-                    if (assets == null) continue;
-                    for (int a = 0; a < assets.length(); a++) {
-                        JSONObject asset = assets.optJSONObject(a);
-                        if (asset == null || !DEV_ASSET_NAME.equals(asset.optString("name"))) continue;
-                        String url = asset.optString("browser_download_url", "");
-                        if (!url.startsWith("https://github.com/nathanzehner34-lang/nexus-box/releases/download/" + DEV_TAG_PREFIX)) continue;
-                        bestVersion = version; bestUrl = url;
-                        break;
-                    }
+                JSONObject release = new JSONObject(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
+                if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true) || !"latest".equals(release.optString("tag_name", ""))) throw new Exception("Stable Nexus release unavailable");
+                String title = release.optString("name", "");
+                java.util.regex.Matcher versionMatch = java.util.regex.Pattern.compile("(?i)build\\s+(\\d+)").matcher(title);
+                if (!versionMatch.find()) throw new Exception("Nexus release version missing");
+                final int selectedVersion = Integer.parseInt(versionMatch.group(1));
+                JSONArray assets = release.optJSONArray("assets");
+                String selectedUrl = null;
+                if (assets != null) for (int a = 0; a < assets.length(); a++) {
+                    JSONObject asset = assets.optJSONObject(a);
+                    if (asset == null || !NEXUS_APK_NAME.equals(asset.optString("name"))) continue;
+                    String url = asset.optString("browser_download_url", "");
+                    if (NEXUS_LATEST_APK_URL.equals(url)) selectedUrl = url;
+                    break;
                 }
-                if (bestUrl == null) {
-                    js("Nexus._update && Nexus._update('failed')");
-                    return;
-                }
-                final String selectedUrl = bestUrl;
-                final int selectedVersion = bestVersion;
-                ui.post(() -> enqueueDevelopmentUpdate(selectedUrl, selectedVersion));
+                if (selectedUrl == null) throw new Exception("Stable Nexus APK asset missing");
+                final String verifiedUrl = selectedUrl;
+                ui.post(() -> enqueueNexusUpdate(verifiedUrl, selectedVersion));
             } catch (Exception e) {
                 js("Nexus._update && Nexus._update('failed')");
             } finally {
@@ -455,18 +444,18 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void enqueueDevelopmentUpdate(String url, int version) {
+    private void enqueueNexusUpdate(String url, int version) {
         try {
             android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
             if (updateId >= 0) dm.remove(updateId);
             ui.removeCallbacks(updateProgress);
             File dir = new File(getExternalFilesDir(null), "updates");
             if (!dir.exists() && !dir.mkdirs()) throw new Exception("Cannot create update directory");
-            File apk = new File(dir, DEV_ASSET_NAME);
+            File apk = new File(dir, NEXUS_APK_NAME);
             if (apk.exists() && !apk.delete()) throw new Exception("Cannot clear previous update");
             android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse(url));
             request.setDestinationUri(android.net.Uri.fromFile(apk));
-            request.setTitle("Nexus development update");
+            request.setTitle("Nexus update");
             request.setDescription("Build " + version + " · verifying before install");
             request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setAllowedOverMetered(true);
@@ -475,7 +464,7 @@ public class MainActivity extends Activity {
                 updateReceiver = new BroadcastReceiver() {
                     @Override public void onReceive(Context context, Intent intent) {
                         long id = intent.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                        if (id == updateId) installDownloadedDevelopmentUpdate(id);
+                        if (id == updateId) installDownloadedNexusUpdate(id);
                     }
                 };
                 IntentFilter filter = new IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE);
@@ -509,7 +498,7 @@ public class MainActivity extends Activity {
         return result;
     }
 
-    private void installDownloadedDevelopmentUpdate(long id) {
+    private void installDownloadedNexusUpdate(long id) {
         android.database.Cursor cur = null;
         try {
             android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
@@ -517,7 +506,7 @@ public class MainActivity extends Activity {
             if (cur == null || !cur.moveToFirst()) throw new Exception("Download record missing");
             int statusCol = cur.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS);
             if (statusCol < 0 || cur.getInt(statusCol) != android.app.DownloadManager.STATUS_SUCCESSFUL) throw new Exception("Download incomplete");
-            File apk = new File(new File(getExternalFilesDir(null), "updates"), DEV_ASSET_NAME);
+            File apk = new File(new File(getExternalFilesDir(null), "updates"), NEXUS_APK_NAME);
             if (!apk.isFile() || apk.length() < 1024 * 1024) throw new Exception("APK is incomplete");
             int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
             android.content.pm.PackageInfo downloaded = getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
@@ -1258,6 +1247,17 @@ public class MainActivity extends Activity {
     private class Bridge {
         private String partyArtworkCacheKey = null;
         private String partyArtworkCacheValue = "";
+
+        @JavascriptInterface
+        public int deviceMemoryGb() {
+            try {
+                ActivityManager manager = (ActivityManager) MainActivity.this.getSystemService(Context.ACTIVITY_SERVICE);
+                ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
+                if (manager == null) return 0;
+                manager.getMemoryInfo(memory);
+                return (int) Math.floor(memory.totalMem / (1024d * 1024d * 1024d));
+            } catch (Exception ignored) { return 0; }
+        }
 
         @JavascriptInterface
         public void speak(String text, String id) {

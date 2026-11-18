@@ -1988,7 +1988,7 @@
     var homes = [];
     try { homes = A ? JSON.parse(A.otherHomes()) : []; } catch (e) {}
     var html =
-      '<div class="field"><label>DOWNLOAD UPDATE</label><div class="hint">Get the newest verified Nexus development build. The install screen opens when the APK download and checks finish.</div><span class="btn go" id="sUpdate">DOWNLOAD UPDATE</span><div id="sUpdateMsg" class="hint"></div></div>' +
+      '<div class="field"><label>DOWNLOAD UPDATE</label><div class="hint">Get the newest verified Nexus release. The install screen opens when the APK download and checks finish.</div><span class="btn go" id="sUpdate">DOWNLOAD UPDATE</span><div id="sUpdateMsg" class="hint"></div></div>' +
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
@@ -2199,10 +2199,10 @@
   // ------------------------------------------------------------------
   Nexus._update = function (st, progress) {
     var m = { allow: 'Allow Nexus to install updates in Android settings, return here, then tap DOWNLOAD UPDATE again.',
-      searching: 'Finding the latest successful development build…',
-      downloading: 'Downloading the verified development APK…',
+      searching: 'Finding the latest stable Nexus release…',
+      downloading: 'Downloading the verified Nexus APK…',
       ready: 'APK verified. Press INSTALL on the screen that opened.',
-      current: 'The newest development APK is already installed.', failed: 'No verified update could be downloaded. Check the connection and try again.' }[st] || st;
+      current: 'The newest Nexus release is already installed.', failed: 'No verified update could be downloaded. Check the connection and try again.' }[st] || st;
     if (st === 'progress' && isFinite(progress)) m = 'Downloading verified update… ' + Math.max(0, Math.min(100, Math.round(progress))) + '%';
     caption(st === 'downloading' || st === 'progress' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
     var el = $('sUpdateMsg'); if (el) el.textContent = m;

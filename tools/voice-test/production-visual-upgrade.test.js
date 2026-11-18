@@ -16,7 +16,7 @@ for (const [id, fn] of [['skeletondance','skeletonDance'],['neonfluid','neonFlui
   assert(xp.includes('function ' + fn + '()'), fn + ' is an independent renderer');
 }
 assert(xp.includes('function liquidDreams()') && xp.includes('liquiddreams: liquidDreams'), 'Liquid Dreams is independently registered');
-for (const style of ['chrome','fluid','oil','morph','psychedelic']) assert(xp.includes("'" + style + "'"), style + ' liquid style exists');
+for (const style of ['tunnel','kaleidoscope','liquid','cosmic','morph','prism','ink','clouds']) assert(xp.includes("'" + style + "'") && xp.includes('value="' + style + '"'), style + ' Liquid Dreams engine exists and is selectable');
 for (const color of ['spectrum','electric','rush','rainbow','ultraviolet','storm']) assert(xp.includes(color), color + ' colour mode exists');
 for (const setting of ['style','color','bass','treble','music','speed']) assert(xp.includes('data-setting="' + setting + '"'), setting + ' controller is present');
 for (const action of ['surprise','overdrive','clean','drive','save','exit']) assert(xp.includes("case '" + action + "'"), action + ' control is connected');
