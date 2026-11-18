@@ -1647,7 +1647,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
-      case 'synth': case 'zoom': case 'aura': openExperience(name); break;
+      case 'synth': case 'zoom': case 'aura': case 'liquiddreams': openExperience(name); break;
       case 'ego': openEgo(); break;
       case 'bgs': openBackgrounds(); break;
       case 'phones': openPhones(); break;
@@ -1892,6 +1892,14 @@
     var t4 = (pref('homeTiles') || '').split(',').filter(Boolean);
     if (t4.length && t4.indexOf('lyrics') < 0) { t4.splice(Math.max(0, t4.indexOf('settings')), 0, 'lyrics'); setPref('homeTiles', t4.join(',')); }
     setPref('homeVer', '4');
+  }
+  if (pref('homeVer') === '4') {
+    var t5 = (pref('homeTiles') || '').split(',').filter(Boolean);
+    if (t5.length && t5.indexOf('liquiddreams') < 0) {
+      t5.splice(Math.max(0, t5.indexOf('settings')), 0, 'liquiddreams');
+      setPref('homeTiles', t5.join(','));
+    }
+    setPref('homeVer', '5');
   }
   function fullCatalog() {
     var out = CATALOG.slice(), have = {};
