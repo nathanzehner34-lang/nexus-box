@@ -469,7 +469,7 @@ function skeletonDance() {
     function pollLiquidTrack(){
       if(!alive||!trackLabel||!A||!A.nowPlaying)return;
       try{
-        var np=JSON.parse(A.nowPlaying()||'{}'),title=np.title&&np.title!=='null'?String(np.title).trim():'',artist=np.artist&&np.artist!=='null'?String(np.artist).trim():'';
+        var np=JSON.parse(A.nowPlaying()||'{}'),title=np.playing&&np.title&&np.title!=='null'?String(np.title).trim():'',artist=np.artist&&np.artist!=='null'?String(np.artist).trim():'';
         trackLabel.textContent=title?(title+(artist?' — '+artist:'')):'';
       }catch(e){trackLabel.textContent='';}
     }
