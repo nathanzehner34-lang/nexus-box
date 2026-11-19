@@ -254,6 +254,7 @@
     atmosphereCanvas.width = W; atmosphereCanvas.height = H;
   }
   function resetAtmosphere(name) {
+    if (name === 'liquiddreams') { atmosphereProfile = null; atmosphereParticles = []; if (atmosphereCtx) atmosphereCtx.clearRect(0, 0, atmosphereCanvas.width, atmosphereCanvas.height); return; }
     atmosphereProfile = ATMOSPHERE_PROFILES[atmosphereFamily(name)]; atmosphereLast = 0;
     ensureAtmosphere();
     var seed = 271 + String(name).split('').reduce(function (n, c) { return (n * 33 + c.charCodeAt(0)) >>> 0; }, 0), count = HIGH_MEMORY_DEVICE ? 88 : 30;
@@ -358,6 +359,7 @@
       v2: function (n, a, b2) { gl.uniform2f(U(n), a, b2); },
       v4a: function (n, arr) { gl.uniform4fv(U(n), arr); },
       v3a: function (n, arr) { gl.uniform3fv(U(n), arr); },
+      v3: function (n, c) { gl.uniform3f(U(n), c[0], c[1], c[2]); },
       draw: function (now, b, hueDeg) {
         gl.viewport(0, 0, glc.width, glc.height);
         gl.uniform2f(U('res'), glc.width, glc.height);
@@ -662,413 +664,457 @@ function skeletonDance() {
   }
 
   var LIQUID_DREAMS_SHADER = `
-uniform float styleId, tier, paletteId, bassBand, midBand, highBand, musicSensitivity, motion, quality, overdrive, beatPulse;
+uniform float envA, envB, envMix, flowT, bassL, midL, highL, moveAmt, detailAmt, complexity, brightness, quality;
+uniform vec3 pal0, pal1, pal2, pal3;
 uniform vec2 touchPoint, touchDrag;
 uniform float touchForce, touchBurst, touchRipple, touchRippleRadius, touchHue;
-float hashLD(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-float noiseLD(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hashLD(i),hashLD(i+vec2(1.,0.)),f.x),mix(hashLD(i+vec2(0.,1.)),hashLD(i+vec2(1.,1.)),f.x),f.y);}
-float fbmLD(vec2 p,float octaves){float v=0.,a=.52;for(int i=0;i<5;i++){if(float(i)<octaves){v+=noiseLD(p)*a;p=p*2.03+vec2(1.7,9.2);a*=.5;}}return v;}
-vec2 rotateLD(vec2 p,float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c)*p;}
-vec2 foldLD(vec2 p,float segments,float spin){float r=length(p),a=atan(p.y,p.x)+spin,sector=6.2831853/segments;a=mod(a+sector*.5,sector);a=abs(a-sector*.5);return vec2(cos(a),sin(a))*r;}
-vec3 rushPaletteLD(float x){float q=fract(x*.42+hue*.31);if(q<.16)return mix(vec3(.035,.09,.48),vec3(.035,.32,.98),q/.16);if(q<.31)return mix(vec3(.035,.32,.98),vec3(.02,.82,1.),(q-.16)/.15);if(q<.47)return mix(vec3(.02,.82,1.),vec3(.01,.9,.69),(q-.31)/.16);if(q<.63)return mix(vec3(.01,.9,.69),vec3(.015,.57,.25),(q-.47)/.16);if(q<.78)return mix(vec3(.015,.57,.25),vec3(.57,1.,.035),(q-.63)/.15);if(q<.91)return mix(vec3(.57,1.,.035),vec3(.42,.08,.95),(q-.78)/.13);return mix(vec3(.42,.08,.95),vec3(.92,.08,.62),(q-.91)/.09);}
-vec3 paletteLD(float x,float palette){if(palette>1.5&&palette<2.5)return rushPaletteLD(x+touchHue*.12);vec3 c=pal(x+hue+touchHue*.08);if(palette<.5)return c;if(palette<1.5)return mix(c,vec3(.08,.48,1.),.62);if(palette<3.5)return pal(x*1.45+hue+touchHue*.08);if(palette<4.5)return mix(c,vec3(.56,.13,1.),.66);return mix(c,vec3(.03,.88,.78),.58);}
-float sdBoxLD(vec2 p,vec2 b){vec2 d=abs(p)-b;return length(max(d,0.))+min(max(d.x,d.y),0.);}
-vec3 tunnelLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float r=max(length(p),.018),a=atan(p.y,p.x),segments=7.+tier*3.+mids*2.;vec2 q=vec2(a*segments/6.2831853,log(r)*-2.15-t*(.48+bass*.38));float n=fbmLD(q*2.1+vec2(t*.04,-t*.06),2.+tier+quality);q+=.27*vec2(sin(q.y*2.4+t+mids),cos(q.x*2.2-t*.8))*n*(.4+tier*.55);float rib=1.-smoothstep(.05,.19,abs(fract(q.y*5.-t*.06)-.5));float seam=1.-smoothstep(.015,.055,abs(fract(q.x*4.)-.5));float depth=1./(1.+r*1.35);float glow=.16+rib*.75+seam*.34+n*.48+energy*.42;return paletteLD(q.y*.23+q.x*.09+n*.32+highs*.16,palette)*glow*depth+paletteLD(a*1.7+t*.025,palette)*exp(-r*5.)*(.22+bass*.45);}
-vec3 kaleidoLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float sectors=6.+floor(tier*3.5)+floor(mids*2.);p=foldLD(p,sectors,t*.12+bass*.17);float r=length(p);vec2 z=p*(1.35+energy*.22);vec3 col=vec3(0.);for(int i=0;i<6;i++){float on=step(float(i),1.+tier*1.5+quality*2.);z=abs(z)/max(dot(z,z),.075)-vec2(.83+.08*sin(t*.23+float(i)*.4+mids),.54+.1*cos(t*.19-float(i)*.3));float d=length(z);col+=paletteLD(float(i)*.115+d*.075+t*.025+highs*.12,palette)*exp(-d*(2.1+float(i)*.08))*on*.34;}float petals=1.-smoothstep(.01,.055,abs(sin(atan(p.y,p.x)*sectors+sin(r*8.-t))*r));float rings=1.-smoothstep(.015,.075,abs(fract(r*(9.+tier*4.)-t*.12)-.5));return col+(paletteLD(r*1.8-t*.08,palette)*(petals*.42+rings*.22))*(.55+energy*.5);}
-float liquidLD(vec2 p,float t,float bass,float mids,float highs,float tier){float n=fbmLD(p*(2.5+tier*.8)+vec2(t*.12,-t*.08),2.+tier+quality);vec2 warp=vec2(fbmLD(p*2.1+vec2(0.,t*.11),3.),fbmLD(p*2.3+vec2(t*.09,2.),3.));p+= (warp-.5)*(.7+tier*.26)+vec2(sin(p.y*5.+t),cos(p.x*4.-t))*(.08+bass*.12);float f=fbmLD(p*(3.4+tier)+n*.8,3.+tier+quality);return f+.16*sin(p.x*8.+p.y*5.+t*1.2+mids*2.)+.12*cos(p.y*9.-p.x*4.-t+highs*2.);}
-vec3 liquidWorldLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float split=.008+tier*.008+highs*.018;float red=liquidLD(p+vec2(split,0.),t,bass,mids,highs,tier),green=liquidLD(p,t,bass,mids,highs,tier),blue=liquidLD(p-vec2(split,split*.55),t,bass,mids,highs,tier);vec3 spectral=vec3(red,green,blue);vec3 tint=paletteLD(green*1.45+t*.035+mids*.25,palette);float veins=1.-smoothstep(.01,.095,abs(fract(green*(7.+tier*4.)+t*.05)-.5));return mix(tint*.55,spectral*1.3,.42+tier*.1)+tint*veins*(.12+highs*.16+energy*.12);}
-vec3 cosmicLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float r=length(p),a=atan(p.y,p.x);float arms=5.+floor(tier*4.);float spiral=sin(a*arms+r*(19.+tier*8.)-t*(.75+bass*.7)+fbmLD(p*5.+t*.08,3.)*2.);float orbit=1.-smoothstep(.015,.09,abs(fract(r*(13.+tier*5.)-a*.5-t*.11)-.5));float lattice=1.-smoothstep(.02,.13,abs(cos(a*arms*2.+r*11.-t*.6+mids*2.)));float star=pow(max(0.,.5+.5*cos(a*arms*2.)),8.)*exp(-r*1.2);vec3 c=paletteLD(spiral*.42+r*1.5-a*.1+t*.018,palette);return c*(.17+orbit*.55+lattice*.5+max(0.,spiral)*(.35+energy*.35))+paletteLD(a/6.28318+t*.02,palette)*star*(.8+highs*.5);}
-vec3 morphLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float phase=t*.28+mids*1.4;float morph=.5+.5*sin(phase);float r=length(p);float circle=r-.36;float box=sdBoxLD(p,vec2(.27+.04*sin(phase),.29));float diamond=(abs(p.x)+abs(p.y))-.47;float star=max(abs(p.x)*.72+abs(p.y)*.72-.42,abs(p.x*.55+p.y*.95)-.32);float d=mix(mix(circle,box,morph),mix(diamond,star,.5+.5*cos(phase*.67)),.5+.5*sin(phase*.61+1.));vec2 q=rotateLD(p,phase*.18);float scale=1.8+tier*.7;float rep=length(fract(q*scale+.5)-.5);float rings=1.-smoothstep(.012,.07,abs(fract(abs(d)*(14.+tier*10.)-t*.1)-.5));float cells=1.-smoothstep(.02,.1,abs(rep-.22));vec3 c=paletteLD(d*3.+t*.025+highs*.18,palette);return c*(.2+rings*.72+cells*.28+energy*.3)+paletteLD(d*3.+.5,palette)*exp(-abs(d)*12.)*(.4+bass*.5);}
-vec3 prismLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){vec2 cell=p*(4.+tier*2.)+vec2(t*.09+mids*.12,-t*.07);vec2 id=floor(cell),f=fract(cell);float nearest=9.,second=9.,seed=0.;for(int y=-1;y<=1;y++){for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y)),o=vec2(hashLD(id+g),hashLD(id+g+17.));vec2 d=g+o*.72-f;float dist=dot(d,d);if(dist<nearest){second=nearest;nearest=dist;seed=hashLD(id+g+31.);}else if(dist<second){second=dist;}}}float edge=second-nearest;float facet=1.-smoothstep(.01,.09,edge);float glint=pow(max(0.,1.-abs(fract(seed*9.+t*.12)-.5)*2.),12.)*(.25+highs*.8);vec3 c=paletteLD(seed*1.7+nearest*.32+t*.018,palette);return c*(.24+facet*.9+glint+energy*.22)+vec3(.42,.78,1.)*facet*glint*.8;}
-vec3 inkLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float a=fbmLD(p*2.1+vec2(t*.06,-t*.08),4.);vec2 flow=vec2(fbmLD(p*2.+a+t*.08,4.),fbmLD(p*2.-a-t*.07+4.,4.));vec2 q=p+(flow-.5)*(.95+tier*.45)+vec2(-p.y,p.x)*(.12+sin(t*.2)*.05);float pigment=fbmLD(q*(3.2+tier*.7)+vec2(t*.04,-t*.05),4.+quality);float pool=1.-smoothstep(.18,.72,pigment);float filament=1.-smoothstep(.008,.045,abs(fract(pigment*9.+a*2.+t*.025)-.5));float collision=exp(-abs(length(q)-(.24+.12*sin(t*.3+bass)))*18.);vec3 c=paletteLD(pigment*1.8+a*.65+t*.02,palette);return c*(.12+pool*.86+filament*(.25+highs*.35)+collision*(.2+mids*.3+energy*.22));}
-vec3 worldLD(vec2 p,float mode,float t,float tier,float bass,float mids,float highs,float energy,float palette){if(mode<.5)return tunnelLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<1.5)return kaleidoLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<2.5)return liquidWorldLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<3.5)return cosmicLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<4.5)return morphLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<5.5)return prismLD(p,t,tier,bass,mids,highs,energy,palette);return inkLD(p,t,tier,bass,mids,highs,energy,palette);}
-void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdrive*2.);float t=time*motion;float bass=clamp(bassBand*musicSensitivity,0.,1.5);float mids=clamp(midBand*musicSensitivity,0.,1.5);float highs=clamp(highBand*musicSensitivity,0.,1.5);float energyDrive=clamp(energy*musicSensitivity,0.,1.5);float distortion=.012+level*.024+bass*.045+highs*.028;vec2 p=uv+vec2(sin(uv.y*9.+t+mids)*distortion,cos(uv.x*8.-t*.8+mids)*distortion);p*=1.+mids*(.025+level*.025);vec2 toTouch=uv-touchPoint;float touchDist=max(length(toTouch),.001);vec2 touchDir=toTouch/touchDist;float localPush=exp(-touchDist*7.)*touchForce;p+=touchDrag*localPush*.085+touchDir*sin(touchDist*34.-t*1.7)*localPush*.009;float rippleEdge=exp(-abs(touchDist-touchRippleRadius)*38.)*touchRipple;float burstEdge=exp(-abs(touchDist-(1.-touchBurst)*.58)*34.)*touchBurst;p+=touchDir*(rippleEdge*.014+burstEdge*.019);vec3 color=worldLD(p,styleId,t,level,bass,mids,highs,energyDrive,paletteId);if(level>.5){vec2 q=foldLD(rotateLD(p,t*.05+mids*.08),7.+floor(level*2.),t*.08);color=mix(color,worldLD(q,mod(styleId+3.,7.),t*1.09,level,bass,mids,highs,energyDrive,paletteId),.16+.12*energyDrive);}if(level>1.5){vec2 q=foldLD(rotateLD(p*(1.08+sin(t*.13)*.05),-t*.12+bass*.16),11.+floor(quality*5.),-t*.19);vec3 other=worldLD(q,mod(styleId+2.,7.),t*1.21,level,bass,mids,highs,energyDrive,paletteId);color=color*.58+other*.48+paletteLD(length(q)*2.+t*.04+highs*.12,paletteId)*(.12+highs*.18);color=abs(color)*(1.12+overdrive*.35);}float vignette=1.-smoothstep(.45,1.25,length(uv));float beatFlash=clamp((kick*.35+beatPulse*.65)*musicSensitivity*(.12+bass*.14),0.,.32);color*=vignette*(1.+beatFlash+energyDrive*.16+burstEdge*.2+rippleEdge*.11);color=pow(max(color,vec3(0.)),vec3(.82));gl_FragColor=vec4(min(color,vec3(1.)),1.);}
+float OCT;
+vec2 hash2LD(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}
+float fbmLD(vec2 p,float oct){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<6;i++){if(float(i)>=oct)break;v+=a*noise(p);p=m*p+vec2(3.1,1.7);a*=.5;}return v;}
+vec3 rampLD(float x){x=clamp(x+touchHue*.22,0.,1.);vec3 c=mix(pal0,pal1,smoothstep(0.,.4,x));c=mix(c,pal2,smoothstep(.35,.75,x));return mix(c,pal3,smoothstep(.72,1.,x));}
+float particlesLD(vec2 p,float t,float scale,float drift){vec2 g=p*scale+vec2(t*drift*.5,t*drift);vec2 id=floor(g),f=fract(g)-.5;vec2 h=hash2LD(id);float on=step(.86-detailAmt*.07,h.x);vec2 o=(h-.5)*.6+.12*vec2(sin(t*.7+h.y*6.),cos(t*.5+h.x*6.));float tw=.55+.45*sin(t*1.3+h.y*30.);return on*smoothstep(.09,.0,length(f-o))*tw;}
+// DEEP FLOW: ink dispersing through deep water
+vec3 deepFlowLD(vec2 p,float t){
+ float sw=.55+moveAmt*.55+bassL*.22;
+ vec2 q=p*1.2+vec2(0.,t*.035);
+ vec2 a=vec2(fbmLD(q+vec2(0.,t*.06),OCT),fbmLD(q+vec2(5.2,1.3)-vec2(t*.05,0.),OCT));
+ vec2 b=vec2(fbmLD(q+sw*1.9*a+vec2(1.7,9.2)+t*.04,OCT),fbmLD(q+sw*1.9*a+vec2(8.3,2.8)-t*.03,OCT));
+ vec2 wq=q+(sw*2.1+midL*.12)*b;
+ float d=fbmLD(wq,OCT),d2=fbmLD(wq+vec2(.035,.05),OCT);
+ vec3 bg=mix(pal0*.4,pal1*.32,smoothstep(-.8,.8,p.y));
+ float shaft=pow(max(0.,1.-abs(p.x*.75+p.y*.35-.1+sin(t*.07)*.12)),5.)*smoothstep(-.6,.7,p.y);
+ bg+=rampLD(.7)*shaft*.14;
+ float ink=smoothstep(.3,.68,d),core=smoothstep(.62,.95,d);
+ float lit=clamp((d2-d)*14.,-1.,1.);
+ vec3 inkCol=mix(rampLD(.32+b.x*.3),rampLD(.6+a.y*.25),clamp(length(b-a)*1.6,0.,1.));
+ vec3 col=mix(bg,inkCol*(.75+.6*max(lit,0.)),ink*.92);
+ col=mix(col,pal0*.15,core*.5);
+ col+=rampLD(.95)*pow(max(lit,0.),2.)*ink*(1.-core)*(.28+highL*.35*detailAmt);
+ col+=rampLD(.85)*pow(clamp(b.y*1.15-.2,0.,1.),4.)*ink*.18;
+ float back=fbmLD(p*.55+vec2(t*.015,-t*.01)+a*.4,3.);
+ col+=rampLD(.5)*smoothstep(.45,.8,back)*.14*(1.-ink);
+ col+=particlesLD(p,t,14.,.06)*rampLD(.95)*(.3+highL*.9)*detailAmt;
+ return col;
+}
+// IRIDESCENCE: translucent liquid glass with thin-film colour
+float glassHLD(vec2 p,float t){float h=0.;for(int i=0;i<7;i++){float fi=float(i);if(fi>=4.+complexity*3.)break;vec2 c=vec2(sin(t*(.07+fi*.017)+fi*1.9)*.7,cos(t*(.06+fi*.013)+fi*2.7)*.36);float r=.17+.1*fract(fi*.618)+.04*sin(fi*2.1+t*.09)+bassL*.035*moveAmt;vec2 d=p-c;h+=exp(-dot(d,d)/(r*r));}return h+(.08*moveAmt+midL*.06)*(noise(p*1.7+vec2(t*.05,-t*.04))-.5);}
+vec3 glassBgLD(vec2 q,float t){
+ vec3 c=pal0*.45+pal1*.22*smoothstep(-.9,.9,q.y);
+ c+=rampLD(.55)*pow(.5+.5*sin(q.x*2.2+q.y*3.1+t*.03),8.)*.16;
+ c+=rampLD(.75)*pow(.5+.5*sin(q.x*-3.4+q.y*1.3-t*.025+1.),14.)*.12;
+ c+=rampLD(.65)*exp(-dot(q-vec2(.5,.22),q-vec2(.5,.22))*2.4)*.26;
+ c+=rampLD(.88)*exp(-dot(q+vec2(.55,.18),q+vec2(.55,.18))*3.2)*.2;
+ return c;
+}
+vec3 iridescenceLD(vec2 p,float t){
+ float e=.008,h=glassHLD(p,t),hx=glassHLD(p+vec2(e,0.),t),hy=glassHLD(p+vec2(0.,e),t);
+ vec2 g=vec2(hx-h,hy-h)/e;
+ float mask=smoothstep(.5,.55,h);
+ g+=highL*detailAmt*.25*vec2(sin(p.y*38.+t*1.6),cos(p.x*34.-t*1.4))*mask;
+ vec3 n=normalize(vec3(-g*.28,1.));
+ float fres=pow(1.-n.z,1.2);
+ vec3 bg=glassBgLD(p,t);
+ vec2 o=n.xy*.32;
+ vec3 refr=vec3(glassBgLD(p-o*1.08,t).r,glassBgLD(p-o,t).g,glassBgLD(p-o*.92,t).b)*1.25;
+ refr*=mix(vec3(1.),rampLD(.8),.2);
+ vec3 film=.5+.5*cos(6.2832*(h*.6+fres*1.6+t*.012+vec3(0.,.33,.67)));
+ vec3 rim=mix(rampLD(.9),film*rampLD(.95)*1.5,.28)*pow(fres,1.5)*1.6;
+ float spec=pow(max(dot(reflect(-normalize(vec3(-.45,.55,.7)),n),vec3(0.,0.,1.)),0.),30.)*.6;
+ float soft=pow(max(dot(reflect(-normalize(vec3(-.4,.6,.7)),n),vec3(0.,0.,1.)),0.),9.)*.14;
+ float caust=pow(max(0.,1.-length(n.xy)*2.4),4.)*smoothstep(.65,1.3,h)*.22;
+ vec3 glass=refr*.95+rim+rampLD(.95)*caust+(spec+soft)*mix(vec3(1.),pal3,.3)*(.95+highL*.3);
+ glass+=rampLD(.98)*(smoothstep(.5,.515,h)-smoothstep(.515,.57,h))*.35;
+ float shadow=smoothstep(.25,.6,glassHLD(p+vec2(-.05,.07),t))*(1.-mask);
+ return mix(bg*(1.-shadow*.45),glass,mask);
+}
+// ETHER: floating silk ribbons in soft atmospheric light
+vec3 etherLD(vec2 p,float t){
+ vec3 col=mix(pal0*.55,pal1*.55,smoothstep(-.9,.9,p.y*.8-p.x*.25));
+ col+=rampLD(.7)*smoothstep(.35,.8,fbmLD(p*1.1+vec2(t*.02,0.),3.))*.1;
+ col+=rampLD(.9)*exp(-dot(p-vec2(-.55,.42),p-vec2(-.55,.42))*1.6)*.18;
+ float n=3.+floor(complexity*2.+.5);
+ for(int i=0;i<5;i++){float fi=float(i);if(fi>=n)break;float x=p.x;
+  float amp=(.22+.05*fi)*(.55+moveAmt*.45);
+  float y=sin(x*(.85+fi*.11)+t*(.16+fi*.017)+fi*1.7)*amp+.09*sin(x*2.3-t*.21+fi*2.)+(fi-(n-1.)*.5)*.16+bassL*.04*sin(x*1.4+fi);
+  float w=.055+.035*sin(x*1.3+t*.19+fi*2.4)+.012*fi,d=(p.y-y)/w;
+  float body=smoothstep(1.,.35,abs(d)),twist=sin(x*2.6+t*.27+fi*2.1+midL*.8),sheen=pow(.5+.5*cos(d*1.7+twist*2.2),4.);
+  col=mix(col,rampLD(.35+fi*.11+sheen*.35)*(.6+sheen*.9),body*(.18+.35*sheen));
+  col+=rampLD(.85)*(exp(-abs(p.y-y)*22.)*.035+exp(-abs(p.y-y)*5.)*.025)*(1.+highL*detailAmt);}
+ col+=particlesLD(p*.7,t*.6,8.,.03)*rampLD(1.)*.35*detailAmt;
+ return col;
+}
+// LIQUID CHROME: molten mirror surface in a studio light environment
+float chromeHLD(vec2 p,float t){vec2 q=p*1.6;q+=.45*(.45+moveAmt*.6)*vec2(sin(q.y*1.1+t*.17),cos(q.x*.95-t*.14));q+=(.22*(.4+complexity)+midL*.15)*vec2(sin(q.y*2.4-t*.11),cos(q.x*2.1+t*.13));float h=.5*sin(q.x*1.4+t*.12)*cos(q.y*1.6-t*.1)+.3*sin((q.x+q.y)*2.1+t*.15)+.2*sin(q.x*2.9-q.y*1.2-t*.11);return h*(1.+bassL*.35);}
+vec3 studioLD(vec3 r){
+ float y=r.y+.1*r.x;
+ vec3 c=mix(pal0*.35,pal1*.5,smoothstep(-1.,-.1,y));
+ c=mix(c,mix(pal1,pal3,.55),smoothstep(-.15,.35,y));
+ c=mix(c,pal1*.6,smoothstep(.45,1.,y));
+ c+=pal3*.9*exp(-pow((y-.05)*28.,2.));
+ c+=pal3*1.1*smoothstep(.1,.05,abs(r.x+.4))*smoothstep(.1,.2,y)*smoothstep(.9,.65,y);
+ c+=pal2*.28*smoothstep(.3,.04,abs(r.x-.45))*smoothstep(-.7,-.4,y)*smoothstep(.05,-.15,y);
+ return c;
+}
+vec3 chromeLD(vec2 p,float t){
+ float e=.008,h=chromeHLD(p,t),hx=chromeHLD(p+vec2(e,0.),t),hy=chromeHLD(p+vec2(0.,e),t);
+ vec2 g=vec2(hx-h,hy-h)/e;
+ g+=highL*detailAmt*.12*vec2(sin(p.x*34.+p.y*9.+t*1.6),sin(p.y*31.-p.x*7.-t*1.4));
+ vec3 n=normalize(vec3(-g*.42,1.)),r=reflect(vec3(0.,0.,-1.),n);
+ vec3 c=studioLD(r)*mix(vec3(1.),pal2*1.4,.15);
+ c*=.55+.45*smoothstep(-.8,.5,h);
+ c+=pal3*pow(max(dot(n,normalize(vec3(-.3,.45,.85))),0.),140.)*.8;
+ float frame=smoothstep(1.45,.3,length(p*vec2(.7,1.)));
+ return mix(pal0*.15,c,frame);
+}
+// COSMIC MELT: slow nebula flowing like melting light
+vec3 cosmicLD(vec2 p,float t){
+ vec2 q=p*1.05;q.y+=t*.018;
+ vec2 w=vec2(fbmLD(q*1.2+vec2(t*.02,0.),OCT),fbmLD(q*1.2+vec2(4.7,t*.015),OCT));
+ w+=.22*(moveAmt+bassL*.3)*vec2(sin(q.y*1.7+t*.11),0.);
+ float n=fbmLD(q*1.6+w*(2.4+midL*.2),OCT),dust=fbmLD(q*3.1-w*1.3+7.,3.),wisp=fbmLD(q*2.4-w*1.8+2.,OCT);
+ float neb=pow(smoothstep(.28,.82,n),1.5);
+ vec3 col=pal0*.2+rampLD(.25+n*.5)*neb*1.15;
+ col+=rampLD(.45+w.y*.3)*pow(smoothstep(.45,.8,wisp),2.)*.45;
+ col+=rampLD(.8+w.x*.2)*pow(smoothstep(.55,.88,n),2.)*.9;
+ col*=1.-smoothstep(.45,.75,dust)*.65;
+ vec2 cp=p-vec2(.18*sin(t*.04),.06*cos(t*.05));
+ col+=rampLD(.92)*(exp(-length(cp)*2.6)*(.18+bassL*.06)+exp(-length(cp)*14.)*.18)*(.35+neb);
+ col+=particlesLD(p,t*.15,22.,.01)*vec3(.9,.95,1.)*(.6+highL*.8)*detailAmt;
+ col+=particlesLD(p*1.7+3.,t*.2,30.,.008)*rampLD(1.)*.4*detailAmt;
+ return col;
+}
+// ORGANIC: translucent living membranes
+vec3 cellsLD(vec2 p,float t,out vec2 dv){vec2 i=floor(p),f=fract(p);float f1=8.,f2=8.,id=0.;dv=vec2(0.);for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y)),h=hash2LD(i+g),o=.5+.36*sin(t*(.18+h*.14)+h*6.2832);vec2 r=g+o-f;float d=length(r);if(d<f1){f2=f1;f1=d;id=h.x;dv=r;}else if(d<f2)f2=d;}return vec3(f1,f2,id);}
+vec3 organicLD(vec2 p,float t){
+ float breath=1.+.035*sin(t*.3)+bassL*.05*moveAmt;
+ vec2 warp=(.3+.25*moveAmt)*(1.+midL*.4)*(vec2(fbmLD(p*1.2+t*.04,3.),fbmLD(p*1.2+4.-t*.035,3.))-.47);
+ vec2 dv,dv2;
+ vec3 c=cellsLD((p+warp)*1.6/breath,t,dv);
+ float gap=c.y-c.x,seam=1.-exp(-gap*gap*500.),rimIn=exp(-gap*8.);
+ vec3 c2=cellsLD((p+warp*.4)*3.4+vec2(t*.015,0.)+9.,t*.7,dv2);
+ vec3 col=mix(pal0*.4,pal1*.2,smoothstep(-.9,.9,p.y));
+ col+=rampLD(.35+c2.z*.2)*exp(-(c2.y-c2.x)*7.)*.16*(.4+complexity);
+ float memb=.55+.45*fbmLD(p*3.+c.z*9.+t*.03,3.);
+ vec3 body=rampLD(.22+c.z*.3)*(.1+.28*smoothstep(.75,0.,c.x))+rampLD(.62+c.z*.22)*rimIn*.9*memb+rampLD(.97)*pow(rimIn,6.)*.45;
+ float gloss=exp(-dot(dv-vec2(.17,-.17),dv-vec2(.17,-.17))*22.)*smoothstep(.02,.15,gap);
+ body+=mix(rampLD(.9),vec3(1.),.3)*gloss*.22;
+ col=mix(col*.8+pal1*.08,body*1.15+col*.35,.88*seam);
+ float nuc=exp(-c.x*c.x*80.)*(.55+.45*sin(t*.5+c.z*20.));
+ col+=rampLD(.8)*nuc*(.22+highL*.3*detailAmt)*seam;
+ col+=particlesLD(p*.9,t*.3,10.,.02)*rampLD(.9)*.25*detailAmt;
+ return col;
+}
+vec3 envLD(float id,vec2 p,float t){if(id<.5)return deepFlowLD(p,t);if(id<1.5)return iridescenceLD(p,t);if(id<2.5)return etherLD(p,t);if(id<3.5)return chromeLD(p,t);if(id<4.5)return cosmicLD(p,t);return organicLD(p,t);}
+void main(){
+ vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;
+ OCT=clamp(3.+complexity*1.6+quality*.8,3.,6.);
+ float t=flowT;vec2 p=uv,toT=uv-touchPoint;float td=max(length(toT),.001);vec2 dir=toT/td;
+ p+=touchDrag*exp(-td*6.)*touchForce*.06;
+ float ring=exp(-abs(td-touchRippleRadius)*30.)*touchRipple,burst=exp(-abs(td-(1.-touchBurst)*.5)*26.)*touchBurst;
+ p+=dir*(ring*.012+burst*.014);
+ vec3 col=envLD(envA,p,t);
+ if(envMix>.001){vec3 other=envLD(envB,p,t);float n=fbmLD(uv*1.6+vec2(7.1,3.3)+t*.02,3.);col=mix(col,other,smoothstep(n-.14,n+.14,envMix*1.3-.15));}
+ col+=rampLD(.95)*(ring*.06+burst*.08);
+ col=1.-exp(-col*brightness*1.25);
+ col*=.6+.4*smoothstep(1.35,.25,length(uv*vec2(.9,1.)));
+ col+=(hash(gl_FragCoord.xy+fract(t*7.))-.5)*(1.5/255.);
+ gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
 `;
 
-  // LIQUID DREAMS — selectable shader-built psychedelic worlds with a legacy cloud renderer.
+  // LIQUID DREAMS — six composed GPU environments, controlled palettes and restrained music response.
+  var LD_ENVIRONMENTS = [
+    { id: 'deepflow', name: 'Deep Flow', note: 'Ink through deep water', palette: 'deepteal' },
+    { id: 'iridescence', name: 'Iridescence', note: 'Liquid glass', palette: 'iridescent' },
+    { id: 'ether', name: 'Ether', note: 'Silk in soft light', palette: 'violet' },
+    { id: 'chrome', name: 'Liquid Chrome', note: 'Molten mirror', palette: 'chrome' },
+    { id: 'cosmic', name: 'Cosmic Melt', note: 'Flowing nebulae', palette: 'obsidian' },
+    { id: 'organic', name: 'Organic', note: 'Living membranes', palette: 'aurora' }
+  ];
+  // Each palette is four stops: deep shadow, body, accent, highlight.
+  var LD_PALETTES = {
+    midnight: { name: 'Midnight Blue', c: [[.01,.02,.06],[.05,.12,.32],[.22,.42,.85],[.75,.85,1]] },
+    deepteal: { name: 'Deep Teal', c: [[0,.035,.045],[.02,.2,.24],[.1,.55,.58],[.7,1,.95]] },
+    violet: { name: 'Violet Haze', c: [[.03,.015,.06],[.2,.08,.36],[.55,.32,.85],[.95,.82,1]] },
+    chrome: { name: 'Liquid Chrome', c: [[.02,.022,.028],[.18,.2,.23],[.55,.6,.66],[.97,.98,1]] },
+    iridescent: { name: 'Iridescent', c: [[.03,.02,.07],[.12,.25,.55],[.75,.3,.8],[.6,1,.95]] },
+    aurora: { name: 'Aurora', c: [[0,.03,.05],[.03,.3,.3],[.25,.85,.55],[.85,.75,1]] },
+    obsidian: { name: 'Obsidian & Magenta', c: [[.01,.005,.015],[.12,.02,.12],[.75,.08,.45],[1,.7,.9]] },
+    arctic: { name: 'Arctic Cyan', c: [[.01,.04,.07],[.1,.35,.5],[.45,.85,.95],[.92,1,1]] }
+  };
+  var LD_PALETTE_ORDER = ['midnight','deepteal','violet','chrome','iridescent','aurora','obsidian','arctic'];
+  // Music Reactive mode moves along this calm-to-vivid order as the music's long-term mood changes.
+  var LD_MOOD_ORDER = ['midnight','obsidian','deepteal','violet','chrome','arctic','aurora','iridescent'];
+  var LD_RANGES = { speed: [.2, 2], movement: [0, 2], audio: [0, 2], bass: [0, 2], colorSpeed: [.25, 3], brightness: [.6, 1.5], detail: [0, 2], complexity: [0, 2] };
+
   function liquidDreams() {
-    var b = beatTracker(), start = performance.now(), lastT = start, kick = 0, smoothBass = 0, smoothTreble = 0;
-    var styles = ['tunnel','kaleidoscope','liquid','cosmic','morph','prism','ink','clouds'];
-    var colors = ['spectrum','electric','rush','rainbow','ultraviolet','storm'];
-    var levels = ['mild','intense','insane'];
-    var defaults = { style:'tunnel', color:'spectrum', intensity:'mild', bass:1, treble:1, music:1, speed:1, drive:'driving' };
-    function read(key, fallback) { try { var v = N.pref(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; } }
-    function write(key, val) { try { if (A && A.setPref) A.setPref(key, JSON.stringify(val)); else localStorage.setItem('p_'+key, JSON.stringify(val)); } catch(e) {} }
-    function normalizeState(value){
-      var next=Object.assign({},defaults,value&&typeof value==='object'?value:{});
-      if(next.intensity==='calm'||next.intensity==='flow')next.intensity='mild';
-      if(levels.indexOf(next.intensity)<0)next.intensity='mild';
-      var legacyStyles={chrome:'clouds',fluid:'liquid',oil:'ink',psychedelic:'kaleidoscope'};
-      if(legacyStyles[next.style])next.style=legacyStyles[next.style];
-      if(styles.indexOf(next.style)<0)next.style=defaults.style;
-      if(colors.indexOf(next.color)<0)next.color=defaults.color;
-      if(next.drive!=='driving'&&next.drive!=='immersive')next.drive=defaults.drive;
-      ['bass','treble','music','speed'].forEach(function(k){
-        var n=Number(next[k]);
-        if(!isFinite(n))n=defaults[k];
-        next[k]=Math.max(k==='speed'?.08:0,Math.min(k==='speed'?2.2:2,n));
+    var b = beatTracker({ quiet: true }), start = performance.now(), lastT = start;
+    var envIds = LD_ENVIRONMENTS.map(function (e) { return e.id; });
+    var colors = ['signature'].concat(LD_PALETTE_ORDER, ['music']);
+    var defaults = { v: 2, env: 'deepflow', color: 'signature', speed: 1, movement: 1, audio: 1, bass: 1, colorSpeed: 1, brightness: 1, detail: 1, complexity: 1, lowMotion: false, drive: 'driving' };
+    var legacyEnv = { tunnel: 'cosmic', kaleidoscope: 'iridescence', liquid: 'deepflow', cosmic: 'cosmic', morph: 'organic', prism: 'iridescence', ink: 'deepflow', clouds: 'ether', chrome: 'ether', fluid: 'deepflow', oil: 'deepflow', psychedelic: 'iridescence' };
+    var legacyColor = { spectrum: 'music', electric: 'arctic', rush: 'aurora', rainbow: 'iridescent', ultraviolet: 'violet', storm: 'chrome' };
+    function read(key, fallback) { try { var v = N.pref(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
+    function write(key, val) { try { if (A && A.setPref) A.setPref(key, JSON.stringify(val)); else localStorage.setItem('p_' + key, JSON.stringify(val)); } catch (e) {} }
+    function normalizeState(value) {
+      var src = value && typeof value === 'object' ? value : {}, next = Object.assign({}, defaults);
+      if (src.v !== 2) {
+        // Earlier Liquid Dreams settings and saved vibes migrate to the nearest new environment and palette.
+        if (legacyEnv[src.style]) next.env = legacyEnv[src.style];
+        if (legacyColor[src.color]) next.color = legacyColor[src.color];
+        if (isFinite(+src.speed)) next.speed = +src.speed;
+        if (isFinite(+src.bass)) next.bass = +src.bass;
+        if (isFinite(+src.music)) next.audio = +src.music;
+        if (isFinite(+src.treble)) next.detail = +src.treble;
+        if (src.intensity === 'intense') next.complexity = 1.4; else if (src.intensity === 'insane') next.complexity = 1.8;
+        if (src.drive === 'immersive') next.drive = 'immersive';
+      } else Object.keys(defaults).forEach(function (k) { if (k in src) next[k] = src[k]; });
+      if (envIds.indexOf(next.env) < 0) next.env = defaults.env;
+      if (colors.indexOf(next.color) < 0) next.color = defaults.color;
+      if (next.drive !== 'driving' && next.drive !== 'immersive') next.drive = defaults.drive;
+      next.lowMotion = next.lowMotion === true;
+      Object.keys(LD_RANGES).forEach(function (k) {
+        var n = Number(next[k]), r = LD_RANGES[k];
+        next[k] = Math.max(r[0], Math.min(r[1], isFinite(n) ? n : defaults[k]));
       });
+      next.v = 2;
       return next;
     }
     var state = normalizeState(read('liquidDreams.settings', defaults));
     var presets = read('liquidDreams.presets', []);
-    if(!Array.isArray(presets)) presets=[];
-    var overdrive = false, overTimer = 0, clean = false, alive = true;
-    var ui = document.createElement('div'); ui.className='ld-ui';
+    if (!Array.isArray(presets)) presets = [];
+    var clean = false, alive = true;
+    function envInfo(id) { for (var i = 0; i < LD_ENVIRONMENTS.length; i++) if (LD_ENVIRONMENTS[i].id === id) return LD_ENVIRONMENTS[i]; return LD_ENVIRONMENTS[0]; }
+    function css(c) { return 'rgb(' + c.map(function (v) { return Math.round(Math.min(1, v) * 255); }).join(',') + ')'; }
+    function swatch(key) { var c = LD_PALETTES[key].c; return 'linear-gradient(135deg,' + css(c[0]) + ' 0%,' + css(c[1]) + ' 38%,' + css(c[2]) + ' 72%,' + css(c[3]) + ' 100%)'; }
+    function slider(key, label) { var r = LD_RANGES[key]; return '<label class="ld-slider"><span>' + label + '</span><output data-out="' + key + '"></output><input type="range" min="' + r[0] + '" max="' + r[1] + '" step=".05" data-setting="' + key + '"></label>'; }
+    var ui = document.createElement('div'); ui.className = 'ld-ui';
     ui.innerHTML =
-      '<button class="ld-float" type="button" aria-label="Open Liquid Dreams controller">LIQUID<br>DREAMS</button>' +
-      '<section class="ld-panel" aria-label="Liquid Dreams controller">' +
-      '<header><div><b>LIQUID DREAMS</b><small>FRACTAL · FLUID · MUSIC REACTIVE</small></div><button type="button" data-action="close" aria-label="Close controller">×</button></header>' +
-      '<label>VISUAL ENGINE<select data-setting="style"><option value="tunnel">Psychedelic Fractal Tunnels</option><option value="kaleidoscope">Kaleidoscope Worlds</option><option value="liquid">Liquid Rainbow Distortion</option><option value="cosmic">Cosmic Geometry</option><option value="morph">Infinite Morphing Worlds</option><option value="prism">Prismatic Dreams</option><option value="ink">Ink and Energy</option><option value="clouds">Clouds and Liquid Blobs</option></select></label>' +
-      '<label>COLOUR MODE<select data-setting="color"><option value="spectrum">Auto Spectrum</option><option value="electric">Electric Dreams</option><option value="rush">Neon Rush</option><option value="rainbow">Liquid Rainbow</option><option value="ultraviolet">Ultraviolet</option><option value="storm">Chrome Storm</option></select></label>' +
-      '<div class="ld-label">INTENSITY</div><div class="ld-levels">'+levels.map(function(v){return '<button type="button" data-level="'+v+'">'+v.toUpperCase()+'</button>';}).join('')+'</div>' +
-      '<label>BASS SENSITIVITY <output data-out="bass"></output><input type="range" min="0" max="2" step=".05" data-setting="bass"></label>' +
-      '<label>TREBLE DETAIL <output data-out="treble"></output><input type="range" min="0" max="2" step=".05" data-setting="treble"></label>' +
-      '<label>MUSIC SENSITIVITY <output data-out="music"></output><input type="range" min="0" max="2" step=".05" data-setting="music"></label>' +
-      '<label>MOVEMENT SPEED <output data-out="speed"></output><input type="range" min=".08" max="2.2" step=".02" data-setting="speed"></label>' +
-      '<div class="ld-actions"><button type="button" data-action="surprise">SURPRISE ME</button><button type="button" data-action="overdrive">OVERDRIVE</button><button type="button" data-action="clean">CLEAN SCREEN</button></div>' +
-      '<div class="ld-drive"><button type="button" data-action="drive">DRIVING PRESENTATION</button><span>DRIVING MODE LIMITS MOTION · IMMERSIVE FOR PARKED USE</span></div>' +
-      '<div class="ld-save"><input data-name maxlength="24" placeholder="Name your vibe"><button type="button" data-action="save">SAVE MY VIBE</button></div>' +
-      '<div class="ld-label">SAVED VIBES</div><div class="ld-presets"></div><button class="ld-return" type="button" data-action="exit">RETURN TO NEXUS</button></section><div class="ld-track" aria-live="polite"></div>';
+      '<button class="ld-float ld-hidden" type="button" aria-label="Open Liquid Dreams controls"><i></i>Liquid Dreams</button>' +
+      '<section class="ld-panel" aria-label="Liquid Dreams controls">' +
+      '<header><div><b>Liquid Dreams</b><small data-now></small></div><button class="ld-x" type="button" data-action="close" aria-label="Close controls">×</button></header>' +
+      '<div class="ld-title">Environment</div><div class="ld-envs">' + LD_ENVIRONMENTS.map(function (e) {
+        return '<button type="button" data-env="' + e.id + '"><span class="ld-sw" style="background:' + swatch(e.palette) + '"></span><b>' + e.name + '</b><small>' + e.note + '</small></button>';
+      }).join('') + '</div>' +
+      '<div class="ld-title">Colour</div><div class="ld-colors">' +
+      '<button type="button" data-color="signature"><span class="ld-dot ld-dot-sig"></span>Signature</button>' +
+      LD_PALETTE_ORDER.map(function (k) { return '<button type="button" data-color="' + k + '"><span class="ld-dot" style="background:' + swatch(k) + '"></span>' + LD_PALETTES[k].name + '</button>'; }).join('') +
+      '<button type="button" data-color="music"><span class="ld-dot ld-dot-music"></span>Music Reactive</button></div>' +
+      '<div class="ld-quick"><button type="button" data-action="lowmotion">Low motion</button><button type="button" data-action="shuffle">Shuffle</button><button type="button" data-action="clean">Clean screen</button></div>' +
+      '<details class="ld-group" open><summary>Motion</summary>' + slider('speed', 'Animation speed') + slider('movement', 'Movement intensity') + slider('colorSpeed', 'Colour transition speed') + '</details>' +
+      '<details class="ld-group"><summary>Sound</summary>' + slider('audio', 'Audio sensitivity') + slider('bass', 'Bass response') + '</details>' +
+      '<details class="ld-group"><summary>Look</summary>' + slider('brightness', 'Brightness') + slider('detail', 'Fine detail') + slider('complexity', 'Visual complexity') + '</details>' +
+      '<details class="ld-group"><summary>Saved vibes &amp; touch</summary>' +
+      '<div class="ld-drive"><button type="button" data-action="drive"></button><span>Touch effects work in Immersive (parked) mode only.</span></div>' +
+      '<div class="ld-save"><input data-name maxlength="24" placeholder="Name this look"><button type="button" data-action="save">Save</button></div>' +
+      '<div class="ld-presets"></div><button type="button" class="ld-reset" data-action="reset">Restore default settings</button></details>' +
+      '<button class="ld-return" type="button" data-action="exit">Return to Nexus</button></section><div class="ld-track" aria-live="polite"></div>';
     layer.appendChild(ui); xpDom.push(ui);
-    var panel=ui.querySelector('.ld-panel'), floatBtn=ui.querySelector('.ld-float'), presetBox=ui.querySelector('.ld-presets'), trackLabel=ui.querySelector('.ld-track'), trackTimer=0;
-    function saveState(){ write('liquidDreams.settings',state); }
-    function presetList(){
-      presetBox.innerHTML='';
-      if(!presets.length){ presetBox.innerHTML='<small class="ld-empty">No saved vibes yet</small>'; return; }
-      presets.forEach(function(p,i){
-        var row=document.createElement('div'); row.className='ld-preset';
-        var load=document.createElement('button'); load.type='button'; load.dataset.load=String(i); load.textContent=p.name;
-        var del=document.createElement('button'); del.type='button'; del.dataset.delete=String(i); del.textContent='×'; del.setAttribute('aria-label','Delete '+p.name);
+    var panel = ui.querySelector('.ld-panel'), floatBtn = ui.querySelector('.ld-float'), presetBox = ui.querySelector('.ld-presets'), trackLabel = ui.querySelector('.ld-track'), nowLabel = ui.querySelector('[data-now]'), trackTimer = 0;
+    function saveState() { write('liquidDreams.settings', state); }
+    function presetList() {
+      presetBox.innerHTML = '';
+      if (!presets.length) { presetBox.innerHTML = '<small class="ld-empty">No saved looks yet</small>'; return; }
+      presets.forEach(function (p, i) {
+        var row = document.createElement('div'); row.className = 'ld-preset';
+        var load = document.createElement('button'); load.type = 'button'; load.dataset.load = String(i); load.textContent = p.name;
+        var del = document.createElement('button'); del.type = 'button'; del.dataset.delete = String(i); del.textContent = '×'; del.setAttribute('aria-label', 'Delete ' + p.name);
         row.appendChild(load); row.appendChild(del); presetBox.appendChild(row);
       });
     }
-    function syncUi(){
-      ui.querySelectorAll('[data-setting]').forEach(function(el){el.value=state[el.dataset.setting];});
-      ui.querySelectorAll('[data-out]').forEach(function(el){el.textContent=(+state[el.dataset.out]).toFixed(2)+'×';});
-      ui.querySelectorAll('[data-level]').forEach(function(el){el.classList.toggle('selected',el.dataset.level===state.intensity);});
-      ui.querySelector('[data-action="overdrive"]').classList.toggle('selected',overdrive);
-      ui.querySelector('[data-action="drive"]').textContent=state.drive==='driving'?'DRIVING PRESENTATION':'IMMERSIVE / PARKED';
-      ui.querySelector('[data-action="drive"]').classList.toggle('selected',state.drive==='immersive');
+    function colorName() { return state.color === 'signature' ? 'Signature colour' : state.color === 'music' ? 'Music Reactive colour' : LD_PALETTES[state.color].name; }
+    function syncUi() {
+      ui.querySelectorAll('[data-setting]').forEach(function (el) { el.value = state[el.dataset.setting]; });
+      ui.querySelectorAll('[data-out]').forEach(function (el) { el.textContent = Math.round(state[el.dataset.out] * 100) + '%'; });
+      ui.querySelectorAll('[data-env]').forEach(function (el) { el.classList.toggle('selected', el.dataset.env === state.env); });
+      ui.querySelectorAll('[data-color]').forEach(function (el) { el.classList.toggle('selected', el.dataset.color === state.color); });
+      ui.querySelector('[data-action="lowmotion"]').classList.toggle('selected', state.lowMotion);
+      var drive = ui.querySelector('[data-action="drive"]');
+      drive.textContent = state.drive === 'driving' ? 'Driving mode' : 'Immersive mode';
+      drive.classList.toggle('selected', state.drive === 'immersive');
+      nowLabel.textContent = envInfo(state.env).name + ' · ' + colorName();
     }
-    function reveal(){ clean=false; ui.classList.remove('ld-clean'); panel.classList.remove('ld-hidden'); floatBtn.classList.remove('ld-hidden'); }
-    function conceal(){ clean=true; ui.classList.add('ld-clean'); panel.classList.add('ld-hidden'); floatBtn.classList.add('ld-hidden'); }
-    function closePanel(){ panel.classList.add('ld-hidden'); floatBtn.classList.remove('ld-hidden'); }
-    function randomize(){
-      var before=JSON.stringify(state);
-      for(var tries=0;tries<8 && JSON.stringify(state)===before;tries++){
-        state.style=styles[Math.floor(Math.random()*styles.length)];
-        state.color=colors[Math.floor(Math.random()*colors.length)];
-        state.intensity=levels[Math.floor(Math.random()*levels.length)];
-        state.speed=+(0.65+Math.random()*1.45).toFixed(2);
-        state.bass=+(0.65+Math.random()*1.35).toFixed(2);
-      }
+    function reveal() { clean = false; ui.classList.remove('ld-clean'); panel.classList.remove('ld-hidden'); floatBtn.classList.add('ld-hidden'); }
+    function conceal() { clean = true; ui.classList.add('ld-clean'); panel.classList.add('ld-hidden'); floatBtn.classList.add('ld-hidden'); }
+    function closePanel() { panel.classList.add('ld-hidden'); floatBtn.classList.remove('ld-hidden'); }
+    function shuffle() {
+      var options = envIds.filter(function (id) { return id !== state.env; });
+      state.env = options[Math.floor(Math.random() * options.length)];
+      var roll = Math.random();
+      state.color = roll < .5 ? 'signature' : roll < .65 ? 'music' : LD_PALETTE_ORDER[Math.floor(Math.random() * LD_PALETTE_ORDER.length)];
       syncUi(); saveState();
     }
-    function handleClick(e){
-      var t=e.target.closest('button'); if(!t)return;
-      if(t.classList.contains('ld-float')){panel.classList.toggle('ld-hidden');floatBtn.classList.toggle('ld-hidden');return;}
-      if(t.dataset.level){state.intensity=t.dataset.level;syncUi();saveState();return;}
-      if(t.dataset.load!==undefined){var p=presets[+t.dataset.load];if(p){state=normalizeState(p.settings);syncUi();saveState();}return;}
-      if(t.dataset.delete!==undefined){presets.splice(+t.dataset.delete,1);write('liquidDreams.presets',presets);presetList();return;}
-      switch(t.dataset.action){
-        case 'close':closePanel();break;
-        case 'exit':$('xpClose').click();break;
-        case 'surprise':randomize();break;
-        case 'overdrive':
-          overdrive=!overdrive;syncUi();
-          if(overTimer){clearTimeout(overTimer);overTimer=0;}
-          if(overdrive){overTimer=setTimeout(function(){overdrive=false;overTimer=0;syncUi();},18000);timers.push(overTimer);}
-          break;
-        case 'clean':conceal();break;
-        case 'drive':state.drive=state.drive==='driving'?'immersive':'driving';if(state.drive==='driving'){touchGestures=Object.create(null);touchPointers=0;touchHueTarget=0;touchForce=0;touchBurst=0;touchRings.length=0;}syncUi();saveState();break;
+    function resetTouch() { touchGestures = Object.create(null); touchPointers = 0; touchHueTarget = 0; touchForce = 0; touchBurst = 0; touchRings.length = 0; }
+    function handleClick(e) {
+      var t = e.target.closest('button'); if (!t) return;
+      if (t.classList.contains('ld-float')) { reveal(); return; }
+      if (t.dataset.env) { state.env = t.dataset.env; syncUi(); saveState(); return; }
+      if (t.dataset.color) { state.color = t.dataset.color; syncUi(); saveState(); return; }
+      if (t.dataset.load !== undefined) { var p = presets[+t.dataset.load]; if (p) { state = normalizeState(p.settings); syncUi(); saveState(); } return; }
+      if (t.dataset.delete !== undefined) { presets.splice(+t.dataset.delete, 1); write('liquidDreams.presets', presets); presetList(); return; }
+      switch (t.dataset.action) {
+        case 'close': closePanel(); break;
+        case 'exit': $('xpClose').click(); break;
+        case 'shuffle': shuffle(); break;
+        case 'clean': conceal(); break;
+        case 'lowmotion': state.lowMotion = !state.lowMotion; syncUi(); saveState(); break;
+        case 'drive': state.drive = state.drive === 'driving' ? 'immersive' : 'driving'; if (state.drive === 'driving') resetTouch(); syncUi(); saveState(); break;
+        case 'reset': var keep = state.drive; state = normalizeState({ v: 2 }); state.drive = keep; syncUi(); saveState(); break;
         case 'save':
-          var name=(ui.querySelector('[data-name]').value||'').trim();
-          if(name){presets.unshift({name:name,settings:Object.assign({},state)});presets=presets.slice(0,12);write('liquidDreams.presets',presets);ui.querySelector('[data-name]').value='';presetList();}
+          var name = (ui.querySelector('[data-name]').value || '').trim();
+          if (name) { presets.unshift({ name: name, settings: Object.assign({}, state) }); presets = presets.slice(0, 12); write('liquidDreams.presets', presets); ui.querySelector('[data-name]').value = ''; presetList(); }
           break;
       }
     }
-    function handleChange(e){var el=e.target;if(!el.dataset.setting)return;state[el.dataset.setting]=el.type==='range'?parseFloat(el.value):el.value;syncUi();saveState();}
-    function handleInput(e){var el=e.target;if(!el.dataset.setting||el.type!=='range')return;state[el.dataset.setting]=parseFloat(el.value);syncUi();}
-    function revealFromCanvas(e){if(clean){e.preventDefault();reveal();}}
-    function pointerPoint(e){var r=layer.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-r.left)/Math.max(1,r.width))),y:Math.max(0,Math.min(1,(e.clientY-r.top)/Math.max(1,r.height)))}}
-    function addTouchRipple(x,y,strength){if(touchRings.length>=4)touchRings.shift();touchRings.push({x:x,y:y,age:0,strength:strength});touchX=x;touchY=y;}
-    function touchDown(e){
-      if(clean){revealFromCanvas(e);return;}
-      if(!alive||state.drive!=='immersive'||ui.contains(e.target))return;
-      e.preventDefault();var p=pointerPoint(e),g={x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:false,multi:false};
-      touchGestures[e.pointerId]=g;touchPointers++;
-      if(touchPointers>=2){Object.keys(touchGestures).forEach(function(id){touchGestures[id].multi=true});touchHueTarget=1;}
-      else{touchX=p.x;touchY=p.y;}
-      try{layer.setPointerCapture(e.pointerId)}catch(_e){}
+    function handleChange(e) { var el = e.target; if (!el.dataset.setting) return; state[el.dataset.setting] = parseFloat(el.value); state = normalizeState(state); syncUi(); saveState(); }
+    function handleInput(e) { var el = e.target; if (!el.dataset.setting || el.type !== 'range') return; state[el.dataset.setting] = parseFloat(el.value); syncUi(); }
+
+    // Touch: a soft ripple on tap, a gentle swell on double-tap, drag bends the liquid, two fingers shift the palette.
+    var touchHueTarget = 0, touchHueShift = 0, touchForce = 0, touchDragX = 0, touchDragY = 0, touchBurst = 0, touchRippleRadius = 0, touchRippleStrength = 0;
+    var touchX = .5, touchY = .5, lastTapAt = 0, lastTapX = 0, lastTapY = 0, touchRings = [], touchPointers = 0, touchGestures = Object.create(null);
+    function pointerPoint(e) { var r = layer.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width))), y: Math.max(0, Math.min(1, (e.clientY - r.top) / Math.max(1, r.height))) }; }
+    function addTouchRipple(x, y, strength) { if (touchRings.length >= 4) touchRings.shift(); touchRings.push({ x: x, y: y, age: 0, strength: strength }); touchX = x; touchY = y; }
+    function touchDown(e) {
+      if (clean) { e.preventDefault(); reveal(); return; }
+      if (!alive || state.drive !== 'immersive' || ui.contains(e.target)) return;
+      e.preventDefault(); var p = pointerPoint(e), g = { x: p.x, y: p.y, lastX: p.x, lastY: p.y, moved: false, multi: false };
+      touchGestures[e.pointerId] = g; touchPointers++;
+      if (touchPointers >= 2) { Object.keys(touchGestures).forEach(function (id) { touchGestures[id].multi = true; }); touchHueTarget = 1; }
+      else { touchX = p.x; touchY = p.y; }
+      try { layer.setPointerCapture(e.pointerId); } catch (_e) {}
     }
-    function touchMove(e){
-      var g=touchGestures[e.pointerId];if(!g||state.drive!=='immersive')return;
-      e.preventDefault();var p=pointerPoint(e),dx=p.x-g.lastX,dy=p.y-g.lastY;
-      if(touchPointers>1||g.multi){touchHueTarget=1;return;}
-      if(Math.abs(p.x-g.x)+Math.abs(p.y-g.y)>.012)g.moved=true;
-      if(g.moved){touchX=p.x;touchY=p.y;touchDragX=Math.max(-1.5,Math.min(1.5,dx*5));touchDragY=Math.max(-1.5,Math.min(1.5,dy*5));touchForce=Math.min(1.4,Math.max(touchForce,.48+Math.hypot(dx,dy)*5));}
-      g.lastX=p.x;g.lastY=p.y;
+    function touchMove(e) {
+      var g = touchGestures[e.pointerId]; if (!g || state.drive !== 'immersive') return;
+      e.preventDefault(); var p = pointerPoint(e), dx = p.x - g.lastX, dy = p.y - g.lastY;
+      if (touchPointers > 1 || g.multi) { touchHueTarget = 1; return; }
+      if (Math.abs(p.x - g.x) + Math.abs(p.y - g.y) > .012) g.moved = true;
+      if (g.moved) { touchX = p.x; touchY = p.y; touchDragX = Math.max(-1.2, Math.min(1.2, dx * 4)); touchDragY = Math.max(-1.2, Math.min(1.2, dy * 4)); touchForce = Math.min(1, Math.max(touchForce, .4 + Math.hypot(dx, dy) * 4)); }
+      g.lastX = p.x; g.lastY = p.y;
     }
-    function touchEnd(e,cancelled){
-      var g=touchGestures[e.pointerId];if(!g)return;
-      delete touchGestures[e.pointerId];touchPointers=Math.max(0,touchPointers-1);
-      if(g.multi){touchHueTarget=touchPointers>1?1:0;return;}
-      if(cancelled)return;
-      if(g.moved){lastTapAt=0;touchX=g.lastX;touchY=g.lastY;touchForce=Math.max(touchForce,.72);return;}
-      var now=Date.now(),doubleTap=now-lastTapAt<340&&Math.hypot(g.x-lastTapX,g.y-lastTapY)<.075;
-      addTouchRipple(g.x,g.y,doubleTap?1.25:.82);
-      if(doubleTap){touchBurst=1;touchForce=Math.max(touchForce,.92);lastTapAt=0;}
-      else{lastTapAt=now;lastTapX=g.x;lastTapY=g.y;}
+    function touchEnd(e, cancelled) {
+      var g = touchGestures[e.pointerId]; if (!g) return;
+      delete touchGestures[e.pointerId]; touchPointers = Math.max(0, touchPointers - 1);
+      if (g.multi) { touchHueTarget = touchPointers > 1 ? 1 : 0; return; }
+      if (cancelled) return;
+      if (g.moved) { lastTapAt = 0; touchX = g.lastX; touchY = g.lastY; touchForce = Math.max(touchForce, .6); return; }
+      var now = Date.now(), doubleTap = now - lastTapAt < 340 && Math.hypot(g.x - lastTapX, g.y - lastTapY) < .075;
+      addTouchRipple(g.x, g.y, doubleTap ? 1.1 : .8);
+      if (doubleTap) { touchBurst = 1; touchForce = Math.max(touchForce, .8); lastTapAt = 0; }
+      else { lastTapAt = now; lastTapX = g.x; lastTapY = g.y; }
     }
-    function touchUp(e){touchEnd(e,false)}
-    function touchCancel(e){touchEnd(e,true)}
-    function pollLiquidTrack(){
-      if(!alive||!trackLabel||!A||!A.nowPlaying)return;
-      try{
-        var np=JSON.parse(A.nowPlaying()||'{}'),title=np.playing&&np.title&&np.title!=='null'?String(np.title).trim():'',artist=np.artist&&np.artist!=='null'?String(np.artist).trim():'';
-        trackLabel.textContent=title?(title+(artist?' — '+artist:'')):'';
-      }catch(e){trackLabel.textContent='';}
+    function touchUp(e) { touchEnd(e, false); }
+    function touchCancel(e) { touchEnd(e, true); }
+    function pollLiquidTrack() {
+      if (!alive || !trackLabel || !A || !A.nowPlaying) return;
+      try {
+        var np = JSON.parse(A.nowPlaying() || '{}'), title = np.playing && np.title && np.title !== 'null' ? String(np.title).trim() : '', artist = np.artist && np.artist !== 'null' ? String(np.artist).trim() : '';
+        trackLabel.textContent = title ? (title + (artist ? ' — ' + artist : '')) : '';
+      } catch (e) { trackLabel.textContent = ''; }
     }
-    pollLiquidTrack();trackTimer=setInterval(pollLiquidTrack,1800);timers.push(trackTimer);
-    ui.addEventListener('click',handleClick); ui.addEventListener('change',handleChange); ui.addEventListener('input',handleInput);
-    layer.addEventListener('pointerdown',touchDown);layer.addEventListener('pointermove',touchMove);layer.addEventListener('pointerup',touchUp);layer.addEventListener('pointercancel',touchCancel);
-    XP.cleanupCurrent=function(){
-      alive=false;ui.removeEventListener('click',handleClick);ui.removeEventListener('change',handleChange);ui.removeEventListener('input',handleInput);
-      layer.removeEventListener('pointerdown',touchDown);layer.removeEventListener('pointermove',touchMove);layer.removeEventListener('pointerup',touchUp);layer.removeEventListener('pointercancel',touchCancel);
-      touchRings.length=0;touchGestures=Object.create(null);touchPointers=0;touchForce=0;touchBurst=0;touchHueTarget=0;touchHueShift=0;
-      if(overTimer)clearTimeout(overTimer);if(trackTimer)clearInterval(trackTimer);
-      if(ldGpuActive){glStop();ldGpuActive=false;}GLX=oldGLX;
+    pollLiquidTrack(); trackTimer = setInterval(pollLiquidTrack, 1800); timers.push(trackTimer);
+    ui.addEventListener('click', handleClick); ui.addEventListener('change', handleChange); ui.addEventListener('input', handleInput);
+    layer.addEventListener('pointerdown', touchDown); layer.addEventListener('pointermove', touchMove); layer.addEventListener('pointerup', touchUp); layer.addEventListener('pointercancel', touchCancel);
+
+    var ldGpu = null, ldGpuTried = false, ldGpuActive = false, oldGLX = GLX;
+    GLX = HIGH_MEMORY_DEVICE ? 1.1 : .72;
+    XP.cleanupCurrent = function () {
+      alive = false; ui.removeEventListener('click', handleClick); ui.removeEventListener('change', handleChange); ui.removeEventListener('input', handleInput);
+      layer.removeEventListener('pointerdown', touchDown); layer.removeEventListener('pointermove', touchMove); layer.removeEventListener('pointerup', touchUp); layer.removeEventListener('pointercancel', touchCancel);
+      resetTouch(); touchHueShift = 0;
+      if (trackTimer) clearInterval(trackTimer);
+      if (ldGpuActive) { glStop(); ldGpuActive = false; }
+      GLX = oldGLX;
     };
-    syncUi();presetList();text('xpTop');text('xpMid');text('xpBottom');
-    $('xpClose').style.display='none';
-    // Flow-field control points shape broad, interconnected cloud formations; no orb field or ball rendering.
-    var formations=[];
-    for(var i=0;i<18;i++)formations.push({x:.1+Math.random()*.8,y:.08+Math.random()*.84,
-      vx:(Math.random()-.5)*.00005,vy:(Math.random()-.5)*.000045,phase:Math.random()*6.28,
-      rx:.18+Math.random()*.23,ry:.2+Math.random()*.34,rate:.28+Math.random()*.75,hue:i*47});
-    var levelsCfg={
-      mild:{amp:1.18,forms:13,smallForms:8,pace:1.08,shine:1.15,detail:30,smallDetail:18,fold:.72},
-      intense:{amp:1.78,forms:16,smallForms:10,pace:1.36,shine:1.48,detail:38,smallDetail:23,fold:1.25},
-      insane:{amp:2.45,forms:18,smallForms:12,pace:1.68,shine:1.8,detail:46,smallDetail:28,fold:1.9}
-    };
-    var palettes={
-      electric:[190,208,230,258,282],rush:[250,226,202,184,164,142,112,276,318],rainbow:[0,42,86,145,190,238,282,320],
-      ultraviolet:[252,270,288,310,230],storm:[185,200,215,232,268,0],spectrum:[188,215,255,285,320,45]
-    };
-    var styleIds={tunnel:0,kaleidoscope:1,liquid:2,cosmic:3,morph:4,prism:5,ink:6};
-    var paletteIds={spectrum:0,electric:1,rush:2,rainbow:3,ultraviolet:4,storm:5};
-    var TAU=Math.PI*2;
-    var movementSpeed=state.speed,touchHueTarget=0,touchHueShift=0,touchForce=0,touchDragX=0,touchDragY=0,touchBurst=0,touchRippleRadius=0,touchRippleStrength=0;
-    var touchX=.5,touchY=.5,lastTapAt=0,lastTapX=0,lastTapY=0,touchRings=[];
-    var touchPointers=0,touchGestures=Object.create(null);
-    function rgba(h,s,l,a){return 'hsla('+((h%360+360)%360)+','+s+'%,'+l+'%,'+a+')';}
-    var bassColorPulse=0;
-    function colorAt(i,t,energy,mid,high){
-      var arr=palettes[state.color]||palettes.spectrum;
-      var shift=state.color==='spectrum'?t*(16+energy*62+mid*18+high*10):state.color==='rainbow'?t*24+energy*28:energy*(state.color==='rush'?8:9);
-      var bassTint=Math.min(1.5,bassColorPulse)*(state.color==='spectrum'?7:state.color==='rainbow'?5:3);
-      var bassBlend=Math.sin(t*2.1+i*.72)*Math.min(1.5,bassColorPulse)*1.6;
-      return (arr[i%arr.length]+shift+bassTint+bassBlend+touchHueShift*40+720)%360;
-    }
-    function controls(){
-      var cfg=levelsCfg[state.intensity]||levelsCfg.mild,drive=state.drive==='driving'?.72:1,od=overdrive?1.48:1;
-      var smallPenalty=S<=.5?2:S<.65?1:0;
-      var count=HIGH_MEMORY_DEVICE?cfg.forms:cfg.smallForms;
-      var detail=HIGH_MEMORY_DEVICE?cfg.detail:cfg.smallDetail;
-      return {amp:cfg.amp*drive*od,count:Math.max(6,Math.min(HIGH_MEMORY_DEVICE?18:12,Math.round(count*(overdrive?1.08:1))-smallPenalty)),
-        pace:cfg.pace*(overdrive?1.25:1),shine:cfg.shine*(overdrive?1.25:1),
-        detail:Math.max(14,detail-(S<=.5?2:0)),fold:cfg.fold,bass:parseFloat(state.bass),treble:parseFloat(state.treble),
-        music:parseFloat(state.music),drive:drive,tier:state.intensity==='mild'?0:state.intensity==='intense'?1:2};
-    }
-    function cloudPath(f,t,amp,fine,mid,scale,detail,phaseOffset,style,fold){
-      var cx0=f.x*W+Math.sin(t*.31+f.phase+phaseOffset)*W*.07+mid*W*.035;
-      var cy0=f.y*H+Math.cos(t*.27+f.phase*1.3+phaseOffset)*H*.07-mid*H*.025;
-      var tx=(cx0/W-touchX),ty=(cy0/H-touchY),touch=Math.exp(-(tx*tx+ty*ty)*13)*touchForce;
-      cx0-=touchDragX*W*.035*touch;cy0-=touchDragY*H*.035*touch;
-      var rx=U*f.rx*scale*(1+amp*.09),ry=U*f.ry*scale*(1+amp*.08),phase=f.phase+t*f.rate+phaseOffset;
-      cx.beginPath();
-      for(var k=0;k<=detail;k++){
-        var a=k/detail*TAU;
-        var lobes=style==='morph'?fold*(.12*Math.sin(a*2+phase*1.7)+.08*Math.sin(a*6-phase)):
-          style==='psychedelic'?fold*(.1*Math.sin(a*4+phase*1.2)+.075*Math.sin(a*9-phase*1.6)):
-          style==='fluid'?.1*Math.sin(a*4-phase*.65):style==='oil'?.06*Math.sin(a*7+phase*.4):0;
-        var flow=1+( .24+amp*.055)*Math.sin(a*3+phase)+.15*Math.sin(a*5-phase*1.4+mid*2)+
-          (.08+fine*.055)*Math.sin(a*8-phase*.72+highDrift)+.045*Math.cos(a*2+phase*1.8)+lobes+
-          touch*.12*Math.sin(a*3+touchRippleRadius*12+phase)+touchRippleStrength*.025*Math.sin(a*5-touchRippleRadius*16);
-        var px=cx0+Math.cos(a)*rx*flow+Math.sin(a*2+phase)*rx*.075*amp;
-        var py=cy0+Math.sin(a)*ry*flow+Math.cos(a*3-phase*.8)*ry*.09*amp;
-        if(!k)cx.moveTo(px,py);else cx.lineTo(px,py);
+    syncUi(); presetList(); saveState(); text('xpTop'); text('xpMid'); text('xpBottom');
+    $('xpClose').style.display = 'none';
+
+    // Live render state. Everything eases: no flashes, no hard cuts, no random colour cycling.
+    var envIndex = envIds.indexOf(state.env), envFrom = envIndex, envTo = envIndex, envMix = 0;
+    var moodPalette = LD_PALETTES[state.color] ? state.color : envInfo(state.env).palette;
+    var palette = LD_PALETTES[moodPalette].c.map(function (c) { return c.slice(); });
+    var moodSwitchAt = 0, moodEnergy = 0, moodBright = 0;
+    var sBass = 0, sMid = 0, sHigh = 0, flow = 20 + Math.random() * 40, speedNow = state.speed, moveNow = state.movement;
+    function ease(cur, target, dt, up, down) { return cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? up : down))); }
+    function targetPalette(now, dt) {
+      if (state.color === 'music') {
+        if (b.live) {
+          moodEnergy = ease(moodEnergy, Math.min(1, b.e), dt, 9000, 9000);
+          moodBright = ease(moodBright, Math.min(1, b.high), dt, 9000, 9000);
+          if (now - moodSwitchAt > 15000) {
+            var score = Math.max(0, Math.min(1, moodEnergy * 1.1 + moodBright * .5 - .1));
+            var pick = LD_MOOD_ORDER[Math.round(score * (LD_MOOD_ORDER.length - 1))];
+            if (pick !== moodPalette) { moodPalette = pick; moodSwitchAt = now; }
+          }
+        }
+        return LD_PALETTES[moodPalette].c;
       }
-      cx.closePath();
-      f.drawX=cx0;f.drawY=cy0;f.drawRx=rx;f.drawRy=ry;return f;
+      moodPalette = state.color === 'signature' ? envInfo(LD_ENVIRONMENTS[envTo].id).palette : state.color;
+      return LD_PALETTES[moodPalette].c;
     }
-    var ldGpu=null,ldGpuTried=false,ldGpuActive=false,oldGLX=GLX;
-    if(!HIGH_MEMORY_DEVICE)GLX=.78;
-    function activateDreamShader(){
-      if(!ldGpuTried){ldGpu=glStart('liquid-dreams-worlds',LIQUID_DREAMS_SHADER);ldGpuTried=true;ldGpuActive=!!ldGpu;}
-      else if(ldGpu&&!ldGpuActive){ldGpu=glStart('liquid-dreams-worlds',LIQUID_DREAMS_SHADER);ldGpuActive=!!ldGpu;}
+    function activateDreamShader() {
+      if (!ldGpuTried) { ldGpu = glStart('liquid-dreams-environments', LIQUID_DREAMS_SHADER); ldGpuTried = true; ldGpuActive = !!ldGpu; }
+      else if (ldGpu && !ldGpuActive) { ldGpu = glStart('liquid-dreams-environments', LIQUID_DREAMS_SHADER); ldGpuActive = !!ldGpu; }
       return ldGpu;
     }
-    function drawCanvasEngine(style,t,cfg,mid,high,energy,bass){
-      var u=Math.min(W,H),tier=cfg.tier,highQuality=HIGH_MEMORY_DEVICE;
-      var loops=highQuality?8+tier*5:5+tier*3,points=highQuality?42:25;
-      var baseHue=colorAt(1,t,energy*cfg.music,mid,high);
-      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;cx.fillStyle='#03020b';cx.fillRect(0,0,W,H);
-      var bg=cx.createRadialGradient(W*.5,H*.48,0,W*.5,H*.48,u*.82);
-      bg.addColorStop(0,rgba(baseHue,95,22,.48));bg.addColorStop(.55,rgba(baseHue+82,100,11,.3));bg.addColorStop(1,'#020108');cx.fillStyle=bg;cx.fillRect(0,0,W,H);
-      cx.globalCompositeOperation='screen';cx.lineJoin='round';cx.lineCap='round';
-      cx.save();
-      if(touchForce>.002||touchBurst>.002){var px=touchX*W,py=touchY*H;cx.translate(px-touchDragX*u*.035*touchForce,py-touchDragY*u*.035*touchForce);cx.rotate((touchDragX-touchDragY)*.018*touchForce);cx.scale(1+touchBurst*.035,1+touchBurst*.035);cx.translate(-px,-py);}
-      if(style==='tunnel'){
-        var rings=highQuality?9+tier*6:6+tier*4,sides=8+tier*4;
-        for(var r=0;r<rings;r++){
-          var z=(r/rings+t*.13+bass*.07)%1,rad=u*(.035+z*.68)*(1+bass*.08),twist=t*.18+z*1.8+mid*.5+bass*.12;
-          cx.beginPath();for(var s=0;s<=sides;s++){var a=s/sides*TAU+twist,rr=rad*(1+.08*Math.sin(a*5+t*1.2+high));var x=W*.5+Math.cos(a)*rr,y=H*.5+Math.sin(a)*rr;if(!s)cx.moveTo(x,y);else cx.lineTo(x,y);}
-          cx.strokeStyle=rgba(baseHue+r*29+t*8,100,60,1-z*.72);cx.lineWidth=Math.max(1,u*(.004+(1-z)*.006));cx.stroke();
-        }
-      }else if(style==='kaleidoscope'){
-        var petals=8+tier*8;
-        for(var p=0;p<petals;p++){var a0=p/petals*TAU+t*.12+bass*.26;cx.save();cx.translate(W*.5,H*.5);cx.rotate(a0);for(var l=0;l<2+tier;l++){var rr=u*(.15+l*.105)*(1+bass*.06),wave=1+(.17+bass*.07)*Math.sin(t*1.1+p+l+high);cx.beginPath();cx.moveTo(0,0);cx.bezierCurveTo(-rr*.62,-rr*.35,rr*.17,-rr*wave,0,-rr*1.48);cx.bezierCurveTo(-rr*.17,-rr*wave,-rr*.62,-rr*.35,0,0);var grad=cx.createRadialGradient(0,-rr*.5,0,0,-rr*.65,rr);grad.addColorStop(0,rgba(baseHue+p*18+l*43+t*10,100,68,.55));grad.addColorStop(1,rgba(baseHue+p*29+l*57,100,38,0));cx.fillStyle=grad;cx.fill();cx.strokeStyle=rgba(baseHue+p*24+l*51,100,72,.75);cx.lineWidth=Math.max(1,u*.0025);cx.stroke();}cx.restore();}
-      }else if(style==='liquid'){
-        var waves=highQuality?6+tier*5:4+tier*3;
-        for(var w=0;w<waves;w++){for(var chroma=-1;chroma<=1;chroma++){cx.beginPath();var offset=chroma*u*(.003+high*.008+bass*.004);for(var xj=0;xj<=points;xj++){var xx=W*xj/points,phase=t*(.6+cfg.pace*.35)+w*1.2+chroma*.12+bass*.18,yy=H*(.22+w*(.56/Math.max(1,waves-1)))+Math.sin(xj*.34+phase)*H*(.035+cfg.amp*.025+bass*.012)+Math.sin(xj*.13-phase*1.4)*H*.055+mid*H*.035; if(!xj)cx.moveTo(xx+offset,yy);else cx.lineTo(xx+offset,yy);}cx.strokeStyle=rgba(baseHue+w*31+chroma*36+t*12,100,chroma?62:72,chroma?.22:.72);cx.lineWidth=Math.max(1,u*(chroma?.004:.008));cx.stroke();}}
-      }else if(style==='cosmic'){
-        var arms=highQuality?7+tier*5:5+tier*3;
-        for(var arm=0;arm<arms;arm++){cx.beginPath();for(var q=0;q<=points;q++){var zq=q/points,ang=zq*TAU*(1.3+tier*.4)+arm*TAU/arms+t*.16+bass*.16,rad=u*(.025+zq*.48)*(1+(.18+bass*.1)*Math.sin(ang*3-t*.7+arm));var px=W*.5+Math.cos(ang)*rad,py=H*.5+Math.sin(ang)*rad*.72;if(!q)cx.moveTo(px,py);else cx.lineTo(px,py);}cx.strokeStyle=rgba(baseHue+arm*39+t*13,100,64,.65);cx.lineWidth=Math.max(1,u*.004);cx.stroke();}
-      }else if(style==='morph'){
-        for(var m=0;m<loops;m++){var morphT=t*.36+m*.27+mid*1.5+bass*.55,shape=4+Math.floor((.5+.5*Math.sin(morphT))*(4+tier*4)),scale=u*(.07+m*u/(loops*u)*.42)*(1+bass*.05);cx.beginPath();for(var n=0;n<=points;n++){var aa=n/points*TAU,rr=scale*(.72+.22*Math.cos(shape*aa+morphT)+.11*Math.sin((shape+3)*aa-t*.6));var mx=W*.5+Math.cos(aa+morphT*.13)*rr,my=H*.5+Math.sin(aa+morphT*.13)*rr;if(!n)cx.moveTo(mx,my);else cx.lineTo(mx,my);}cx.closePath();cx.fillStyle=rgba(baseHue+m*32+t*8,100,50,.045);cx.fill();cx.strokeStyle=rgba(baseHue+m*31+t*11,100,68,.68);cx.lineWidth=Math.max(1,u*.003);cx.stroke();}
-      }else if(style==='prism'){
-        var cols=highQuality?12+tier*4:8+tier*2,rows=highQuality?8+tier*3:5+tier*2,cellW=W/cols,cellH=H/rows;
-        for(var gy=0;gy<rows;gy++)for(var gx=0;gx<cols;gx++){var seed=(gx*17+gy*31),skew=Math.sin(seed*1.7+t*.2+bass*.22)*cellW*(.38+bass*.06),bright=55+28*Math.sin(seed+t*.3+high*2+bass*.18);cx.beginPath();cx.moveTo(gx*cellW,gy*cellH);cx.lineTo((gx+1)*cellW,gy*cellH);cx.lineTo(gx*cellW+skew,(gy+1)*cellH);cx.closePath();cx.fillStyle=rgba(baseHue+seed*13+t*9,100,bright,.22);cx.fill();cx.strokeStyle=rgba(baseHue+seed*13,100,75,.34);cx.lineWidth=1;cx.stroke();cx.beginPath();cx.moveTo((gx+1)*cellW,gy*cellH);cx.lineTo((gx+1)*cellW,(gy+1)*cellH);cx.lineTo(gx*cellW+skew,(gy+1)*cellH);cx.closePath();cx.fillStyle=rgba(baseHue+seed*13+95+t*8,100,bright+5,.19);cx.fill();}
-      }else if(style==='ink'){
-        var swirls=highQuality?9+tier*6:6+tier*4;
-        for(var sw=0;sw<swirls;sw++){var phase=t*(.18+sw*.009)+sw*TAU/swirls+bass*.24,r0=u*(.05+sw%5*.045)*(1+bass*.045),sx=W*(.5+.2*Math.sin(phase*.4+sw)),sy=H*(.5+.2*Math.cos(phase*.35+sw*1.3));cx.beginPath();for(var d=0;d<=points;d++){var aa2=d/points*TAU*2.2,rr2=r0*(.4+aa2/(TAU*2.2))*(1+(.24+bass*.06)*Math.sin(aa2*3+phase)+.1*Math.cos(aa2*5-t));var ix=sx+Math.cos(aa2+phase)*rr2,iy=sy+Math.sin(aa2+phase)*rr2;if(!d)cx.moveTo(ix,iy);else cx.lineTo(ix,iy);}cx.strokeStyle=rgba(baseHue+sw*34+t*7,100,58,.68);cx.lineWidth=Math.max(1,u*(.004+cfg.amp*.001));cx.stroke();}
+    function drawFallback(t, bassL, highL, bright) {
+      // Canvas fallback for devices without WebGL: layered soft forms in the active palette.
+      var u = Math.min(W, H), p = palette, env = envTo;
+      cx.globalCompositeOperation = 'source-over'; cx.globalAlpha = 1;
+      var bg = cx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, css(p[1].map(function (v) { return v * .35 * bright; }))); bg.addColorStop(1, css(p[0])); cx.fillStyle = bg; cx.fillRect(0, 0, W, H);
+      cx.globalCompositeOperation = 'screen';
+      var count = 4 + Math.round(state.complexity);
+      for (var i = 0; i < count; i++) {
+        var a = t * (.05 + i * .011) + i * 1.9 + env, x = W * (.5 + .34 * Math.sin(a)), y = H * (.5 + .28 * Math.cos(a * 1.3 + i)), r = u * (.22 + .07 * Math.sin(i * 2.3 + t * .1) + bassL * .03 * moveNow);
+        var g = cx.createRadialGradient(x - r * .25, y - r * .3, 1, x, y, r);
+        var c = p[1 + i % 3].map(function (v) { return v * bright; });
+        g.addColorStop(0, 'rgba(' + css(c).slice(4, -1) + ',' + (.32 + highL * .1) + ')'); g.addColorStop(1, 'rgba(0,0,0,0)');
+        cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, TAU); cx.fill();
       }
-      cx.restore();cx.globalCompositeOperation='screen';
-      for(var tr=0;tr<touchRings.length;tr++){var ring=touchRings[tr],rr=u*touchRippleRadius*(ring.strength/.82),alpha=ring.strength*Math.exp(-ring.age*1.55);if(alpha>.015){cx.strokeStyle=rgba(colorAt(tr+1,t,energy,mid,high)+tr*28,100,70,Math.min(.62,alpha*.34));cx.lineWidth=Math.max(1,u*(.002+alpha*.002));cx.beginPath();cx.arc(ring.x*W,ring.y*H,Math.max(1,rr),0,TAU);cx.stroke();}}
-      if(touchBurst>.015){var bx=touchX*W,by=touchY*H;for(var burstRing=0;burstRing<3;burstRing++){cx.strokeStyle=rgba(colorAt(burstRing+2,t,energy,mid,high)+burstRing*30,100,76,touchBurst*(.18-burstRing*.035));cx.lineWidth=Math.max(1,u*(.008-burstRing*.0015));cx.beginPath();cx.arc(bx,by,u*(.08+(1-touchBurst)*(.46+burstRing*.055)),0,TAU);cx.stroke();}}
-      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;
+      cx.globalCompositeOperation = 'source-over';
     }
-    var highDrift=0;
-    function draw(now){
-      if(!alive||!XP.active||XP.current!=='liquiddreams')return;
-      var dt=Math.min(40,Math.max(0,now-lastT));lastT=now;
-      var energy=b.tick(now),cfg=controls(),music=cfg.music;
-      movementSpeed+=(parseFloat(state.speed)-movementSpeed)*(1-Math.exp(-dt/520));cfg.pace*=movementSpeed;
-      // Keep the analysed bands raw here. The GPU applies music sensitivity once in its shader;
-      // the canvas path applies it below. This avoids squaring the sensitivity setting on WebGL.
-      var bassTarget=b.live?Math.max(b.k,b.e*.68):0,trebleTarget=b.live?b.high:0;
-      var bassAttack=bassTarget>smoothBass?.38:.16,trebleAttack=trebleTarget>smoothTreble?.3:.18;
-      var frameBlend=Math.min(2.5,Math.max(.35,dt/16.67));
-      smoothBass+=(Math.min(1.5,bassTarget)-smoothBass)*(1-Math.pow(1-bassAttack,frameBlend));
-      smoothTreble+=(Math.min(1.5,trebleTarget)-smoothTreble)*(1-Math.pow(1-trebleAttack,frameBlend));
-      var midRaw=b.live?b.mid:0,highRaw=b.live?b.high:0;
-      var bassResponse=Math.min(1.7,smoothBass*cfg.bass*music),mid=midRaw*music,high=highRaw*music;
-      highDrift+=(high*cfg.treble-highDrift)*(1-Math.pow(.82,frameBlend));
-      if(b.hit)kick=Math.min(1.8,kick+(.62+smoothBass*.52)*cfg.bass);
-      kick*=Math.exp(-(dt*movementSpeed)/(b.hit?390:620));
-      var kickResponse=kick*music;
-      bassColorPulse=Math.min(1.5,bassResponse+kickResponse*.28);
-      var e=Math.min(1.6,energy*music),movement=cfg.pace*(1+Math.min(.3,e*.12+bassResponse*.08+mid*.04));
-      var t=(now-start)/1000*movement,style=state.style;
-      touchHueShift+=(touchHueTarget-touchHueShift)*(1-Math.exp(-dt/260));
-      touchBurst*=Math.exp(-(dt*movementSpeed)/660);touchForce*=Math.exp(-(dt*movementSpeed)/580);
-      touchDragX*=Math.exp(-(dt*movementSpeed)/330);touchDragY*=Math.exp(-(dt*movementSpeed)/330);
-      touchRippleStrength=0;touchRippleRadius=0;
-      for(var ri=touchRings.length-1;ri>=0;ri--){var trp=touchRings[ri];trp.age+=dt*movementSpeed/1000;if(trp.age>2.5){touchRings.splice(ri,1);continue;}var trStrength=trp.strength*Math.exp(-trp.age*1.55);if(trStrength>touchRippleStrength){touchRippleStrength=trStrength;touchRippleRadius=trp.age*(.25+Math.min(.14,bassResponse*.06+kickResponse*.04));}}
-      var amp=cfg.amp*(.48+bassResponse*1.72+e*.46),fine=cfg.amp*(.12+smoothTreble*cfg.treble*music*1.2);
-      if(style!=='clouds'){
-        var dream=activateDreamShader();
-        if(dream){
-          dream.f('styleId',styleIds[style]);dream.f('tier',cfg.tier);dream.f('paletteId',paletteIds[state.color]);
-          dream.f('bassBand',smoothBass*cfg.bass);dream.f('midBand',midRaw);dream.f('highBand',smoothTreble*cfg.treble);
-          dream.f('musicSensitivity',cfg.music);dream.f('motion',cfg.pace*cfg.drive*(1+Math.min(.3,e*.12+bassResponse*.08+mid*.04)));
-          dream.f('quality',HIGH_MEMORY_DEVICE?1:0);dream.f('overdrive',overdrive?1:0);dream.f('beatPulse',kick);
-          dream.v2('touchPoint',(touchX-.5)*W/H,.5-touchY);dream.v2('touchDrag',touchDragX,touchDragY);
-          dream.f('touchForce',touchForce);dream.f('touchBurst',touchBurst);dream.f('touchRipple',touchRippleStrength);dream.f('touchRippleRadius',touchRippleRadius);dream.f('touchHue',touchHueShift);
-          dream.draw(now,b,colorAt(0,t,e,mid,high));
-      }else drawCanvasEngine(style,t,cfg,mid,high,e,bassResponse);
-        return;
-      }
-      if(ldGpuActive){glStop();ldGpuActive=false;}
-      style='chrome';
-      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;cx.fillStyle='#05030c';cx.fillRect(0,0,W,H);
-      // Wide atmospheric washes make the whole screen breathe with the spectrum.
-      var wash=cx.createLinearGradient(W*(.08+Math.sin(t*.12)*.25),H*(.08+Math.cos(t*.1)*.2),W*(.92+Math.cos(t*.13)*.18),H*(.95+Math.sin(t*.11)*.16));
-      wash.addColorStop(0,rgba(colorAt(0,t,e,mid,high),92,22,.24+e*.08));
-      wash.addColorStop(.32,rgba(colorAt(2,t,e,mid,high),96,18,.3+e*.1));
-      wash.addColorStop(.68,rgba(colorAt(4,t,e,mid,high),95,17,.26+e*.08));
-      wash.addColorStop(1,rgba(colorAt(1,t,e,mid,high),90,20,.3+e*.08));
-      cx.fillStyle=wash;cx.fillRect(0,0,W,H);
-      var bloom=cx.createRadialGradient(W*(.5+.22*Math.sin(t*.18+mid)),H*(.47+.2*Math.cos(t*.15-mid)),U*.025,W*.5,H*.5,U*(.82+bassResponse*.24+kickResponse*.08));
-      bloom.addColorStop(0,rgba(colorAt(1,t,e,mid,high),100,44,.25+e*.12+kickResponse*.08));
-      bloom.addColorStop(.42,rgba(colorAt(3,t,e,mid,high),100,27,.23+e*.1));
-      bloom.addColorStop(1,'rgba(3,2,10,0)');cx.fillStyle=bloom;cx.fillRect(0,0,W,H);
-      var detail=cfg.detail,forms=cfg.count;
-      // Formations drift and fold through one another like ink in water.
-      for(var i=0;i<forms;i++){
-        var f=formations[i], flow=cfg.pace*(.000018+Math.min(1,mid)*.00002+e*.000009+bassResponse*.000028);
-        f.x+=f.vx*dt*cfg.pace+Math.sin(t*.19+f.phase)*flow*dt+Math.sin(t*.7+f.phase)*kickResponse*.00012*dt;
-        f.y+=f.vy*dt*cfg.pace+Math.cos(t*.17+f.phase*1.5)*flow*dt+mid*.000012*dt+Math.cos(t*.62+f.phase)*kickResponse*.0001*dt;
-        if(f.x<-.5)f.x=1.5;if(f.x>1.5)f.x=-.5;if(f.y<-.5)f.y=1.5;if(f.y>1.5)f.y=-.5;
-        var swell=1+bassResponse*.32+kickResponse*.14+e*.14+Math.sin(t*f.rate+f.phase)*(.06+amp*.035);
-        var box=cloudPath(f,t,amp,fine,mid,swell,detail,i*.31,style,cfg.fold);
-        var hue=colorAt(i,t,e,mid,high),styleShift=style==='oil'?38:style==='psychedelic'?Math.sin(t*.3+i)*42:style==='chrome'?0:style==='morph'?i*9:18;
-        var g=cx.createRadialGradient(box.drawX-box.drawRx*.24,box.drawY-box.drawRy*.28,U*.005,box.drawX,box.drawY,Math.max(box.drawRx,box.drawRy)*1.42);
-        if(style==='chrome'){
-          g.addColorStop(0,'rgba(250,253,255,'+(.44+cfg.shine*.06)+')');
-          g.addColorStop(.16,'rgba(194,234,255,.48)');
-          g.addColorStop(.3,rgba(hue,92,70,.72));
-          g.addColorStop(.54,'rgba(11,14,31,.7)');
-          g.addColorStop(.73,rgba(hue+36,95,78,.8));
-          g.addColorStop(1,rgba(hue+12,100,28,0));
-        }else{
-          g.addColorStop(0,rgba(hue+styleShift,100,57,.68+Math.min(.15,fine*.04)));
-          g.addColorStop(.34,rgba(hue+48+styleShift,100,48,.48+e*.05));
-          g.addColorStop(.68,rgba(hue-32+styleShift,100,32,.34));
-          g.addColorStop(1,rgba(hue+95+styleShift,100,25,0));
-        }
-        cx.globalCompositeOperation='screen';cx.fillStyle=g;cx.fill();
-        // Insane mode adds nested liquid-ink folds; the geometry stays soft and continuously morphing.
-        if(state.intensity==='insane'||overdrive){
-          cloudPath(f,t+f.rate*.35,amp*1.18,fine*1.5,mid*.8,swell*.57,detail,phaseOffsetFor(i),style,cfg.fold*1.18);
-          var inner=cx.createRadialGradient(box.drawX+box.drawRx*.12,box.drawY-box.drawRy*.08,U*.003,box.drawX,box.drawY,Math.max(box.drawRx,box.drawRy)*.88);
-          inner.addColorStop(0,rgba(hue+125,100,68,.36+fine*.04));
-          inner.addColorStop(.46,rgba(hue+styleShift+74,100,43,.43));
-          inner.addColorStop(1,rgba(hue+styleShift+155,100,28,0));
-          cx.fillStyle=inner;cx.fill();
-        }
-        if(state.intensity==='insane'){
-          cloudPath(f,t*.74+f.phase,amp*1.5,fine*1.8,mid,swell*.34,detail,phaseOffsetFor(i+9),style,cfg.fold*1.5);
-          var fractal=cx.createRadialGradient(box.drawX-box.drawRx*.1,box.drawY+box.drawRy*.1,U*.002,box.drawX,box.drawY,Math.max(box.drawRx,box.drawRy)*.56);
-          fractal.addColorStop(0,rgba(hue+210,100,70,.22+high*.05));
-          fractal.addColorStop(.52,rgba(hue+styleShift+116,100,48,.38));
-          fractal.addColorStop(1,rgba(hue+styleShift+190,100,26,0));
-          cx.fillStyle=fractal;cx.fill();
-        }
-      }
-      cx.globalCompositeOperation='screen';
-      // Treble creates fine liquid-surface shimmer; bass and midrange bend the large cloud masses.
-      if(fine>.13){
-        for(var q=0;q<3;q++){
-          var qy=H*(.22+q*.27)+Math.sin(t*.52+q*2)*H*(.035+fine*.012),qh=colorAt(q+2,t,e,mid,high);
-          var fog=cx.createLinearGradient(0,qy-H*.12,W,qy+H*.14);
-          fog.addColorStop(0,rgba(qh,100,62,0));fog.addColorStop(.5,rgba(qh+28,100,68,Math.min(.23,fine*.075)));fog.addColorStop(1,rgba(qh+58,100,50,0));
-          cx.fillStyle=fog;cx.fillRect(0,qy-H*.12,W,H*.24);
-        }
-      }
-      if(kick>.1){
-        var impact=cx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,U*(.48+kick*.14));
-        impact.addColorStop(0,rgba(colorAt(0,t,e,mid,high),100,70,Math.min(.3,kick*.13)));
-        impact.addColorStop(.55,rgba(colorAt(3,t,e,mid,high),100,55,Math.min(.22,kick*.1)));
-        impact.addColorStop(1,'rgba(0,0,0,0)');
-        cx.fillStyle=impact;cx.fillRect(0,0,W,H);
-      }
-      cx.globalCompositeOperation='source-over';cx.globalAlpha=1;
+    var TAU = Math.PI * 2;
+    function draw(now) {
+      if (!alive || !XP.active || XP.current !== 'liquiddreams') return;
+      var dt = Math.min(80, Math.max(0, now - lastT)); lastT = now;
+      b.tick(now);
+      var low = state.lowMotion, live = b.live;
+      // Bass shapes the large forms, midrange the flow, treble the fine highlights. Each is enveloped
+      // separately so the artwork breathes with the music instead of jumping on every hit.
+      sBass = ease(sBass, live ? Math.min(1.2, Math.max(b.k * .75, b.e * .7)) : 0, dt, 140, 700);
+      sMid = ease(sMid, live ? Math.min(1.2, b.mid) : 0, dt, 300, 1100);
+      sHigh = ease(sHigh, live ? Math.min(1.2, b.high) : 0, dt, 90, 450);
+      var react = state.audio * (low ? .35 : 1);
+      var bassL = Math.min(1, sBass * react * state.bass), midL = Math.min(1, sMid * react), highL = Math.min(1, sHigh * react);
+      speedNow = ease(speedNow, state.speed * (low ? .4 : 1), dt, 600, 600);
+      moveNow = ease(moveNow, state.movement * (low ? .45 : 1), dt, 600, 600);
+      flow += dt / 1000 * speedNow * (1 + midL * .35);
+      // Environment changes dissolve through a liquid noise front.
+      var wanted = envIds.indexOf(state.env);
+      if (wanted !== envTo) { if (envFrom !== envTo && envMix > .5) envFrom = envTo; envTo = wanted; envMix = 0; }
+      if (envFrom !== envTo) { envMix += dt / (low ? 4200 : 2800); if (envMix >= 1) { envFrom = envTo; envMix = 0; } }
+      var target = targetPalette(now, dt), k = 1 - Math.exp(-dt / (4500 / state.colorSpeed * (low ? 1.6 : 1)));
+      for (var pi = 0; pi < 4; pi++) for (var ci = 0; ci < 3; ci++) palette[pi][ci] += (target[pi][ci] - palette[pi][ci]) * k;
+      touchHueShift = ease(touchHueShift, touchHueTarget, dt, 900, 1400);
+      touchBurst *= Math.exp(-dt / 900); touchForce *= Math.exp(-dt / 700);
+      touchDragX *= Math.exp(-dt / 420); touchDragY *= Math.exp(-dt / 420);
+      touchRippleStrength = 0; touchRippleRadius = 0;
+      for (var ri = touchRings.length - 1; ri >= 0; ri--) { var ring = touchRings[ri]; ring.age += dt / 1000; if (ring.age > 2.6) { touchRings.splice(ri, 1); continue; } var rs = ring.strength * Math.exp(-ring.age * 1.4); if (rs > touchRippleStrength) { touchRippleStrength = rs; touchRippleRadius = ring.age * .22; touchX = ring.x; touchY = ring.y; } }
+      var complexity = state.complexity * .5, detail = state.detail * .6;
+      if (!HIGH_MEMORY_DEVICE) { complexity = Math.min(.7, complexity); detail = Math.min(.9, detail); }
+      var dream = activateDreamShader();
+      if (dream) {
+        var mixEased = envMix * envMix * (3 - 2 * envMix);
+        dream.f('envA', envFrom); dream.f('envB', envTo); dream.f('envMix', envFrom === envTo ? 0 : mixEased);
+        dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL);
+        dream.f('moveAmt', moveNow * .6); dream.f('detailAmt', detail); dream.f('complexity', complexity);
+        dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
+        dream.v3('pal0', palette[0]); dream.v3('pal1', palette[1]); dream.v3('pal2', palette[2]); dream.v3('pal3', palette[3]);
+        dream.v2('touchPoint', (touchX - .5) * W / H, .5 - touchY); dream.v2('touchDrag', touchDragX, -touchDragY);
+        dream.f('touchForce', touchForce); dream.f('touchBurst', touchBurst); dream.f('touchRipple', touchRippleStrength); dream.f('touchRippleRadius', touchRippleRadius); dream.f('touchHue', touchHueShift);
+        dream.draw(now, null, 0);
+      } else drawFallback(flow, bassL, highL, state.brightness);
     }
-    function phaseOffsetFor(i){return formations[i%formations.length].phase;}
-    loop(draw,HIGH_MEMORY_DEVICE?24:20);
+    loop(draw, 30);
   }
 
   var XP = window.XP = {
@@ -1388,7 +1434,8 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
   // ==================================================================
   // Shared beat input: B.e = energy (0-1), B.k = kick (bass hit, 0-1), B.hit = true on the frame a kick lands.
   // If no music signal is coming in, it falls back to a steady 120 BPM so visuals never sit still.
-  function beatTracker() {
+  function beatTracker(opts) {
+    var quiet = !!(opts && opts.quiet);
     // Music playing  -> energy + kicks follow the real beat.
     // No music       -> everything eases to calm (no fake beat, no pulsing, no flashes).
     var B = window.BEAT, b = { e: 0, k: 0, mid: 0, high: 0, hit: false, live: false, lastKicks: B ? B.kicks : 0, lastHit: 0, musicAt: 0 };
@@ -1410,7 +1457,7 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
         // THE DROP: the music was quiet/building, then slams in
         b.slow = (b.slow === undefined ? b.e : b.slow + (b.e - b.slow) * .012);
         b.drop = b.hit && b.k > .8 && b.e > .45 && b.e > b.slow * 1.9 && now - (b.lastDrop || 0) > 9000;
-        if (b.drop) { b.lastDrop = now; dropFlash(); }
+        if (b.drop) { b.lastDrop = now; if (!quiet) dropFlash(); }
       } else {
         b.e *= .9; b.k *= .8; b.mid *= .85; b.high *= .85; b.hit = false; b.drop = false; if (B) b.lastKicks = B.kicks;
       }

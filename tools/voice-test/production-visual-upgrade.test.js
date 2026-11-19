@@ -25,10 +25,10 @@ assert(xp.includes('function renderAtmosphere(now)') && xp.includes('renderAtmos
 for (const family of ['space','fluid','prism','organic','neon']) assert(xp.includes(family + ': ['), family + ' scenes have a distinct atmospheric treatment');
 assert(xp.includes('HIGH_MEMORY_DEVICE ? 0.9 : 0.8') && xp.includes('HIGH_MEMORY_DEVICE ? 88 : 30') && xp.includes('1000 / (HIGH_MEMORY_DEVICE ? 30 : 20)'), 'the gallery adapts resolution, particle count and frame rate to device memory');
 assert(xp.includes('function liquidDreams()') && xp.includes('liquiddreams: liquidDreams'), 'Liquid Dreams is independently registered');
-for (const style of ['tunnel','kaleidoscope','liquid','cosmic','morph','prism','ink','clouds']) assert(xp.includes("'" + style + "'") && xp.includes('value="' + style + '"'), style + ' Liquid Dreams engine exists and is selectable');
-for (const color of ['spectrum','electric','rush','rainbow','ultraviolet','storm']) assert(xp.includes(color), color + ' colour mode exists');
-for (const setting of ['style','color','bass','treble','music','speed']) assert(xp.includes('data-setting="' + setting + '"'), setting + ' controller is present');
-for (const action of ['surprise','overdrive','clean','drive','save','exit']) assert(xp.includes("case '" + action + "'"), action + ' control is connected');
+for (const env of ['deepflow','iridescence','ether','chrome','cosmic','organic']) assert(xp.includes("id: '" + env + "'") && xp.includes('data-env="'), env + ' Liquid Dreams environment exists and is selectable');
+for (const color of ['midnight','deepteal','violet','chrome','iridescent','aurora','obsidian','arctic','signature','music']) assert(xp.includes(color + ': {') || xp.includes("'" + color + "'"), color + ' colour mode exists');
+for (const setting of ['speed','movement','audio','bass','colorSpeed','brightness','detail','complexity']) assert(xp.includes("slider('" + setting + "'"), setting + ' controller is present');
+for (const action of ['shuffle','lowmotion','clean','drive','save','reset','exit']) assert(xp.includes("case '" + action + "'"), action + ' control is connected');
 assert(xp.includes('liquidDreams.settings') && xp.includes('liquidDreams.presets') && xp.includes('p.settings'), 'Liquid Dreams settings and named presets persist');
 
 for (const mode of ['pulse','wave','vortex','chaos','ripple']) assert(party.includes("'" + mode + "'"), mode + ' Party mode remains available');
