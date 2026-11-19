@@ -67,6 +67,7 @@ jobs:
           node tools/voice-test/visual-world-packs.test.js
           node tools/voice-test/visual-gallery-render.test.js
           node tools/voice-test/liquid-dreams-development.test.js
+          node tools/voice-test/liquid-dreams-render.test.js
           node tools/voice-test/party-mode-render.test.js
 
       - name: Build APK

@@ -663,12 +663,15 @@ function skeletonDance() {
 
   var LIQUID_DREAMS_SHADER = `
 uniform float styleId, tier, paletteId, bassBand, midBand, highBand, musicSensitivity, motion, quality, overdrive, beatPulse;
+uniform vec2 touchPoint, touchDrag;
+uniform float touchForce, touchBurst, touchRipple, touchRippleRadius, touchHue;
 float hashLD(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noiseLD(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hashLD(i),hashLD(i+vec2(1.,0.)),f.x),mix(hashLD(i+vec2(0.,1.)),hashLD(i+vec2(1.,1.)),f.x),f.y);}
 float fbmLD(vec2 p,float octaves){float v=0.,a=.52;for(int i=0;i<5;i++){if(float(i)<octaves){v+=noiseLD(p)*a;p=p*2.03+vec2(1.7,9.2);a*=.5;}}return v;}
 vec2 rotateLD(vec2 p,float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c)*p;}
 vec2 foldLD(vec2 p,float segments,float spin){float r=length(p),a=atan(p.y,p.x)+spin,sector=6.2831853/segments;a=mod(a+sector*.5,sector);a=abs(a-sector*.5);return vec2(cos(a),sin(a))*r;}
-vec3 paletteLD(float x,float palette){vec3 c=pal(x+hue);if(palette<.5)return c;if(palette<1.5)return mix(c,vec3(.08,.48,1.),.62);if(palette<2.5)return mix(c,vec3(1.,.13,.47),.55);if(palette<3.5)return pal(x*1.45+hue);if(palette<4.5)return mix(c,vec3(.56,.13,1.),.66);return mix(c,vec3(.03,.88,.78),.58);}
+vec3 rushPaletteLD(float x){float q=fract(x*.42+hue*.31);if(q<.16)return mix(vec3(.035,.09,.48),vec3(.035,.32,.98),q/.16);if(q<.31)return mix(vec3(.035,.32,.98),vec3(.02,.82,1.),(q-.16)/.15);if(q<.47)return mix(vec3(.02,.82,1.),vec3(.01,.9,.69),(q-.31)/.16);if(q<.63)return mix(vec3(.01,.9,.69),vec3(.015,.57,.25),(q-.47)/.16);if(q<.78)return mix(vec3(.015,.57,.25),vec3(.57,1.,.035),(q-.63)/.15);if(q<.91)return mix(vec3(.57,1.,.035),vec3(.42,.08,.95),(q-.78)/.13);return mix(vec3(.42,.08,.95),vec3(.92,.08,.62),(q-.91)/.09);}
+vec3 paletteLD(float x,float palette){if(palette>1.5&&palette<2.5)return rushPaletteLD(x+touchHue*.12);vec3 c=pal(x+hue+touchHue*.08);if(palette<.5)return c;if(palette<1.5)return mix(c,vec3(.08,.48,1.),.62);if(palette<3.5)return pal(x*1.45+hue+touchHue*.08);if(palette<4.5)return mix(c,vec3(.56,.13,1.),.66);return mix(c,vec3(.03,.88,.78),.58);}
 float sdBoxLD(vec2 p,vec2 b){vec2 d=abs(p)-b;return length(max(d,0.))+min(max(d.x,d.y),0.);}
 vec3 tunnelLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float r=max(length(p),.018),a=atan(p.y,p.x),segments=7.+tier*3.+mids*2.;vec2 q=vec2(a*segments/6.2831853,log(r)*-2.15-t*(.48+bass*.38));float n=fbmLD(q*2.1+vec2(t*.04,-t*.06),2.+tier+quality);q+=.27*vec2(sin(q.y*2.4+t+mids),cos(q.x*2.2-t*.8))*n*(.4+tier*.55);float rib=1.-smoothstep(.05,.19,abs(fract(q.y*5.-t*.06)-.5));float seam=1.-smoothstep(.015,.055,abs(fract(q.x*4.)-.5));float depth=1./(1.+r*1.35);float glow=.16+rib*.75+seam*.34+n*.48+energy*.42;return paletteLD(q.y*.23+q.x*.09+n*.32+highs*.16,palette)*glow*depth+paletteLD(a*1.7+t*.025,palette)*exp(-r*5.)*(.22+bass*.45);}
 vec3 kaleidoLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float sectors=6.+floor(tier*3.5)+floor(mids*2.);p=foldLD(p,sectors,t*.12+bass*.17);float r=length(p);vec2 z=p*(1.35+energy*.22);vec3 col=vec3(0.);for(int i=0;i<6;i++){float on=step(float(i),1.+tier*1.5+quality*2.);z=abs(z)/max(dot(z,z),.075)-vec2(.83+.08*sin(t*.23+float(i)*.4+mids),.54+.1*cos(t*.19-float(i)*.3));float d=length(z);col+=paletteLD(float(i)*.115+d*.075+t*.025+highs*.12,palette)*exp(-d*(2.1+float(i)*.08))*on*.34;}float petals=1.-smoothstep(.01,.055,abs(sin(atan(p.y,p.x)*sectors+sin(r*8.-t))*r));float rings=1.-smoothstep(.015,.075,abs(fract(r*(9.+tier*4.)-t*.12)-.5));return col+(paletteLD(r*1.8-t*.08,palette)*(petals*.42+rings*.22))*(.55+energy*.5);}
@@ -679,7 +682,7 @@ vec3 morphLD(vec2 p,float t,float tier,float bass,float mids,float highs,float e
 vec3 prismLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){vec2 cell=p*(4.+tier*2.)+vec2(t*.09+mids*.12,-t*.07);vec2 id=floor(cell),f=fract(cell);float nearest=9.,second=9.,seed=0.;for(int y=-1;y<=1;y++){for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y)),o=vec2(hashLD(id+g),hashLD(id+g+17.));vec2 d=g+o*.72-f;float dist=dot(d,d);if(dist<nearest){second=nearest;nearest=dist;seed=hashLD(id+g+31.);}else if(dist<second){second=dist;}}}float edge=second-nearest;float facet=1.-smoothstep(.01,.09,edge);float glint=pow(max(0.,1.-abs(fract(seed*9.+t*.12)-.5)*2.),12.)*(.25+highs*.8);vec3 c=paletteLD(seed*1.7+nearest*.32+t*.018,palette);return c*(.24+facet*.9+glint+energy*.22)+vec3(.42,.78,1.)*facet*glint*.8;}
 vec3 inkLD(vec2 p,float t,float tier,float bass,float mids,float highs,float energy,float palette){float a=fbmLD(p*2.1+vec2(t*.06,-t*.08),4.);vec2 flow=vec2(fbmLD(p*2.+a+t*.08,4.),fbmLD(p*2.-a-t*.07+4.,4.));vec2 q=p+(flow-.5)*(.95+tier*.45)+vec2(-p.y,p.x)*(.12+sin(t*.2)*.05);float pigment=fbmLD(q*(3.2+tier*.7)+vec2(t*.04,-t*.05),4.+quality);float pool=1.-smoothstep(.18,.72,pigment);float filament=1.-smoothstep(.008,.045,abs(fract(pigment*9.+a*2.+t*.025)-.5));float collision=exp(-abs(length(q)-(.24+.12*sin(t*.3+bass)))*18.);vec3 c=paletteLD(pigment*1.8+a*.65+t*.02,palette);return c*(.12+pool*.86+filament*(.25+highs*.35)+collision*(.2+mids*.3+energy*.22));}
 vec3 worldLD(vec2 p,float mode,float t,float tier,float bass,float mids,float highs,float energy,float palette){if(mode<.5)return tunnelLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<1.5)return kaleidoLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<2.5)return liquidWorldLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<3.5)return cosmicLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<4.5)return morphLD(p,t,tier,bass,mids,highs,energy,palette);if(mode<5.5)return prismLD(p,t,tier,bass,mids,highs,energy,palette);return inkLD(p,t,tier,bass,mids,highs,energy,palette);}
-void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdrive*2.);float t=time*motion;float bass=clamp(bassBand*musicSensitivity,0.,1.5);float mids=clamp(midBand*musicSensitivity,0.,1.5);float highs=clamp(highBand*musicSensitivity,0.,1.5);float energyDrive=clamp(energy*musicSensitivity,0.,1.5);float distortion=.012+level*.024+bass*.045+highs*.028;vec2 p=uv+vec2(sin(uv.y*9.+t+mids)*distortion,cos(uv.x*8.-t*.8+mids)*distortion);p*=1.+mids*(.025+level*.025);vec3 color=worldLD(p,styleId,t,level,bass,mids,highs,energyDrive,paletteId);if(level>.5){vec2 q=foldLD(rotateLD(p,t*.05+mids*.08),7.+floor(level*2.),t*.08);color=mix(color,worldLD(q,mod(styleId+3.,7.),t*1.09,level,bass,mids,highs,energyDrive,paletteId),.16+.12*energyDrive);}if(level>1.5){vec2 q=foldLD(rotateLD(p*(1.08+sin(t*.13)*.05),-t*.12+bass*.16),11.+floor(quality*5.),-t*.19);vec3 other=worldLD(q,mod(styleId+2.,7.),t*1.21,level,bass,mids,highs,energyDrive,paletteId);color=color*.58+other*.48+paletteLD(length(q)*2.+t*.04+highs*.12,paletteId)*(.12+highs*.18);color=abs(color)*(1.12+overdrive*.35);}float vignette=1.-smoothstep(.45,1.25,length(uv));float beatFlash=clamp((kick*.35+beatPulse*.65)*musicSensitivity*(.12+bass*.14),0.,.32);color*=vignette*(1.+beatFlash+energyDrive*.16);color=pow(max(color,vec3(0.)),vec3(.82));gl_FragColor=vec4(min(color,vec3(1.)),1.);}
+void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdrive*2.);float t=time*motion;float bass=clamp(bassBand*musicSensitivity,0.,1.5);float mids=clamp(midBand*musicSensitivity,0.,1.5);float highs=clamp(highBand*musicSensitivity,0.,1.5);float energyDrive=clamp(energy*musicSensitivity,0.,1.5);float distortion=.012+level*.024+bass*.045+highs*.028;vec2 p=uv+vec2(sin(uv.y*9.+t+mids)*distortion,cos(uv.x*8.-t*.8+mids)*distortion);p*=1.+mids*(.025+level*.025);vec2 toTouch=uv-touchPoint;float touchDist=max(length(toTouch),.001);vec2 touchDir=toTouch/touchDist;float localPush=exp(-touchDist*7.)*touchForce;p+=touchDrag*localPush*.085+touchDir*sin(touchDist*34.-t*1.7)*localPush*.009;float rippleEdge=exp(-abs(touchDist-touchRippleRadius)*38.)*touchRipple;float burstEdge=exp(-abs(touchDist-(1.-touchBurst)*.58)*34.)*touchBurst;p+=touchDir*(rippleEdge*.014+burstEdge*.019);vec3 color=worldLD(p,styleId,t,level,bass,mids,highs,energyDrive,paletteId);if(level>.5){vec2 q=foldLD(rotateLD(p,t*.05+mids*.08),7.+floor(level*2.),t*.08);color=mix(color,worldLD(q,mod(styleId+3.,7.),t*1.09,level,bass,mids,highs,energyDrive,paletteId),.16+.12*energyDrive);}if(level>1.5){vec2 q=foldLD(rotateLD(p*(1.08+sin(t*.13)*.05),-t*.12+bass*.16),11.+floor(quality*5.),-t*.19);vec3 other=worldLD(q,mod(styleId+2.,7.),t*1.21,level,bass,mids,highs,energyDrive,paletteId);color=color*.58+other*.48+paletteLD(length(q)*2.+t*.04+highs*.12,paletteId)*(.12+highs*.18);color=abs(color)*(1.12+overdrive*.35);}float vignette=1.-smoothstep(.45,1.25,length(uv));float beatFlash=clamp((kick*.35+beatPulse*.65)*musicSensitivity*(.12+bass*.14),0.,.32);color*=vignette*(1.+beatFlash+energyDrive*.16+burstEdge*.2+rippleEdge*.11);color=pow(max(color,vec3(0.)),vec3(.82));gl_FragColor=vec4(min(color,vec3(1.)),1.);}
 `;
 
   // LIQUID DREAMS — selectable shader-built psychedelic worlds with a legacy cloud renderer.
@@ -703,7 +706,7 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       ['bass','treble','music','speed'].forEach(function(k){
         var n=Number(next[k]);
         if(!isFinite(n))n=defaults[k];
-        next[k]=Math.max(k==='speed'?.35:0,Math.min(k==='speed'?2.2:2,n));
+        next[k]=Math.max(k==='speed'?.08:0,Math.min(k==='speed'?2.2:2,n));
       });
       return next;
     }
@@ -715,16 +718,16 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
     ui.innerHTML =
       '<button class="ld-float" type="button" aria-label="Open Liquid Dreams controller">LIQUID<br>DREAMS</button>' +
       '<section class="ld-panel" aria-label="Liquid Dreams controller">' +
-      '<header><div><b>LIQUID DREAMS</b><small>FLUID LIGHT ENVIRONMENT</small></div><button type="button" data-action="close" aria-label="Close controller">×</button></header>' +
+      '<header><div><b>LIQUID DREAMS</b><small>FRACTAL · FLUID · MUSIC REACTIVE</small></div><button type="button" data-action="close" aria-label="Close controller">×</button></header>' +
       '<label>VISUAL ENGINE<select data-setting="style"><option value="tunnel">Psychedelic Fractal Tunnels</option><option value="kaleidoscope">Kaleidoscope Worlds</option><option value="liquid">Liquid Rainbow Distortion</option><option value="cosmic">Cosmic Geometry</option><option value="morph">Infinite Morphing Worlds</option><option value="prism">Prismatic Dreams</option><option value="ink">Ink and Energy</option><option value="clouds">Clouds and Liquid Blobs</option></select></label>' +
       '<label>COLOUR MODE<select data-setting="color"><option value="spectrum">Auto Spectrum</option><option value="electric">Electric Dreams</option><option value="rush">Neon Rush</option><option value="rainbow">Liquid Rainbow</option><option value="ultraviolet">Ultraviolet</option><option value="storm">Chrome Storm</option></select></label>' +
       '<div class="ld-label">INTENSITY</div><div class="ld-levels">'+levels.map(function(v){return '<button type="button" data-level="'+v+'">'+v.toUpperCase()+'</button>';}).join('')+'</div>' +
       '<label>BASS SENSITIVITY <output data-out="bass"></output><input type="range" min="0" max="2" step=".05" data-setting="bass"></label>' +
       '<label>TREBLE DETAIL <output data-out="treble"></output><input type="range" min="0" max="2" step=".05" data-setting="treble"></label>' +
       '<label>MUSIC SENSITIVITY <output data-out="music"></output><input type="range" min="0" max="2" step=".05" data-setting="music"></label>' +
-      '<label>MOVEMENT SPEED <output data-out="speed"></output><input type="range" min=".35" max="2.2" step=".05" data-setting="speed"></label>' +
+      '<label>MOVEMENT SPEED <output data-out="speed"></output><input type="range" min=".08" max="2.2" step=".02" data-setting="speed"></label>' +
       '<div class="ld-actions"><button type="button" data-action="surprise">SURPRISE ME</button><button type="button" data-action="overdrive">OVERDRIVE</button><button type="button" data-action="clean">CLEAN SCREEN</button></div>' +
-      '<div class="ld-drive"><button type="button" data-action="drive">DRIVING PRESENTATION</button><span>Restrained motion by default. Immersive mode is intended while parked.</span></div>' +
+      '<div class="ld-drive"><button type="button" data-action="drive">DRIVING PRESENTATION</button><span>DRIVING MODE LIMITS MOTION · IMMERSIVE FOR PARKED USE</span></div>' +
       '<div class="ld-save"><input data-name maxlength="24" placeholder="Name your vibe"><button type="button" data-action="save">SAVE MY VIBE</button></div>' +
       '<div class="ld-label">SAVED VIBES</div><div class="ld-presets"></div><button class="ld-return" type="button" data-action="exit">RETURN TO NEXUS</button></section><div class="ld-track" aria-live="polite"></div>';
     layer.appendChild(ui); xpDom.push(ui);
@@ -778,7 +781,7 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
           if(overdrive){overTimer=setTimeout(function(){overdrive=false;overTimer=0;syncUi();},18000);timers.push(overTimer);}
           break;
         case 'clean':conceal();break;
-        case 'drive':state.drive=state.drive==='driving'?'immersive':'driving';syncUi();saveState();break;
+        case 'drive':state.drive=state.drive==='driving'?'immersive':'driving';if(state.drive==='driving'){touchGestures=Object.create(null);touchPointers=0;touchHueTarget=0;touchForce=0;touchBurst=0;touchRings.length=0;}syncUi();saveState();break;
         case 'save':
           var name=(ui.querySelector('[data-name]').value||'').trim();
           if(name){presets.unshift({name:name,settings:Object.assign({},state)});presets=presets.slice(0,12);write('liquidDreams.presets',presets);ui.querySelector('[data-name]').value='';presetList();}
@@ -788,6 +791,38 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
     function handleChange(e){var el=e.target;if(!el.dataset.setting)return;state[el.dataset.setting]=el.type==='range'?parseFloat(el.value):el.value;syncUi();saveState();}
     function handleInput(e){var el=e.target;if(!el.dataset.setting||el.type!=='range')return;state[el.dataset.setting]=parseFloat(el.value);syncUi();}
     function revealFromCanvas(e){if(clean){e.preventDefault();reveal();}}
+    function pointerPoint(e){var r=layer.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-r.left)/Math.max(1,r.width))),y:Math.max(0,Math.min(1,(e.clientY-r.top)/Math.max(1,r.height)))}}
+    function addTouchRipple(x,y,strength){if(touchRings.length>=4)touchRings.shift();touchRings.push({x:x,y:y,age:0,strength:strength});touchX=x;touchY=y;}
+    function touchDown(e){
+      if(clean){revealFromCanvas(e);return;}
+      if(!alive||state.drive!=='immersive'||ui.contains(e.target))return;
+      e.preventDefault();var p=pointerPoint(e),g={x:p.x,y:p.y,lastX:p.x,lastY:p.y,moved:false,multi:false};
+      touchGestures[e.pointerId]=g;touchPointers++;
+      if(touchPointers>=2){Object.keys(touchGestures).forEach(function(id){touchGestures[id].multi=true});touchHueTarget=1;}
+      else{touchX=p.x;touchY=p.y;}
+      try{layer.setPointerCapture(e.pointerId)}catch(_e){}
+    }
+    function touchMove(e){
+      var g=touchGestures[e.pointerId];if(!g||state.drive!=='immersive')return;
+      e.preventDefault();var p=pointerPoint(e),dx=p.x-g.lastX,dy=p.y-g.lastY;
+      if(touchPointers>1||g.multi){touchHueTarget=1;return;}
+      if(Math.abs(p.x-g.x)+Math.abs(p.y-g.y)>.012)g.moved=true;
+      if(g.moved){touchX=p.x;touchY=p.y;touchDragX=Math.max(-1.5,Math.min(1.5,dx*5));touchDragY=Math.max(-1.5,Math.min(1.5,dy*5));touchForce=Math.min(1.4,Math.max(touchForce,.48+Math.hypot(dx,dy)*5));}
+      g.lastX=p.x;g.lastY=p.y;
+    }
+    function touchEnd(e,cancelled){
+      var g=touchGestures[e.pointerId];if(!g)return;
+      delete touchGestures[e.pointerId];touchPointers=Math.max(0,touchPointers-1);
+      if(g.multi){touchHueTarget=touchPointers>1?1:0;return;}
+      if(cancelled)return;
+      if(g.moved){lastTapAt=0;touchX=g.lastX;touchY=g.lastY;touchForce=Math.max(touchForce,.72);return;}
+      var now=Date.now(),doubleTap=now-lastTapAt<340&&Math.hypot(g.x-lastTapX,g.y-lastTapY)<.075;
+      addTouchRipple(g.x,g.y,doubleTap?1.25:.82);
+      if(doubleTap){touchBurst=1;touchForce=Math.max(touchForce,.92);lastTapAt=0;}
+      else{lastTapAt=now;lastTapX=g.x;lastTapY=g.y;}
+    }
+    function touchUp(e){touchEnd(e,false)}
+    function touchCancel(e){touchEnd(e,true)}
     function pollLiquidTrack(){
       if(!alive||!trackLabel||!A||!A.nowPlaying)return;
       try{
@@ -797,10 +832,12 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
     }
     pollLiquidTrack();trackTimer=setInterval(pollLiquidTrack,1800);timers.push(trackTimer);
     ui.addEventListener('click',handleClick); ui.addEventListener('change',handleChange); ui.addEventListener('input',handleInput);
-    layer.addEventListener('pointerdown',revealFromCanvas);
+    layer.addEventListener('pointerdown',touchDown);layer.addEventListener('pointermove',touchMove);layer.addEventListener('pointerup',touchUp);layer.addEventListener('pointercancel',touchCancel);
     XP.cleanupCurrent=function(){
       alive=false;ui.removeEventListener('click',handleClick);ui.removeEventListener('change',handleChange);ui.removeEventListener('input',handleInput);
-      layer.removeEventListener('pointerdown',revealFromCanvas);if(overTimer)clearTimeout(overTimer);if(trackTimer)clearInterval(trackTimer);
+      layer.removeEventListener('pointerdown',touchDown);layer.removeEventListener('pointermove',touchMove);layer.removeEventListener('pointerup',touchUp);layer.removeEventListener('pointercancel',touchCancel);
+      touchRings.length=0;touchGestures=Object.create(null);touchPointers=0;touchForce=0;touchBurst=0;touchHueTarget=0;touchHueShift=0;
+      if(overTimer)clearTimeout(overTimer);if(trackTimer)clearInterval(trackTimer);
       if(ldGpuActive){glStop();ldGpuActive=false;}GLX=oldGLX;
     };
     syncUi();presetList();text('xpTop');text('xpMid');text('xpBottom');
@@ -816,20 +853,23 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       insane:{amp:2.45,forms:18,smallForms:12,pace:1.68,shine:1.8,detail:46,smallDetail:28,fold:1.9}
     };
     var palettes={
-      electric:[190,208,230,258,282],rush:[190,218,278,318,54],rainbow:[0,42,86,145,190,238,282,320],
+      electric:[190,208,230,258,282],rush:[250,226,202,184,164,142,112,276,318],rainbow:[0,42,86,145,190,238,282,320],
       ultraviolet:[252,270,288,310,230],storm:[185,200,215,232,268,0],spectrum:[188,215,255,285,320,45]
     };
     var styleIds={tunnel:0,kaleidoscope:1,liquid:2,cosmic:3,morph:4,prism:5,ink:6};
     var paletteIds={spectrum:0,electric:1,rush:2,rainbow:3,ultraviolet:4,storm:5};
     var TAU=Math.PI*2;
+    var movementSpeed=state.speed,touchHueTarget=0,touchHueShift=0,touchForce=0,touchDragX=0,touchDragY=0,touchBurst=0,touchRippleRadius=0,touchRippleStrength=0;
+    var touchX=.5,touchY=.5,lastTapAt=0,lastTapX=0,lastTapY=0,touchRings=[];
+    var touchPointers=0,touchGestures=Object.create(null);
     function rgba(h,s,l,a){return 'hsla('+((h%360+360)%360)+','+s+'%,'+l+'%,'+a+')';}
     var bassColorPulse=0;
     function colorAt(i,t,energy,mid,high){
       var arr=palettes[state.color]||palettes.spectrum;
-      var shift=state.color==='spectrum'?t*(16+energy*62+mid*18+high*10):state.color==='rainbow'?t*24+energy*28:energy*(state.color==='rush'?20:9);
+      var shift=state.color==='spectrum'?t*(16+energy*62+mid*18+high*10):state.color==='rainbow'?t*24+energy*28:energy*(state.color==='rush'?8:9);
       var bassTint=Math.min(1.5,bassColorPulse)*(state.color==='spectrum'?7:state.color==='rainbow'?5:3);
       var bassBlend=Math.sin(t*2.1+i*.72)*Math.min(1.5,bassColorPulse)*1.6;
-      return (arr[i%arr.length]+shift+bassTint+bassBlend+360)%360;
+      return (arr[i%arr.length]+shift+bassTint+bassBlend+touchHueShift*40+720)%360;
     }
     function controls(){
       var cfg=levelsCfg[state.intensity]||levelsCfg.mild,drive=state.drive==='driving'?.72:1,od=overdrive?1.48:1;
@@ -837,13 +877,15 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       var count=HIGH_MEMORY_DEVICE?cfg.forms:cfg.smallForms;
       var detail=HIGH_MEMORY_DEVICE?cfg.detail:cfg.smallDetail;
       return {amp:cfg.amp*drive*od,count:Math.max(6,Math.min(HIGH_MEMORY_DEVICE?18:12,Math.round(count*(overdrive?1.08:1))-smallPenalty)),
-        pace:cfg.pace*(overdrive?1.25:1)*parseFloat(state.speed),shine:cfg.shine*(overdrive?1.25:1),
+        pace:cfg.pace*(overdrive?1.25:1),shine:cfg.shine*(overdrive?1.25:1),
         detail:Math.max(14,detail-(S<=.5?2:0)),fold:cfg.fold,bass:parseFloat(state.bass),treble:parseFloat(state.treble),
         music:parseFloat(state.music),drive:drive,tier:state.intensity==='mild'?0:state.intensity==='intense'?1:2};
     }
     function cloudPath(f,t,amp,fine,mid,scale,detail,phaseOffset,style,fold){
       var cx0=f.x*W+Math.sin(t*.31+f.phase+phaseOffset)*W*.07+mid*W*.035;
       var cy0=f.y*H+Math.cos(t*.27+f.phase*1.3+phaseOffset)*H*.07-mid*H*.025;
+      var tx=(cx0/W-touchX),ty=(cy0/H-touchY),touch=Math.exp(-(tx*tx+ty*ty)*13)*touchForce;
+      cx0-=touchDragX*W*.035*touch;cy0-=touchDragY*H*.035*touch;
       var rx=U*f.rx*scale*(1+amp*.09),ry=U*f.ry*scale*(1+amp*.08),phase=f.phase+t*f.rate+phaseOffset;
       cx.beginPath();
       for(var k=0;k<=detail;k++){
@@ -852,7 +894,8 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
           style==='psychedelic'?fold*(.1*Math.sin(a*4+phase*1.2)+.075*Math.sin(a*9-phase*1.6)):
           style==='fluid'?.1*Math.sin(a*4-phase*.65):style==='oil'?.06*Math.sin(a*7+phase*.4):0;
         var flow=1+( .24+amp*.055)*Math.sin(a*3+phase)+.15*Math.sin(a*5-phase*1.4+mid*2)+
-          (.08+fine*.055)*Math.sin(a*8-phase*.72+highDrift)+.045*Math.cos(a*2+phase*1.8)+lobes;
+          (.08+fine*.055)*Math.sin(a*8-phase*.72+highDrift)+.045*Math.cos(a*2+phase*1.8)+lobes+
+          touch*.12*Math.sin(a*3+touchRippleRadius*12+phase)+touchRippleStrength*.025*Math.sin(a*5-touchRippleRadius*16);
         var px=cx0+Math.cos(a)*rx*flow+Math.sin(a*2+phase)*rx*.075*amp;
         var py=cy0+Math.sin(a)*ry*flow+Math.cos(a*3-phase*.8)*ry*.09*amp;
         if(!k)cx.moveTo(px,py);else cx.lineTo(px,py);
@@ -875,6 +918,8 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       var bg=cx.createRadialGradient(W*.5,H*.48,0,W*.5,H*.48,u*.82);
       bg.addColorStop(0,rgba(baseHue,95,22,.48));bg.addColorStop(.55,rgba(baseHue+82,100,11,.3));bg.addColorStop(1,'#020108');cx.fillStyle=bg;cx.fillRect(0,0,W,H);
       cx.globalCompositeOperation='screen';cx.lineJoin='round';cx.lineCap='round';
+      cx.save();
+      if(touchForce>.002||touchBurst>.002){var px=touchX*W,py=touchY*H;cx.translate(px-touchDragX*u*.035*touchForce,py-touchDragY*u*.035*touchForce);cx.rotate((touchDragX-touchDragY)*.018*touchForce);cx.scale(1+touchBurst*.035,1+touchBurst*.035);cx.translate(-px,-py);}
       if(style==='tunnel'){
         var rings=highQuality?9+tier*6:6+tier*4,sides=8+tier*4;
         for(var r=0;r<rings;r++){
@@ -900,6 +945,9 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
         var swirls=highQuality?9+tier*6:6+tier*4;
         for(var sw=0;sw<swirls;sw++){var phase=t*(.18+sw*.009)+sw*TAU/swirls+bass*.24,r0=u*(.05+sw%5*.045)*(1+bass*.045),sx=W*(.5+.2*Math.sin(phase*.4+sw)),sy=H*(.5+.2*Math.cos(phase*.35+sw*1.3));cx.beginPath();for(var d=0;d<=points;d++){var aa2=d/points*TAU*2.2,rr2=r0*(.4+aa2/(TAU*2.2))*(1+(.24+bass*.06)*Math.sin(aa2*3+phase)+.1*Math.cos(aa2*5-t));var ix=sx+Math.cos(aa2+phase)*rr2,iy=sy+Math.sin(aa2+phase)*rr2;if(!d)cx.moveTo(ix,iy);else cx.lineTo(ix,iy);}cx.strokeStyle=rgba(baseHue+sw*34+t*7,100,58,.68);cx.lineWidth=Math.max(1,u*(.004+cfg.amp*.001));cx.stroke();}
       }
+      cx.restore();cx.globalCompositeOperation='screen';
+      for(var tr=0;tr<touchRings.length;tr++){var ring=touchRings[tr],rr=u*touchRippleRadius*(ring.strength/.82),alpha=ring.strength*Math.exp(-ring.age*1.55);if(alpha>.015){cx.strokeStyle=rgba(colorAt(tr+1,t,energy,mid,high)+tr*28,100,70,Math.min(.62,alpha*.34));cx.lineWidth=Math.max(1,u*(.002+alpha*.002));cx.beginPath();cx.arc(ring.x*W,ring.y*H,Math.max(1,rr),0,TAU);cx.stroke();}}
+      if(touchBurst>.015){var bx=touchX*W,by=touchY*H;for(var burstRing=0;burstRing<3;burstRing++){cx.strokeStyle=rgba(colorAt(burstRing+2,t,energy,mid,high)+burstRing*30,100,76,touchBurst*(.18-burstRing*.035));cx.lineWidth=Math.max(1,u*(.008-burstRing*.0015));cx.beginPath();cx.arc(bx,by,u*(.08+(1-touchBurst)*(.46+burstRing*.055)),0,TAU);cx.stroke();}}
       cx.globalCompositeOperation='source-over';cx.globalAlpha=1;
     }
     var highDrift=0;
@@ -907,6 +955,7 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       if(!alive||!XP.active||XP.current!=='liquiddreams')return;
       var dt=Math.min(40,Math.max(0,now-lastT));lastT=now;
       var energy=b.tick(now),cfg=controls(),music=cfg.music;
+      movementSpeed+=(parseFloat(state.speed)-movementSpeed)*(1-Math.exp(-dt/520));cfg.pace*=movementSpeed;
       // Keep the analysed bands raw here. The GPU applies music sensitivity once in its shader;
       // the canvas path applies it below. This avoids squaring the sensitivity setting on WebGL.
       var bassTarget=b.live?Math.max(b.k,b.e*.68):0,trebleTarget=b.live?b.high:0;
@@ -918,11 +967,16 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
       var bassResponse=Math.min(1.7,smoothBass*cfg.bass*music),mid=midRaw*music,high=highRaw*music;
       highDrift+=(high*cfg.treble-highDrift)*(1-Math.pow(.82,frameBlend));
       if(b.hit)kick=Math.min(1.8,kick+(.62+smoothBass*.52)*cfg.bass);
-      kick*=Math.exp(-dt/(b.hit?390:620));
+      kick*=Math.exp(-(dt*movementSpeed)/(b.hit?390:620));
       var kickResponse=kick*music;
       bassColorPulse=Math.min(1.5,bassResponse+kickResponse*.28);
       var e=Math.min(1.6,energy*music),movement=cfg.pace*(1+Math.min(.3,e*.12+bassResponse*.08+mid*.04));
       var t=(now-start)/1000*movement,style=state.style;
+      touchHueShift+=(touchHueTarget-touchHueShift)*(1-Math.exp(-dt/260));
+      touchBurst*=Math.exp(-(dt*movementSpeed)/660);touchForce*=Math.exp(-(dt*movementSpeed)/580);
+      touchDragX*=Math.exp(-(dt*movementSpeed)/330);touchDragY*=Math.exp(-(dt*movementSpeed)/330);
+      touchRippleStrength=0;touchRippleRadius=0;
+      for(var ri=touchRings.length-1;ri>=0;ri--){var trp=touchRings[ri];trp.age+=dt*movementSpeed/1000;if(trp.age>2.5){touchRings.splice(ri,1);continue;}var trStrength=trp.strength*Math.exp(-trp.age*1.55);if(trStrength>touchRippleStrength){touchRippleStrength=trStrength;touchRippleRadius=trp.age*(.25+Math.min(.14,bassResponse*.06+kickResponse*.04));}}
       var amp=cfg.amp*(.48+bassResponse*1.72+e*.46),fine=cfg.amp*(.12+smoothTreble*cfg.treble*music*1.2);
       if(style!=='clouds'){
         var dream=activateDreamShader();
@@ -931,6 +985,8 @@ void main(){vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;float level=max(tier,overdriv
           dream.f('bassBand',smoothBass*cfg.bass);dream.f('midBand',midRaw);dream.f('highBand',smoothTreble*cfg.treble);
           dream.f('musicSensitivity',cfg.music);dream.f('motion',cfg.pace*cfg.drive*(1+Math.min(.3,e*.12+bassResponse*.08+mid*.04)));
           dream.f('quality',HIGH_MEMORY_DEVICE?1:0);dream.f('overdrive',overdrive?1:0);dream.f('beatPulse',kick);
+          dream.v2('touchPoint',(touchX-.5)*W/H,.5-touchY);dream.v2('touchDrag',touchDragX,touchDragY);
+          dream.f('touchForce',touchForce);dream.f('touchBurst',touchBurst);dream.f('touchRipple',touchRippleStrength);dream.f('touchRippleRadius',touchRippleRadius);dream.f('touchHue',touchHueShift);
           dream.draw(now,b,colorAt(0,t,e,mid,high));
       }else drawCanvasEngine(style,t,cfg,mid,high,e,bassResponse);
         return;

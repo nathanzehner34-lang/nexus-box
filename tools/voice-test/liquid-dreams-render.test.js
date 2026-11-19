@@ -12,13 +12,14 @@ assert(shader && headExpression, 'actual Liquid Dreams and WebGL header sources 
 const glHead = Function('return (' + headExpression.trim().replace(/;\s*$/, '') + ')')();
 const browser = process.env.LIQUID_DREAMS_BROWSER || [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'
 ].find(file => fs.existsSync(file));
 assert(browser && fs.existsSync(browser), 'Edge or Chrome is required for the actual WebGL render check');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'liquid-dreams-render-'));
 const htmlPath = path.join(temp, 'render.html');
-const html = `<!doctype html><meta charset="utf-8"><body><pre id="result">WAITING</pre><canvas id="c" width="96" height="96"></canvas><script>
+const html = `<!doctype html><meta charset="utf-8"><style>#result{display:none}</style><body><pre id="result">WAITING</pre><canvas id="c" width="96" height="96"></canvas><script>
 const output=document.getElementById('result');
 try {
  const gl=document.getElementById('c').getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:true});
@@ -30,7 +31,7 @@ try {
  if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));gl.useProgram(program);
  const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
  const loc=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
- function uni(name,value){const u=gl.getUniformLocation(program,name);if(u===null)throw new Error('missing shader input '+name);gl.uniform1f(u,value);}
+ function uni(name,value){const u=gl.getUniformLocation(program,name);if(u===null)throw new Error('missing shader input '+name);if(Array.isArray(value))gl.uniform2f(u,value[0],value[1]);else gl.uniform1f(u,value);}
  const bytes=new Uint8Array(96*96*4), fingerprints=[], frames=[];
  for(let tier=0;tier<3;tier++)for(let style=0;style<7;style++){
    const res=gl.getUniformLocation(program,'res');gl.uniform2f(res,96,96);
@@ -43,9 +44,9 @@ try {
    fingerprints.push({style,tier,hash:hash>>>0,mean:Math.round(bright/(96*96)),variance:Math.round(variance/(96*96))});
    frames.push({style,tier,pixels:new Uint8Array(bytes)});
  }
- function renderSignature(style,tier,palette,bass,mid,high,music,motion,overdrive,beatPulse=.24){
+ function renderSignature(style,tier,palette,bass,mid,high,music,motion,overdrive,beatPulse=.24,interaction={}){
    const res=gl.getUniformLocation(program,'res');gl.uniform2f(res,96,96);
-   for(const [name,value] of Object.entries({time:4.13,hue:.27,kick:.41,energy:.52,styleId:style,tier,paletteId:palette,bassBand:bass,midBand:mid,highBand:high,musicSensitivity:music,motion,quality:1.,overdrive,beatPulse}))uni(name,value);
+   for(const [name,value] of Object.entries({time:4.13,hue:.27,kick:.41,energy:.52,styleId:style,tier,paletteId:palette,bassBand:bass,midBand:mid,highBand:high,musicSensitivity:music,motion,quality:1.,overdrive,beatPulse,touchPoint:interaction.touchPoint||[.13,.06],touchDrag:interaction.touchDrag||[0,0],touchForce:interaction.touchForce||0,touchBurst:interaction.touchBurst||0,touchRipple:interaction.touchRipple||0,touchRippleRadius:interaction.touchRippleRadius||0,touchHue:interaction.touchHue||0}))uni(name,value);
    gl.viewport(0,0,96,96);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,96,96,gl.RGBA,gl.UNSIGNED_BYTE,bytes);
    let hash=2166136261;for(let i=0;i<bytes.length;i+=4){hash=Math.imul(hash^bytes[i],16777619);hash=Math.imul(hash^bytes[i+1],16777619);hash=Math.imul(hash^bytes[i+2],16777619);}return hash>>>0;
  }
@@ -61,10 +62,17 @@ try {
    renderSignature(0,1,0,.12,.12,.12,1.,1.15,1.,0.),
    renderSignature(0,1,0,.12,.12,.12,1.,1.15,0.,1.)
  ];
+ const touchBase=renderSignature(0,1,0,.12,.12,.12,1.,1.15,0.,0.);
+ const touchFrames=[
+   renderSignature(0,1,0,.12,.12,.12,1.,1.15,0.,0.,{touchRipple:.9,touchRippleRadius:.24}),
+   renderSignature(0,1,0,.12,.12,.12,1.,1.15,0.,0.,{touchForce:.9,touchDrag:[.4,-.3]}),
+   renderSignature(0,1,0,.12,.12,.12,1.,1.15,0.,0.,{touchBurst:.95}),
+   renderSignature(0,1,0,.12,.12,.12,1.,1.15,0.,0.,{touchHue:.8})
+ ];
  const sheet=document.createElement('canvas');sheet.width=672;sheet.height=288;const ctx=sheet.getContext('2d');
  for(const frame of frames){const image=ctx.createImageData(96,96);for(let y=0;y<96;y++){const from=(95-y)*96*4,to=y*96*4;image.data.set(frame.pixels.subarray(from,from+96*4),to);}ctx.putImageData(image,frame.style*96,(2-frame.tier)*96);}
  document.body.appendChild(sheet);sheet.style.cssText='display:block;width:672px;height:288px;image-rendering:auto';
- output.textContent='ENGINE_RESULT='+JSON.stringify({fingerprints,colorFrames,audioBase,audioFrames});
+ output.textContent='ENGINE_RESULT='+JSON.stringify({fingerprints,colorFrames,audioBase,audioFrames,touchBase,touchFrames});
 } catch(e) { output.textContent='ENGINE_ERROR='+String(e.stack||e); }
 </script></body>`;
 fs.writeFileSync(htmlPath, html);
@@ -91,7 +99,8 @@ try {
   }
   assert.strictEqual(new Set(report.colorFrames).size,6,'all six colour modes produce visibly different shader output');
   assert(report.audioFrames.every(hash=>hash!==report.audioBase),'bass, mids, treble, music sensitivity, movement speed and Overdrive each alter rendered output');
-  console.log('WebGL rendered 21 Liquid Dreams frames; all seven engines, all three intensities, six palettes, five music inputs, movement speed and Overdrive changed measured pixels.');
+  assert(report.touchFrames.every(hash=>hash!==report.touchBase),'touch ripple, drag distortion, double-tap burst and two-finger colour shift each alter rendered shader pixels');
+console.log('WebGL rendered 21 Liquid Dreams frames; all seven shader engines, three intensities, six palettes, five audio inputs, both speed extremes, Overdrive and four touch effects changed measured pixels.');
 } finally {
   fs.rmSync(temp,{recursive:true,force:true});
 }
