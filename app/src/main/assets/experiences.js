@@ -1229,9 +1229,9 @@ void main(){
       for (var s2 = (now / 40 | 0) % 4; s2 < H; s2 += 4) cx.fillRect(0, s2, W, 1);
     }, 30);
 
-    text('xpTop', 'HOLOGRAPHIC INTERFACE · ' + (N.egoTitle ? N.egoTitle() : 'NEXUS'));
+    text('xpTop', 'HOLOGRAPHIC INTERFACE · NEXUS');
     text('xpBottom', 'TAP THE HOLOGRAM TO TALK');
-    if (N.sayEgo) N.sayEgo('holo', true); else N.say('Hologram projection online. I am Nexus. Tap me, and talk to me.');
+    if (N.sayVoiceLine) N.sayVoiceLine('holo', true); else N.say('Hologram projection online. I am Nexus. Tap me, and talk to me.');
     var busy = false;
     layer.onclick = function () {
       if (busy) return; busy = true;

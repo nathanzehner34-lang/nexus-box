@@ -133,7 +133,7 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("nexus", MODE_PRIVATE);
 
         // Start the recorded greeting FIRST, before the screen (WebView) is even built,
-        // so the voice comes out the moment Nexus starts (in the current Alter Ego's voice and words).
+        // so the voice comes out the moment Nexus starts (in Nexus's voice).
         // (no spoken greeting at startup: the Nexus logo intro plays instead)
 
         Window w = getWindow();
@@ -222,7 +222,7 @@ public class MainActivity extends Activity {
         tts = hasGoogle ? new TextToSpeech(this, listener, "com.google.android.tts") : new TextToSpeech(this, listener);
     }
 
-    // ---------- INSTANT LINES: every fixed sentence (greetings, Alter Ego intros, party shouts...) is recorded
+    // ---------- INSTANT LINES: every fixed sentence (greetings, party shouts...) is recorded
     //            once in the background, then played straight from the file the moment it's needed. ----------
 
     private long pausedAt = 0;
@@ -339,7 +339,7 @@ public class MainActivity extends Activity {
         queueCache(text, rate, pitch);
     }
 
-    // Cold start: the page saved the greeting text for each time of day (in the current Alter Ego's voice).
+    // Cold start: the page saved the greeting text for each time of day .
     private void playBootGreeting() {
         String spec = prefs.getString("p_greet_" + greetKey(), "");
         if (spec.isEmpty()) spec = "Good " + greetKey() + ", Nathan. Nexus online. How can I help?\u00010\u00010";
@@ -726,28 +726,6 @@ public class MainActivity extends Activity {
             Set<String> f = v.getFeatures();
             return f == null || !f.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED);
         } catch (Exception e) { return true; }
-    }
-
-    // Candidate built-in voice names per character type, tried in order; falls back to the
-    // normal voice (just with that persona's rate/pitch) if none of these are installed.
-    private static final java.util.Map<String, String[]> PERSONA_VOICES = new java.util.HashMap<>();
-    static {
-        PERSONA_VOICES.put("male_deep",   new String[]{"en-us-x-iom-local", "en-us-x-iom-network", "en-gb-x-gbd-local", "en-gb-x-gbd-network"});
-        PERSONA_VOICES.put("male_gravel", new String[]{"en-us-x-tpc-local", "en-us-x-tpc-network", "en-gb-x-rjs-local", "en-gb-x-rjs-network"});
-        PERSONA_VOICES.put("male_cold",   new String[]{"en-us-x-tpd-local", "en-us-x-tpd-network", "en-gb-x-gbd-network"});
-        PERSONA_VOICES.put("male_soft",   new String[]{"en-gb-x-rjs-local", "en-us-x-iom-network", "en-us-x-sfg-local"});
-        PERSONA_VOICES.put("female_sharp", new String[]{"en-us-x-iol-local", "en-us-x-iol-network", "en-gb-x-gbb-local", "en-gb-x-gbb-network"});
-    }
-    private void applyPersonaVoice(String hint) {
-        if (tts == null || hint == null || hint.isEmpty()) return;
-        String[] names = PERSONA_VOICES.get(hint);
-        if (names == null) return;
-        Set<Voice> voices = null;
-        try { voices = tts.getVoices(); } catch (Exception ignored) {}
-        if (voices == null) return;
-        for (String want : names) for (Voice v : voices) {
-            if (v.getName().equals(want) && usable(v)) { try { tts.setVoice(v); return; } catch (Exception ignored) {} }
-        }
     }
 
     private void applyVoice() {
@@ -1337,25 +1315,6 @@ public class MainActivity extends Activity {
                 doSpeak(text, id);
                 tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
                 tts.setPitch(prefs.getFloat("pitch", 0.9f));
-            });
-        }
-
-        // Alter Ego voices: picks a distinct built-in Android voice per persona (by character type),
-        // so each Alter Ego sounds different, not just a different rate/pitch on the same voice.
-        @JavascriptInterface
-        public void speakAs(String text, String id, float rate, float pitch, String hint) {
-            if (tts == null) return;
-            if (!ttsReady) { speak(text, id); return; }
-            ui.post(() -> {
-                Voice prev = null;
-                try { prev = tts.getVoice(); } catch (Exception ignored) {}
-                applyPersonaVoice(hint);
-                if (rate > 0) tts.setSpeechRate(rate);
-                if (pitch > 0) tts.setPitch(pitch);
-                doSpeak(text, id);
-                tts.setSpeechRate(prefs.getFloat("rate", 0.95f));
-                tts.setPitch(prefs.getFloat("pitch", 0.9f));
-                if (prev != null) { try { tts.setVoice(prev); } catch (Exception ignored) {} } else { applyVoice(); }
             });
         }
 
