@@ -1469,7 +1469,11 @@
       '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
       '<span class="btn go" id="sNotif">ALLOW NEXUS TO SEE WHAT\'S PLAYING</span>' +
       '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. If your box says it\'s unavailable, do this instead: open Spotify → Settings (gear) → scroll to "Device broadcast status" → turn it ON. Nexus will then see your songs.</div></div>' +
-      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Liquid Nebula, Floating Energy, Cosmic Aurora, Neural Flow or Liquid Chrome, and adjust motion, brightness, quality and music response.</div>' +
+      '<div class="field"><label>SPOTIFY EXIT BUTTON</label>' +
+      switchHtml('data-toggle="exitBubble"', 'Show a "‹ NEXUS" button over Spotify', pref('exitBubble') !== '0') +
+      (A && A.exitBubbleAllowed && !A.exitBubbleAllowed() ? '<span class="btn go" id="sExitAllow">ALLOW THE EXIT BUTTON</span><div class="hint">Opens Android settings. Turn on "Allow display over other apps" for Nexus, then come back.</div>' : '') +
+      '<div class="hint">While Spotify is open, tap the floating button to come straight back to Nexus. Drag it to move it.</div></div>' +
+      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Liquid Nebula, Floating Energy, Cosmic Aurora, Neural Flow or Liquid Chrome, and adjust motion, brightness and quality. They move on their own and do not react to music.</div>' +
       '<span class="btn go" id="sEnv">OPEN ENVIRONMENTS</span></div>' +
       '<div class="field"><label>SYSTEM</label>' +
       '<span class="btn" id="sReplay">REPLAY STARTUP</span><span class="btn" id="sAndroid">ANDROID SETTINGS</span>' +
@@ -1501,6 +1505,7 @@
     $('sPitch').addEventListener('change', tune);
     $('sVoiceTest').addEventListener('click', function () { tune(); setTimeout(function () { say('Good morning, Nathan. I am Nexus, your personal assistant. How may I assist you?'); }, 300); });
     $('sHomeChoose').addEventListener('click', function () { if (A) A.openHomeChooser(); });
+    if ($('sExitAllow')) $('sExitAllow').addEventListener('click', function () { if (A && A.allowExitBubble) A.allowExitBubble(); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-home]'), function (el) {
       el.addEventListener('click', function () { var h = homes[Number(el.getAttribute('data-home'))]; A.openOtherHome(h.pkg, h.cls); });
     });
@@ -1568,14 +1573,12 @@
         var c = p.colors.map(function (x) { return 'rgb(' + x.map(function (v) { return Math.round(Math.min(1, v) * 255); }).join(',') + ')'; });
         return '<button type="button" class="chip-btn' + (st.palettes[st.env] === i ? ' selected' : '') + '" data-pal="' + i + '"><span class="dot" style="background:linear-gradient(135deg,' + c[0] + ',' + c[1] + ' 55%,' + c[2] + ')"></span>' + esc(p.name) + '</button>';
       }).join('') + '</div>' +
-      '<div class="switch-row">' + switchHtml('data-envsw="reducedMotion"', 'Reduced motion', st.reducedMotion) + switchHtml('data-envsw="audio"', 'Music reactive', st.audio) + '</div>' +
+      '<div class="switch-row">' + switchHtml('data-envsw="reducedMotion"', 'Reduced motion', st.reducedMotion) + '</div>' +
       group('motion', 'Motion', rangeHtml('envSpeed', 'Animation speed', R.speed[0], R.speed[1], .05, st.speed) + rangeHtml('envMovement', 'Movement intensity', R.movement[0], R.movement[1], .05, st.movement) + rangeHtml('envColor', 'Colour transition speed', R.colorSpeed[0], R.colorSpeed[1], .05, st.colorSpeed)) +
       group('look', 'Look &amp; quality', rangeHtml('envBright', 'Brightness', R.brightness[0], R.brightness[1], .05, st.brightness) +
         '<div class="field-label">Rendering quality</div><div class="seg">' + [['auto', 'Auto'], ['smooth', 'Smooth'], ['balanced', 'Balanced'], ['high', 'High']].map(function (q) {
           return '<button type="button" class="seg-btn' + (st.quality === q[0] ? ' selected' : '') + '" data-quality="' + q[0] + '">' + q[1] + '</button>'; }).join('') + '</div>' +
         '<div class="hint">Auto picks Smooth on 2 GB boxes and High on 6 GB and above. Resolution also adjusts itself if frames run late.</div>') +
-      group('sound', 'Music response', rangeHtml('envSens', 'Audio sensitivity', R.sensitivity[0], R.sensitivity[1], .05, st.sensitivity) +
-        '<div class="hint">Bass gently moves the large forms, midrange the flow, treble the fine highlights. The worlds keep moving with no music playing.</div>') +
       '<div class="panel-actions"><button type="button" class="btn" id="envReset">Restore defaults</button></div>';
     var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
     openPanel('ENVIRONMENTS', html);
@@ -1588,7 +1591,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-pal]'), function (el) { el.addEventListener('click', function () { E.set('palette', +el.getAttribute('data-pal')); redo(); }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-envsw]'), function (el) { el.addEventListener('click', function () { var k = el.getAttribute('data-envsw'); E.set(k, !E.settings()[k]); redo(); }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-quality]'), function (el) { el.addEventListener('click', function () { E.set('quality', el.getAttribute('data-quality')); redo(); }); });
-    [['envSpeed', 'speed'], ['envMovement', 'movement'], ['envColor', 'colorSpeed'], ['envBright', 'brightness'], ['envSens', 'sensitivity']].forEach(function (m) {
+    [['envSpeed', 'speed'], ['envMovement', 'movement'], ['envColor', 'colorSpeed'], ['envBright', 'brightness']].forEach(function (m) {
       $(m[0]).addEventListener('input', function () { E.set(m[1], parseFloat($(m[0]).value)); });
     });
     $('envReset').addEventListener('click', function () { E.reset(); redo(); });
@@ -1702,6 +1705,8 @@
   var awaySince = 0;
   Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.partyMeter(false); } catch (e) {} };
   Nexus.resumed = function () {
+    // back from Android's permission screen: the Spotify exit button is now allowed
+    try { var ea = $('sExitAllow'); if (ea && A && A.exitBubbleAllowed && A.exitBubbleAllowed()) { var hint = ea.nextElementSibling; if (hint) hint.textContent = 'Allowed. The exit button will show over Spotify.'; ea.remove(); } } catch (e) {}
     awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.partyMeter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} };
 
   // ------------------------------------------------------------------

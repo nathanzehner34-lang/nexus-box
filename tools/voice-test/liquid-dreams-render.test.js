@@ -54,8 +54,8 @@ try {
  const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
  const loc=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
  const PAL=${JSON.stringify(palettes)},bytes=new Uint8Array(128*72*4);
- const base={res:[128,72],envA:0,envB:0,envMix:0,flowT:21.3,bassL:.25,midL:.25,highL:.25,moveAmt:.6,detailAmt:.6,complexity:.5,brightness:1,quality:0,gravPos:[.15,0],gravStr:0,gravSpin:0,touchHue:0,spectral:0,colorPhase:.2,energyL:0,pulseA:[0,0,0,0],pulseB:[0,0,0,0],pulseC:[0,0,0,0],pulseD:[0,0,0,0],palette:'deepteal'};
- function render(over){const u=Object.assign({},base,over),p=PAL[u.palette].c;u.pal0=p[0];u.pal1=p[1];u.pal2=p[2];u.pal3=p[3];
+ const base={res:[128,72],envA:0,envB:0,envMix:0,flowT:21.3,bassL:.25,midL:.25,highL:.25,moveAmt:.6,detailAmt:.6,complexity:.5,brightness:1,quality:0,gravPos:[.15,0],gravStr:0,gravSpin:0,touchHue:0,spectral:0,colorPhase:.2,energyL:0,spectralO:0,colorWave:[0,0,0,0],palette:'deepteal'};
+ function render(over){const u=Object.assign({},base,over),p=PAL[u.palette].c,o=PAL[u.oldPalette||u.palette].c;delete u.oldPalette;if(!over||!('spectralO' in over))u.spectralO=u.spectral;for(let i=0;i<4;i++){u['palN'+i]=p[i];u['palO'+i]=o[i];}
   for(const [name,value] of Object.entries(u)){if(name==='palette')continue;const l=gl.getUniformLocation(program,name);if(l===null){if(name==='res'||name.startsWith('pal'))throw new Error('missing shader input '+name);continue;}
    if(!Array.isArray(value))gl.uniform1f(l,value);else if(value.length===2)gl.uniform2f(l,value[0],value[1]);else if(value.length===3)gl.uniform3f(l,value[0],value[1],value[2]);else gl.uniform4f(l,value[0],value[1],value[2],value[3]);}
   gl.viewport(0,0,128,72);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,128,72,gl.RGBA,gl.UNSIGNED_BYTE,bytes);
@@ -77,10 +77,11 @@ try {
  const gravity=[];for(let e=0;e<6;e++){const a=render({envA:e,envB:e}),g=render({envA:e,envB:e,gravStr:1,gravSpin:1.5}),moved=render({envA:e,envB:e,gravStr:1,gravSpin:1.5,gravPos:[-.45,.1]}),rel=render({envA:e,envB:e,gravStr:0});
   let changed=0,inField=0;for(let y=0;y<72;y++)for(let x=0;x<128;x++){const ux=(x+.5-64)/72,uy=(y+.5-36)/72;if(Math.hypot(ux-.15,uy)<.45){inField++;const i=y*128+x;if(Math.abs(a.lum[i]-g.lum[i])>6)changed++;}}
   gravity.push({share:changed/inField,whole:diff(a.lum,g.lum),dragged:diff(g.lum,moved.lum),recovered:diff(a.lum,rel.lum)});}
- // Color Pulse: re-colours around the tap point, more near it than far away, with a non-circular front
- const pulse=[];for(let e=0;e<6;e++){const a=render({envA:e,envB:e}),b=render({envA:e,envB:e,pulseA:[.15,0,.7,1]});let near=0,far=0,nn=0,nf=0;
-  for(let y=0;y<72;y++)for(let x=0;x<128;x++){const ux=(x+.5-64)/72,uy=(y+.5-36)/72,i=y*128+x,d=Math.abs(a.lum[i]-b.lum[i]),r=Math.hypot(ux-.15,uy);if(r<.35){near+=d;nn++;}else if(r>.75){far+=d;nf++;}}
-  pulse.push({near:near/nn,far:far/nf});}
+ // Colour Wave: inside the spreading front the new palette is fully in place, outside it the old one is untouched
+ const pulse=[];for(let e=0;e<6;e++){const oldP=render({envA:e,envB:e,palette:'violet'}),newP=render({envA:e,envB:e,palette:'aurora'}),w=render({envA:e,envB:e,palette:'aurora',oldPalette:'violet',colorWave:[.15,0,.5,1]});
+  let inNew=0,inOld=0,outOld=0,ni=0,no=0;
+  for(let y=0;y<72;y++)for(let x=0;x<128;x++){const ux=(x+.5-64)/72,uy=(y+.5-36)/72,i=y*128+x,r=Math.hypot(ux-.15,uy);if(r<.25){inNew+=Math.abs(w.lum[i]-newP.lum[i]);inOld+=Math.abs(w.lum[i]-oldP.lum[i]);ni++;}else if(r>.75){outOld+=Math.abs(w.lum[i]-oldP.lum[i]);no++;}}
+  pulse.push({inNew:inNew/ni,inOld:inOld/ni,outOld:outOld/no,done:diff(render({envA:e,envB:e,palette:'aurora',oldPalette:'violet',colorWave:[.15,0,3,1]}).lum,newP.lum)});}
  const fromF=render({envA:0,envB:3,envMix:0}),midF=render({envA:0,envB:3,envMix:.5}),toF=render({envA:3,envB:3,envMix:0});
  const transition={startMatchesFrom:diff(fromF.lum,render({envA:0,envB:0}).lum),midVsFrom:diff(midF.lum,fromF.lum),midVsTo:diff(midF.lum,toF.lum)};
  output.textContent='SHADER_RESULT='+JSON.stringify({envs,maxCorr,paletteHashes,controls,perEnvAudio,restraint,smooth,transition,gravity,pulse});
@@ -115,9 +116,9 @@ window.__audio={meterOff:0,stopTalking:0};window.NX={A:{setPref:(k,v)=>{store['p
  const envBefore=saved().env,shifts=[];for(let i=0;i<3;i++){ui.querySelector('[data-action="shift"]').click();shifts.push(saved().color);}
  result.shift={shifts,envKept:saved().env===envBefore,label:ui.querySelector('[data-palname]').textContent};
  await wait(300);result.audioDuringSwitches={meterOff:window.__audio.meterOff-audio0.meterOff,stopTalking:window.__audio.stopTalking-audio0.stopTalking};
- // touch: tap = Color Pulse, hold = Gravity Point, drag follows, release recovers
+ // touch: tap = Colour Wave, hold = Gravity Point, drag follows, release recovers
  const L=document.getElementById('xp'),R=L.getBoundingClientRect(),ev=(t,x,y)=>L.dispatchEvent(new PointerEvent(t,{clientX:R.left+x*R.width,clientY:R.top+y*R.height,pointerId:7,bubbles:true,cancelable:true}));
- ev('pointerdown',.3,.4);await wait(60);ev('pointerup',.3,.4);await wait(120);result.tap={pulses:D().pulses.length,at:D().pulses[0]&&[D().pulses[0].x,D().pulses[0].y],gravity:D().gravity.held};
+ ev('pointerdown',.3,.4);await wait(60);ev('pointerup',.3,.4);await wait(120);result.tap={wave:D().wave,palette:D().palette,gravity:D().gravity.held};await wait(2600);result.tapAfter={wave:D().wave,palette:D().palette,saved:saved().color};
  ev('pointerdown',.6,.5);await wait(700);const held=D().gravity;
  ev('pointermove',.75,.3);await wait(150);const dragged=D().gravity;
  ev('pointerup',.75,.3);let minS=1;for(let i=0;i<40;i++){await wait(60);minS=Math.min(minS,D().gravity.strength);}
@@ -163,7 +164,7 @@ try {
     assert(g.dragged > 5, 'the field follows the finger in experience ' + i);
     assert(g.recovered < .01, 'the picture fully recovers after release in experience ' + i);
   });
-  r.pulse.forEach((p, i) => assert(p.near > 4 && p.near > p.far * 3, 'Color Pulse re-colours around the touch point in experience ' + i + ' (near ' + p.near.toFixed(1) + ', far ' + p.far.toFixed(1) + ')'));
+  r.pulse.forEach((p, i) => assert(p.inNew < 2 && p.outOld < 1 && p.inOld > p.inNew + 2 && p.done < 1, 'Colour Wave: new colours inside the front, old colours outside, all new once it has crossed the screen, in experience ' + i + ' ' + JSON.stringify(p)));
   const a = runPage('app', appPage, 'APP_RESULT', 20000);
   assert.deepStrictEqual(a.errors, [], 'Liquid Dreams raised no browser errors');
   assert(a.gl, 'Liquid Dreams draws with the GPU in the 2 GB profile');
@@ -185,7 +186,8 @@ try {
   assert.deepStrictEqual(a.shift.shifts, ['obsidian', 'arctic', 'electric'], 'Color Shift steps through the palettes and wraps round');
   assert(a.shift.envKept && a.shift.label === 'Electric Blue & Violet', 'Color Shift leaves the experience alone and names the palette');
   assert.deepStrictEqual(a.audioDuringSwitches, { meterOff: 0, stopTalking: 0 }, 'switching experiences and palettes never touches audio');
-  assert(a.tap.pulses === 1 && !a.tap.gravity && Math.abs(a.tap.at[0] - .3) < .01 && Math.abs(a.tap.at[1] - .4) < .01, 'a tap starts a Color Pulse at the exact point');
+  assert(a.tap.wave && !a.tap.gravity && a.tap.wave.x < 0 && Math.abs(a.tap.wave.y - .1) < .01 && a.tap.wave.palette === a.tap.palette, 'a tap starts a Colour Wave at the exact point with a new palette');
+  assert(!a.tapAfter.wave && a.tapAfter.palette === a.tap.palette && a.tapAfter.saved === a.tap.palette, 'the wave finishes and the new colour stays (and is saved)');
   if (process.env.LD_DEBUG) console.log(JSON.stringify({tap:a.tap,gravity:a.gravity}));
   assert(a.gravity.held && a.gravity.strength > .85 && Math.abs(a.gravity.x - .6) < .01, 'press and hold builds a full-strength Gravity Point under the finger');
   assert(Math.abs(a.gravity.dragX - .75) < .01 && Math.abs(a.gravity.dragY - .3) < .01, 'the Gravity Point follows the finger');

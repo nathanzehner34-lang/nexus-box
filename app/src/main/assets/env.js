@@ -53,7 +53,7 @@
   var envIndex = IDS.indexOf(S.env), fade = 1, mode = { intruder: false };
   var pal = ENVIRONMENTS[envIndex].palettes[S.palettes[S.env]][1].map(function (c) { return c.slice(); });
   var aBass = 0, aMid = 0, aHigh = 0, aEnergy = 0, speedNow = S.speed, moveNow = S.movement, brightNow = S.brightness, tint = [1, 1, 1];
-  var previews = [], previewTurn = 0, lastPreview = 0, meterWanted = false, musicCheckAt = 0, musicOn = false;
+  var previews = [], previewTurn = 0, lastPreview = 0, meterWanted = false;
 
   function compile(type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { try { console.log(gl.getShaderInfoLog(s)); } catch (e) {} gl.deleteShader(s); return null; } return s; }
   function link(fsrc) {
@@ -93,14 +93,8 @@
     cv.width = Math.max(1, Math.round(cv.clientWidth * dpr * scale)); cv.height = Math.max(1, Math.round(cv.clientHeight * dpr * scale));
   }
   function ease(cur, target, dt, ms) { return cur + (target - cur) * (1 - Math.exp(-dt / ms)); }
-  function music() {
-    var now = Date.now();
-    if (A && now > musicCheckAt) { musicCheckAt = now + 2500; try { musicOn = !!A.isMusicActive(); } catch (e) { musicOn = false; } }
-    var want = active && S.audio && !S.reducedMotion && (A ? musicOn : !!window.BEAT);
-    if (want !== meterWanted) { meterWanted = want; try { if (A && A.partyMeter) A.partyMeter(want); } catch (e) {} }
-    var B = window.BEAT, live = want && B && Date.now() - (B.live || 0) < 1500;
-    return live ? B : null;
-  }
+  // the home-screen worlds move on their own and never follow the music: no meter, no audio input
+  function music() { return null; }
   function uniforms(p, w, h, quality) {
     gl.uniform2f(U(p, 'res'), w, h); gl.uniform1f(U(p, 'T'), T);
     gl.uniform1f(U(p, 'bass'), aBass); gl.uniform1f(U(p, 'mid'), aMid); gl.uniform1f(U(p, 'high'), aHigh);

@@ -43,6 +43,11 @@ assert(html.includes('data-act="night"') && html.includes('Night Drive'), 'the N
 assert(/var mode = \{ party: false, intruder: false \};/.test(app), 'the night flag is gone from the app mode state');
 assert(/nightdrive: 1/.test(exp) && /nightdrive: nightDrive/.test(exp), 'Night Drive is registered in the experience shell');
 assert(/function nightDrive\(\)/.test(exp), 'experiences.js defines the Night Drive experience');
+assert(ND_MAIN.includes('float h0 = hillAt(tr);') && ND_MAIN.includes('- h0)*.26, camH*.45)'),
+  'hills are measured from the road under the camera, so the highway keeps one size and the camera never sinks into it');
+assert(/if \(S !== old\) \{ pendingSize = true;/.test(exp) && exp.includes('if (pendingSize) { pendingSize = false; size(); }'),
+  'a quality change resizes right before the next draw, so no black frame is shown');
+assert(ND_MAIN.includes('float run = ') && ND_RINGS.includes('float wave = '), 'the neon edges and the rings both follow the music');
 ['ndSky', 'ndHaze', 'ndGround'].forEach(h => assert(ND_RINGS.includes('vec3 ' + h + '('), 'Celestial Rings implements the ' + h + ' hook'));
 ['ndPlanet', 'ndRings', 'ndStars', 'ndNebula'].forEach(f => assert(ND_RINGS.includes(f + '('), 'the world builds its ' + f));
 assert(/curveAt|hillAt/.test(ND_HEAD) && ND_MAIN.includes('hillAt(') && ND_MAIN.includes('curveAt('),

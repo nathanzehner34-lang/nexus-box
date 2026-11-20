@@ -678,6 +678,85 @@ public class MainActivity extends Activity {
         if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
         ui.postDelayed(this::warmSpotify, 4000);
+        hideExitBubble();
+    }
+
+    // ---------- Floating "back to Nexus" button over Spotify ----------
+    // Spotify is its own app, so Nexus floats a small button above it (Android's "Display over other
+    // apps" permission, granted once from Nexus Settings). Tap it to come home; drag it to move it.
+    // It is removed as soon as Nexus is back on screen.
+    private static final java.util.Set<String> EXIT_BUBBLE_APPS = new java.util.HashSet<>(java.util.Arrays.asList("com.spotify.music"));
+    private View exitBubble = null;
+    private boolean overlayAllowed() { return Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this); }
+    private void showExitBubble() {
+        if (exitBubble != null || !overlayAllowed() || prefs == null || "0".equals(prefs.getString("p_exitBubble", "1"))) return;
+        try {
+            final WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+            float dp = getResources().getDisplayMetrics().density;
+            android.widget.TextView b = new android.widget.TextView(this);
+            b.setText("\u2039  NEXUS");
+            b.setTextColor(0xFFFFFFFF);
+            b.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15);
+            b.setLetterSpacing(.12f);
+            b.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            int ph = Math.round(18 * dp), pv = Math.round(12 * dp);
+            b.setPadding(ph, pv, ph, pv);
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR, new int[]{0xE62A1B5C, 0xE6123A66});
+            bg.setCornerRadius(28 * dp);
+            bg.setStroke(Math.max(1, Math.round(dp)), 0x7FB79CFF);
+            b.setBackground(bg);
+            b.setElevation(8 * dp);
+            b.setContentDescription("Back to Nexus");
+            int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
+            final WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                android.graphics.PixelFormat.TRANSLUCENT);
+            lp.gravity = android.view.Gravity.TOP | android.view.Gravity.START;
+            lp.x = prefs.getInt("exitBubbleX", Math.round(16 * dp));
+            lp.y = prefs.getInt("exitBubbleY", Math.round(getResources().getDisplayMetrics().heightPixels * .42f));
+            final float slop = 10 * dp;
+            b.setOnTouchListener(new View.OnTouchListener() {
+                float downX, downY; int startX, startY; boolean dragging;
+                @Override public boolean onTouch(View v, android.view.MotionEvent e) {
+                    switch (e.getActionMasked()) {
+                        case android.view.MotionEvent.ACTION_DOWN:
+                            downX = e.getRawX(); downY = e.getRawY(); startX = lp.x; startY = lp.y; dragging = false;
+                            v.setAlpha(.8f); return true;
+                        case android.view.MotionEvent.ACTION_MOVE:
+                            float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
+                            if (!dragging && Math.hypot(dx, dy) > slop) dragging = true;
+                            if (dragging) { lp.x = Math.max(0, Math.round(startX + dx)); lp.y = Math.max(0, Math.round(startY + dy)); try { wm.updateViewLayout(v, lp); } catch (Exception ignored) {} }
+                            return true;
+                        case android.view.MotionEvent.ACTION_UP:
+                            v.setAlpha(1f);
+                            if (dragging) prefs.edit().putInt("exitBubbleX", lp.x).putInt("exitBubbleY", lp.y).apply();
+                            else backToNexus();
+                            return true;
+                        case android.view.MotionEvent.ACTION_CANCEL:
+                            v.setAlpha(1f); return true;
+                    }
+                    return false;
+                }
+            });
+            wm.addView(b, lp);
+            exitBubble = b;
+        } catch (Exception e) { exitBubble = null; }
+    }
+    private void hideExitBubble() {
+        if (exitBubble == null) return;
+        try { ((WindowManager) getSystemService(WINDOW_SERVICE)).removeView(exitBubble); } catch (Exception ignored) {}
+        exitBubble = null;
+    }
+    private void backToNexus() {
+        hideExitBubble();
+        try {
+            Intent back = new Intent(this, MainActivity.class);
+            back.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(back);
+        } catch (Exception ignored) {}
+        js("Nexus.home && Nexus.home()");
     }
 
     @Override
@@ -701,6 +780,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        hideExitBubble();
         ui.removeCallbacks(updateProgress);
         try { if (updateReceiver != null) unregisterReceiver(updateReceiver); } catch (Exception ignored) {}
         if (tts != null) tts.shutdown();
@@ -866,6 +946,7 @@ public class MainActivity extends Activity {
             i.setComponent(new ComponentName(pkg, cls));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             startActivity(i);
+            if (EXIT_BUBBLE_APPS.contains(pkg)) ui.post(this::showExitBubble);
         } catch (Exception e) {
             launchCache.clear();
             ui.post(() -> Toast.makeText(this, "Could not open that app", Toast.LENGTH_SHORT).show());
@@ -1391,6 +1472,24 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public boolean exitBubbleAllowed() { return overlayAllowed(); }
+
+        // Opens Android's "Display over other apps" screen for Nexus (needed once for the Spotify exit button).
+        @JavascriptInterface
+        public void allowExitBubble() {
+            ui.post(() -> {
+                try {
+                    Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    try { Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i); }
+                    catch (Exception e2) { Toast.makeText(MainActivity.this, "This box does not offer that setting", Toast.LENGTH_LONG).show(); }
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void refreshApps() { /* apps are re-scanned automatically when something is installed or removed */ }
 
         @JavascriptInterface
@@ -1438,6 +1537,7 @@ public class MainActivity extends Activity {
                     i.setComponent(new ComponentName(pkg, cls));
                     i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                     startActivity(i);
+                    if (EXIT_BUBBLE_APPS.contains(pkg)) showExitBubble();
                 } catch (Exception e) {
                     Toast.makeText(MainActivity.this, "Could not open that app", Toast.LENGTH_SHORT).show();
                 }

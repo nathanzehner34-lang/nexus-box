@@ -29,7 +29,9 @@ assert(shader.includes('mix(vec3(lum),col,1.32)') && shader.includes('(2.51*col+
 assert(shader.includes('vec3 tinted=rb*(L/max(Lr,.08))') , 'spectral palettes re-hue while keeping light and shade');
 // touch
 assert(!/touchRipple|touchBurst|touchRippleRadius/.test(shader + liquid), 'the old ripple and burst are removed');
-assert(shader.includes('uniform vec4 pulseA, pulseB, pulseC, pulseD;') && shader.includes('fbmLD(uv*3.1+P.xy*5.') && liquid.includes('if (!cancelled) addPulse(g.x, g.y);'), 'a tap starts a noise-shaped Color Pulse at the touch point');
+assert(shader.includes('uniform vec4 colorWave;') && shader.includes('pal0=mix(palO0,palN0,wv);') && liquid.includes('if (!cancelled) startWave(g.x, g.y);') && liquid.includes('LD_SHIFT_ORDER.filter(function (k) { return k !== cur; })'),
+  'a tap picks a new palette from the Liquid Dreams colours and it spreads from the touch point');
+assert(!/pulseA|PULSEDIR|addPulse/.test(shader + liquid), 'the old fading rainbow pulse is gone');
 assert(shader.includes('vec2 gw=mat2(cs,-sn,sn,cs)*g*(1.+gravStr*k*1.7);') && shader.includes('p=gravPos+gw;'), 'Gravity Point warps the space every experience is drawn in');
 assert(liquid.includes('}, 170);') && liquid.includes("if (g.grav) { grav.x = p.x; grav.y = p.y; }") && liquid.includes('if (g.grav) { grav.held = false; return; }'), 'press and hold starts gravity, drag moves it, release lets it go');
 assert(liquid.includes('grav.v += ((gTarget - grav.s) * K - grav.v * D) * sec;'), 'gravity release is a damped spring with an outward recovery');

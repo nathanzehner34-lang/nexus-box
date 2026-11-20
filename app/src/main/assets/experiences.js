@@ -14,7 +14,7 @@
   var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || (HIGH_MEMORY_DEVICE ? 0.68 : 0.48)));
   var W = 0, H = 0;
   var running = null, raf = 0, timers = [], last = 0, xpDom = [];
-  var perf = { n: 0, slow: 0, since: 0 };
+  var perf = { n: 0, slow: 0, since: 0 }, pendingSize = false;
   function saveQ() { try { if (A) A.setPref('xpq', String(S)); else localStorage.setItem('p_xpq', String(S)); } catch (e) {} }
   function tuneQuality(now, gap, took) {
     if (!perf.since) { perf.since = now; perf.prev = now; }
@@ -27,7 +27,9 @@
     if (slowShare > .3 && S > QMIN) S = Math.max(QMIN, Math.round((S - .1) * 10) / 10);
     else if (slowShare < .05 && S < QMAX) S = Math.min(QMAX, Math.round((S + .1) * 10) / 10);
     perf = { n: 0, slow: 0, since: now };
-    if (S !== old) { size(); saveQ(); }
+    // the resize waits for the next frame's draw: resizing clears the canvas, and doing it
+    // between frames left one black frame on screen every time quality changed
+    if (S !== old) { pendingSize = true; saveQ(); }
   }
 
   function size() {
@@ -280,6 +282,7 @@
       var targetGap = Math.max(gap, 1000 / (minFps || (HIGH_MEMORY_DEVICE ? 30 : 20)));
       if (now - last < targetGap) return;
       last = now;
+      if (pendingSize) { pendingSize = false; size(); }
       var t0 = performance.now(); draw(now); renderAtmosphere(now); tuneQuality(now, targetGap, performance.now() - t0);
     }
     perf = { n: 0, slow: 0, since: 0 };
@@ -295,22 +298,24 @@
 
   var LIQUID_DREAMS_SHADER = `
 uniform float envA, envB, envMix, flowT, bassL, midL, highL, moveAmt, detailAmt, complexity, brightness, quality;
-uniform vec3 pal0, pal1, pal2, pal3;
+uniform vec3 palN0, palN1, palN2, palN3, palO0, palO1, palO2, palO3;
 uniform vec2 gravPos;
-uniform float gravStr, gravSpin, touchHue, spectral, colorPhase, energyL;
-uniform vec4 pulseA, pulseB, pulseC, pulseD;
-float OCT, PULSE;
-vec2 PULSEDIR;
+uniform float gravStr, gravSpin, touchHue, spectral, spectralO, colorPhase, energyL;
+uniform vec4 colorWave;
+// the palette each pixel uses: the new one inside a spreading colour wave, the previous one outside it
+vec3 pal0, pal1, pal2, pal3;
+float OCT, SPEC;
 vec2 hash2LD(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}
 float fbmLD(vec2 p,float oct){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<6;i++){if(float(i)>=oct)break;v+=a*noise(p);p=m*p+vec2(3.1,1.7);a*=.5;}return v;}
 vec3 rainbowLD(float x){return clamp(abs(fract(x+vec3(0.,.6667,.3333))*6.-3.)-1.,0.,1.);}
-// Palette ramp. Spectral palettes (and Color Pulse) re-hue the ramp while keeping its brightness, so detail survives.
+// Palette ramp. Spectral palettes re-hue the ramp while keeping its brightness, so detail survives.
 vec3 rampLD(float x){
- x=clamp(x+touchHue*.22+.035*sin(colorPhase*6.2832+x*3.),0.,1.);
+ // with music the ramp leans toward the palette's brighter colours, rolling with the colour flow
+ x=clamp(x+touchHue*.22+.035*sin(colorPhase*6.2832+x*3.)+.09*energyL*(.5+.5*sin(colorPhase*12.566+x*4.)),0.,1.);
  vec3 c=mix(pal0,pal1,smoothstep(0.,.4,x));c=mix(c,pal2,smoothstep(.35,.75,x));c=mix(c,pal3,smoothstep(.72,1.,x));
- float sp=clamp(spectral+PULSE*.85,0.,1.);
+ float sp=clamp(SPEC,0.,1.);
  if(sp>.002){
-  vec3 rb=rainbowLD(x*1.3+colorPhase+PULSE*.45);
+  vec3 rb=rainbowLD(x*1.3+colorPhase);
   float L=dot(c,vec3(.299,.587,.114)),Lr=dot(rb,vec3(.299,.587,.114));
   vec3 tinted=rb*(L/max(Lr,.08))*1.08+c*.12;
   c=mix(c,tinted,sp);
@@ -462,21 +467,17 @@ void main(){
  float cs=cos(ang),sn=sin(ang);
  vec2 gw=mat2(cs,-sn,sn,cs)*g*(1.+gravStr*k*1.7);
  p=gravPos+gw;
- // COLOR PULSE: noise-warped fronts that spread from each tap and re-colour the liquid they pass through.
- PULSE=0.;PULSEDIR=vec2(0.);
- for(int i=0;i<4;i++){vec4 P=i==0?pulseA:i==1?pulseB:i==2?pulseC:pulseD;if(P.w<=.002)continue;
-  vec2 d=uv-P.xy;float n=fbmLD(uv*3.1+P.xy*5.+vec2(P.z*.45,-P.z*.3),3.);
-  float n2=fbmLD(uv*6.3-P.xy*3.+vec2(-P.z*.7,P.z*.5),3.);
-  float rr=P.z*.42+.04,dist=length(d)+(n-.47)*(.34+P.z*.22)+(n2-.47)*.12+.025*sin(atan(d.y,d.x)*5.+n*7.+P.z);
-  float wdt=.07+P.z*.09,front=exp(-pow((dist-rr)/wdt,2.)),body=smoothstep(rr+.04,rr-.35,dist)*(.55+.45*n2);
-  PULSE+=P.w*(front*.6+body*.75);PULSEDIR+=d/max(length(d),.001)*front*P.w;}
- PULSE=min(PULSE,1.2);
- p+=PULSEDIR*.03;
+ // COLOUR WAVE: a tap picks a new palette, which spreads evenly from the touch point in every
+ // direction and replaces the old colours as it passes; the liquid ripples slightly at the front.
+ float wv=1.,front=0.;
+ if(colorWave.w>.5){vec2 d=uv-colorWave.xy;float dist=length(d)+.02*(noise(uv*6.+colorWave.z*2.)-.5);
+  wv=smoothstep(colorWave.z+.02,colorWave.z-.16,dist);front=exp(-pow((dist-colorWave.z)/.05,2.));
+  p+=d/max(length(d),.001)*front*.014;}
+ pal0=mix(palO0,palN0,wv);pal1=mix(palO1,palN1,wv);pal2=mix(palO2,palN2,wv);pal3=mix(palO3,palN3,wv);SPEC=mix(spectralO,spectral,wv);
  vec3 col=envLD(envA,p,t);
  if(envMix>.001){vec3 other=envLD(envB,p,t);float n=fbmLD(uv*1.6+vec2(7.1,3.3)+t*.02,3.);col=mix(col,other,smoothstep(n-.14,n+.14,envMix*1.3-.15));}
- // the pulse re-hues whatever the experience drew (metal and glass included), keeping its brightness and detail
- if(PULSE>.002){float L0=dot(col,vec3(.299,.587,.114));vec3 rb=rainbowLD(colorPhase+PULSE*.55+fbmLD(uv*2.4+t*.05,3.)*.6);
-  col=mix(col,rb*L0*1.9+col*.15,clamp(PULSE*.7,0.,.8));col+=rb*PULSE*.06;}
+ // a soft band of light rides the colour front
+ col+=mix(pal2,vec3(1.),.3)*front*.2;
  // funnel: a dark core with a lensed rim of light around the gravity point
  col*=1.-clamp(gravStr,0.,1.)*.75*exp(-r*r*90.);
  col+=rampLD(.97)*clamp(gravStr,0.,1.)*exp(-pow((r-.06)/.011,2.))*.32;
@@ -494,7 +495,7 @@ void main(){
 `;
 
   // LIQUID DREAMS — six composed GPU experiences with rich palettes, independent Experience and
-  // Color Shift cycling, Color Pulse (tap) and Gravity Point (press and hold) touch interaction.
+  // Color Shift cycling, Colour Wave (tap) and Gravity Point (press and hold) touch interaction.
   var LD_ENVIRONMENTS = [
     { id: 'deepflow', name: 'Deep Flow', note: 'Ink through deep water', palette: 'deepteal' },
     { id: 'iridescence', name: 'Iridescence', note: 'Liquid glass', palette: 'iridescent' },
@@ -620,7 +621,7 @@ void main(){
       '<details class="ld-group"><summary>Sound</summary>' + slider('audio', 'Audio sensitivity') + slider('bass', 'Bass response') + '</details>' +
       '<details class="ld-group"><summary>Look</summary>' + slider('brightness', 'Brightness') + slider('detail', 'Fine detail') + slider('complexity', 'Visual complexity') + '</details>' +
       '<details class="ld-group"><summary>Touch &amp; saved looks</summary>' +
-      '<div class="ld-drive"><button type="button" data-action="touch"></button><span>Tap: Color Pulse. Press and hold, then drag: Gravity Point. Two fingers: shift hue. Turn off while driving.</span></div>' +
+      '<div class="ld-drive"><button type="button" data-action="touch"></button><span>Tap: a new colour spreads from your finger. Press and hold, then drag: Gravity Point. Two fingers: shift hue. Turn off while driving.</span></div>' +
       '<div class="ld-save"><input data-name maxlength="24" placeholder="Name this look"><button type="button" data-action="save">Save</button></div>' +
       '<div class="ld-presets"></div><button type="button" class="ld-reset" data-action="reset">Restore default settings</button></details>' +
       '<button class="ld-return" type="button" data-action="exit">Return to Nexus</button></section><div class="ld-track" aria-live="polite"></div>';
@@ -723,12 +724,26 @@ void main(){
     function handleChange(e) { var el = e.target; if (!el.dataset.setting) return; state[el.dataset.setting] = parseFloat(el.value); state = normalizeState(state); syncUi(); saveState(); }
     function handleInput(e) { var el = e.target; if (!el.dataset.setting || el.type !== 'range') return; state[el.dataset.setting] = parseFloat(el.value); syncUi(); }
 
-    // TOUCH. Tap: Color Pulse from the exact point. Press and hold (or drag): Gravity Point follows the
+    // TOUCH. Tap: a new random palette spreads from the exact point. Press and hold (or drag): Gravity Point follows the
     // finger, and on release springs back with an outward recovery. Two fingers: hue shift.
     var touchHueTarget = 0, touchHueShift = 0, touchPointers = 0, touchGestures = Object.create(null);
-    var pulses = [], grav = { x: .5, y: .5, held: false, s: 0, v: 0, spin: 0 };
+    var wave = null, grav = { x: .5, y: .5, held: false, s: 0, v: 0, spin: 0 };
     function pointerPoint(e) { var r = layer.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width))), y: Math.max(0, Math.min(1, (e.clientY - r.top) / Math.max(1, r.height))) }; }
-    function addPulse(x, y) { if (pulses.length >= 4) pulses.shift(); pulses.push({ x: x, y: y, age: 0, str: 1 }); }
+    // Colour Wave: the new palette (any of the Liquid Dreams colours except the current one) becomes the
+    // setting at once; the shader shows it spreading out from the finger over the previous colours.
+    // A tap during a wave is held and starts as soon as that wave has covered the screen.
+    function startWave(x, y) {
+      if (wave) { wave.queued = { x: x, y: y }; return; }
+      var cur = activePaletteKey(), options = LD_SHIFT_ORDER.filter(function (k) { return k !== cur; });
+      var key = options[Math.floor(Math.random() * options.length)], target = LD_PALETTES[key], aspect = W / Math.max(1, H);
+      var from = palette.map(function (c) { return c.slice(); }), fromS = spectralNow;
+      state.color = key; colorDueAt = 0;
+      for (var i = 0; i < 4; i++) palette[i] = target.c[i].slice();
+      spectralNow = target.s;
+      var X = (x - .5) * aspect, Y = .5 - y, far = Math.max(Math.hypot(aspect / 2 + Math.abs(X), .5 + Math.abs(Y)), .3);
+      wave = { x: X, y: Y, r: 0, max: far + .2, from: from, fromS: fromS, key: key, queued: null };
+      syncUi(); saveState(); showToast('COLOUR', target.name);
+    }
     function startGravity(g) { g.grav = true; grav.held = true; grav.x = g.lastX; grav.y = g.lastY; }
     function touchDown(e) {
       if (!alive || ui.contains(e.target)) return;
@@ -757,7 +772,7 @@ void main(){
       clearTimeout(g.timer); delete touchGestures[e.pointerId]; touchPointers = Math.max(0, touchPointers - 1);
       if (g.multi) { touchHueTarget = touchPointers > 1 ? 1 : 0; return; }
       if (g.grav) { grav.held = false; return; }
-      if (!cancelled) addPulse(g.x, g.y);
+      if (!cancelled) startWave(g.x, g.y);
     }
     function touchUp(e) { touchEnd(e, false); }
     function touchCancel(e) { touchEnd(e, true); }
@@ -778,7 +793,7 @@ void main(){
       alive = false; ui.removeEventListener('click', handleClick); ui.removeEventListener('change', handleChange); ui.removeEventListener('input', handleInput);
       layer.removeEventListener('pointerdown', touchDown); layer.removeEventListener('pointermove', touchMove); layer.removeEventListener('pointerup', touchUp); layer.removeEventListener('pointercancel', touchCancel);
       Object.keys(touchGestures).forEach(function (k) { clearTimeout(touchGestures[k].timer); });
-      resetTouch(); pulses.length = 0; touchHueShift = 0;
+      resetTouch(); wave = null; touchHueShift = 0;
       clearTimeout(idleTimer); clearTimeout(toastTimer);
       if (trackTimer) clearInterval(trackTimer);
       if (glc) { glc.style.opacity = ''; glc.style.transition = ''; }
@@ -831,7 +846,7 @@ void main(){
     var TAU = Math.PI * 2, lastLevels = [0, 0, 0, 0];
     XP.liquidDebug = function () {
       return { env: state.env, color: state.color, palette: activePaletteKey(), envFrom: envIds[envFrom], envTo: envIds[envTo], envMix: envMix, spectral: spectralNow,
-        gravity: { held: grav.held, strength: grav.s, x: grav.x, y: grav.y, spin: grav.spin }, pulses: pulses.map(function (p) { return { x: p.x, y: p.y, age: p.age, str: p.str }; }),
+        gravity: { held: grav.held, strength: grav.s, x: grav.x, y: grav.y, spin: grav.spin }, wave: wave ? { x: wave.x, y: wave.y, r: wave.r, max: wave.max, palette: wave.key, queued: !!wave.queued } : null,
         frames: frames, firstFrame: firstFrame, canvasOpacity: glc ? glc.style.opacity : null, gpu: ldGpuActive, panelOpen: !panel.classList.contains('ld-hidden'),
         audio: { bass: sBass, mid: sMid, high: sHigh, energy: sEnergy, beat: beatHit }, react: { bass: lastLevels[0], mid: lastLevels[1], high: lastLevels[2], energy: lastLevels[3] },
         play: { visual: { on: play.visual.on, secs: play.visual.secs, dueIn: visualDueAt ? visualDueAt - performance.now() : null }, color: { on: play.color.on, secs: play.color.secs, dueIn: colorDueAt ? colorDueAt - performance.now() : null } } };
@@ -875,7 +890,8 @@ void main(){
       grav.s = Math.max(-.45, Math.min(1.15, grav.s));
       grav.spin += sec * 1.4 * Math.max(grav.s, 0);
       if (!grav.held && Math.abs(grav.s) < .002 && Math.abs(grav.v) < .004) { grav.s = 0; grav.v = 0; grav.spin = 0; }
-      for (var pj = pulses.length - 1; pj >= 0; pj--) { var pu = pulses[pj]; pu.age += sec; pu.str = Math.exp(-pu.age / 1.6); if (pu.age > 4.5) pulses.splice(pj, 1); }
+      // the wave front travels at an even pace (about 1.5 s across the screen), then the new colours simply stay
+      if (wave) { wave.r += sec * (low ? .75 : 1.15); if (wave.r > wave.max) { var q = wave.queued; wave = null; if (q) startWave(q.x, q.y); } }
       var complexity = state.complexity * .5, detail = state.detail * .6;
       if (!HIGH_MEMORY_DEVICE) { complexity = Math.min(.7, complexity); detail = Math.min(.9, detail); }
       var dream = activateDreamShader();
@@ -885,12 +901,12 @@ void main(){
         dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL); dream.f('energyL', energyL);
         dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35 + beatHit * .25 * (low ? .4 : 1))); dream.f('detailAmt', detail); dream.f('complexity', complexity);
         dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
-        dream.v3('pal0', palette[0]); dream.v3('pal1', palette[1]); dream.v3('pal2', palette[2]); dream.v3('pal3', palette[3]);
-        dream.f('spectral', spectralNow); dream.f('colorPhase', colorPhase); dream.f('touchHue', touchHueShift);
+        var old = wave ? wave.from : palette;
+        dream.v3('palN0', palette[0]); dream.v3('palN1', palette[1]); dream.v3('palN2', palette[2]); dream.v3('palN3', palette[3]);
+        dream.v3('palO0', old[0]); dream.v3('palO1', old[1]); dream.v3('palO2', old[2]); dream.v3('palO3', old[3]);
+        dream.f('spectral', spectralNow); dream.f('spectralO', wave ? wave.fromS : spectralNow);
+        dream.v4a('colorWave', wave ? [wave.x, wave.y, wave.r, 1] : [0, 0, 0, 0]); dream.f('colorPhase', colorPhase); dream.f('touchHue', touchHueShift);
         dream.v2('gravPos', (grav.x - .5) * aspect, .5 - grav.y); dream.f('gravStr', grav.s); dream.f('gravSpin', grav.spin);
-        ['pulseA', 'pulseB', 'pulseC', 'pulseD'].forEach(function (name, i) {
-          var pu = pulses[i]; dream.v4a(name, pu ? [(pu.x - .5) * aspect, .5 - pu.y, pu.age, pu.str] : [0, 0, 0, 0]);
-        });
         dream.draw(now, null, 0);
         frames++;
         if (!firstFrame) { firstFrame = true; requestAnimationFrame(function () { if (glc && alive) glc.style.opacity = '1'; }); }
@@ -2815,9 +2831,11 @@ void main(){
  vec3 col = ndSky(rd, t);
  float camH = 2.35;
  if(rd.y < -.0015){
-  // one refinement pass against the hill height, so crests and dips read as real elevation
+  // Hills are measured relative to the road under the camera, so the camera always rides the
+  // same height above the asphalt: the highway keeps one size and never swallows the view.
+  float h0 = hillAt(tr);
   float zf = camH/(-rd.y);
-  float tg = (camH + hillAt(tr + zf)*.45)/(-rd.y);
+  float tg = max(camH + (hillAt(tr + zf) - h0)*.26, camH*.45)/(-rd.y);
   vec3 g = ro + rd*tg;
   float zd = -g.z, wz = tr + zd, fade = exp(-zd*.0042);
   float xr = g.x - curveAt(wz)*min(1., zd*.0026);
@@ -2831,17 +2849,26 @@ void main(){
    road += mix(cB, cC, .45) * .042 * wet * (1.-night*.45);
    road += mix(cB, vec3(1.), .25) * .038 * exp(-abs(xr+3.)*.10) * smoothstep(.0,.25,fade) * (1.-night*.3);
    road += mix(cA, cB, .5) * .028 * (.5+.5*sin(wz*.02)) * wet * fade;
+   // lines widen gently with distance so far edges stay clean instead of shimmering
+   float aa = zd*.0045;
    // dashed lane markings
-   float dash = step(.42, fract(wz*.085));
-   float lane1 = smoothstep(.34,.0,abs(edge-3.7)) * dash;
-   float lane2 = smoothstep(.30,.0,abs(edge-7.4)) * dash;
+   float dash = smoothstep(.40, .44, fract(wz*.085)) * smoothstep(1., .96, fract(wz*.085));
+   float lane1 = smoothstep(.34+aa,.0,abs(edge-3.7)) * dash;
+   float lane2 = smoothstep(.30+aa,.0,abs(edge-7.4)) * dash;
    road += vec3(.85,.88,.98)*(lane1*.55+lane2*.45)*fade;
-   // neon shoulders and their bloom across the asphalt
-   float sL = smoothstep(.62,.0,abs(edge-HALF));
-   road += mix(cA, vec3(.65,.88,1.), .3)*sL*(1.5+kick*react*.9);
-   road += mix(cA, cB, .55)*exp(-abs(edge-HALF)*1.1)*.5*(1.+energy*react*.5);
-   road += mix(cB, cA, .4)*exp(-abs(edge-HALF)*.38)*.11*smoothstep(HALF,0.,edge);
-   road += mix(cA, cD, .5)*exp(-abs(edge-HALF)*.9)*.16*(1.-fade)*(.8+kick*react*.6);
+   // neon shoulders: the colour leans toward the second palette colour with the music, light
+   // pulses race along the edges with the beat, and the glow swells with the energy
+   float mus = react*clamp(energy, 0., 1.);
+   vec3 neon = mix(cA, cC, clamp(mids*react*.85, 0., .7));
+   neon = mix(neon, cD, .22*(.5+.5*sin(wz*.003 + t*.15)));
+   float run = pow(.5+.5*sin(wz*.055 - t*5.5), 8.) * (.12 + mus*1.3);
+   float sL = smoothstep(.62+aa,.0,abs(edge-HALF));
+   float core = smoothstep(.22+aa*.5,.0,abs(edge-HALF));
+   road += neon*sL*(1.55 + kick*react*1.5 + run*2.2);
+   road += mix(neon, vec3(1.), .55)*core*(.7 + kick*react*.8 + run);
+   road += mix(neon, cB, .5)*exp(-abs(edge-HALF)*1.1)*.5*(1. + mus*.9 + run*.8);
+   road += mix(cB, neon, .4)*exp(-abs(edge-HALF)*.38)*.11*smoothstep(HALF,0.,edge)*(1. + mus*.8);
+   road += mix(neon, cD, .5)*exp(-abs(edge-HALF)*.9)*.16*(1.-fade)*(.8+kick*react*.9);
    ground = mix(ground, road, smoothstep(HALF+1.6, HALF+.2, edge));
   }
   ground = mix(ndHaze(rd, t), ground, fade);
@@ -2936,13 +2963,18 @@ vec4 ndRings(vec3 ro, vec3 rd, vec3 rn, vec3 L, float t, float tPlanet, out floa
  float distAx = length((PC - pos) - L*along);
  float shadow = (along > 0. && distAx < PR) ? smoothstep(PR, PR*.72, distAx) : 0.;
  dens *= 1.-shadow*.88;
- float hu = r*1.15 + band*.3 + t*.003;
+ float hu = r*1.15 + band*.3 + t*.003 + mids*react*.18;
  float sweep = .5+.5*cos(hu*6.28318);
  vec3 col = mix(mix(cB, cC, sweep), cA, smoothstep(.55,1., .5+.5*sin(hu*12.566)) * .55);
  col = mix(col, cA, smoothstep(.5,.95,fine)*.3);
  col = mix(col, mix(col, vec3(1.), .75), pow(fine,3.)*.5);
  col += vec3(.75,.85,1.)*pow(smoothstep(.55,1.,dens),2.)*.5;
- return vec4(col*(.62+dens*1.05)*(1.+energy*react*.3+mids*react*.45), clamp(dens*1.9, 0., 1.));
+ // with music, bright ripples travel outward through the rings and the fine bands shimmer
+ float ring = 1.25 + fract(t*.32)*1.45, ring2 = 1.25 + fract(t*.32+.5)*1.45;
+ float wave = (exp(-pow((r-ring)*7.,2.)) + exp(-pow((r-ring2)*7.,2.))) * react * (.2*energy + .6*kick);
+ col += mix(cA, cC, .3) * wave * (.4 + dens);
+ col *= 1. + highs*react*.35*fine;
+ return vec4(col*(.62+dens*1.05)*(1.+energy*react*.35+mids*react*.45), clamp(dens*1.9 + wave*.25, 0., 1.));
 }
 vec3 ndHaze(vec3 rd, float t){
  vec3 skyLow = mix(vec3(.040,.060,.150), vec3(.014,.022,.068), night);
@@ -3021,7 +3053,7 @@ vec3 ndSky(vec3 rd, float t){
     var oldGLX = GLX;
     GLX = HIGH_MEMORY_DEVICE ? 1.05 : .70;
     var quality = HIGH_MEMORY_DEVICE ? 1 : 0;
-    var travel = 0, lastNow = 0, frames = 0, beat = null, g = null, failed = false;
+    var travel = 0, lastNow = 0, frames = 0, beat = null, g = null, failed = false, surge = 0;
 
     function beatOn() { if (!beat) beat = beatTracker({ quiet: true }); }
     function beatOff() { beat = null; try { if (A) A.meter(false); } catch (e) {} }
@@ -3083,10 +3115,12 @@ vec3 ndSky(vec3 rd, float t){
     if (!failed) loop(function (now) {
       var dt = lastNow ? Math.min(.1, (now - lastNow) / 1000) : .016;
       lastNow = now;
-      travel += speed[2] * dt;
-      if (travel > 1e7) travel -= 1e7;   // stays in float range on a very long journey
       var b = null;
       if (beat) { beat.tick(now); b = beat; }
+      // the drive surges with the music's energy and eases back when it calms (never jumps)
+      surge += ((react && b ? Math.min(1, b.e) * .4 : 0) - surge) * Math.min(1, dt * 1.5);
+      travel += speed[2] * dt * (1 + surge);
+      if (travel > 1e7) travel -= 1e7;   // stays in float range on a very long journey
       g.f('travel', travel);
       g.f('night', timeOfNight[2]);
       g.f('react', react ? 1 : 0);

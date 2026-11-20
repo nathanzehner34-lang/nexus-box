@@ -42,7 +42,7 @@
   var bassFast = 0, bassSlow = .01, bassPeak = .02, energyFast = .08, energySlow = .08, highFast = 0, highSlow = 0;
   var buildUp = 0, beatPhase = 1, beatPeriod = .5, beatConfidence = 0, lastBeatAt = 0, lastQuietAt = 0;
   var burstPower = 0, burstAge = 9, burstEnv = 0, lastBurstAt = 0, lastDropAt = 0, burstCount = 0, fieldRecoil = 0;
-  var flowRgb = [];
+  var flowRgb = [], musicHue = 0, colorDrive = 0;
   var PARTY_SHADER = [
     "#ifdef GL_FRAGMENT_PRECISION_HIGH",
     "precision highp float;",
@@ -479,8 +479,15 @@
     gl.uniform1f(glU.recoil, fieldRecoil);
     var c1 = tint(pal[0] || [40, 234, 255], 1), c2 = tint(pal[5] || [231, 251, 255], .95), c3 = tint(pal[2] || [165, 104, 255], 1);
     var flowAccent = tint(pal[3] || [255, 83, 200], 1);
-    gl.uniform3f(glU.c1, c1[0], c1[1], c1[2]); gl.uniform3f(glU.c2, c2[0], c2[1], c2[2]);
-    gl.uniform3f(glU.c3, c3[0] * .55 + flowAccent[0] * .45, c3[1] * .55 + flowAccent[1] * .45, c3[2] * .55 + flowAccent[2] * .45);
+    var c3m = [c3[0] * .55 + flowAccent[0] * .45, c3[1] * .55 + flowAccent[1] * .45, c3[2] * .55 + flowAccent[2] * .45];
+    // With music the palette's colours flow into one another, faster on the beat; silence holds them still.
+    musicHue = (musicHue + s * (eNorm * .45 + beatN * .35)) % 6.2832;
+    colorDrive += ((eNorm > .02 ? Math.min(1, eNorm * 1.4 + beatN * .3) : 0) - colorDrive) * Math.min(1, s * 1.2);
+    var k1 = colorDrive * .55 * (.5 + .5 * Math.sin(musicHue)), k3 = colorDrive * .5 * (.5 + .5 * Math.sin(musicHue + 2.1));
+    var a1 = [c1[0] + (c3m[0] - c1[0]) * k1, c1[1] + (c3m[1] - c1[1]) * k1, c1[2] + (c3m[2] - c1[2]) * k1];
+    var a3 = [c3m[0] + (c1[0] - c3m[0]) * k3, c3m[1] + (c1[1] - c3m[1]) * k3, c3m[2] + (c1[2] - c3m[2]) * k3];
+    gl.uniform3f(glU.c1, a1[0], a1[1], a1[2]); gl.uniform3f(glU.c2, c2[0], c2[1], c2[2]);
+    gl.uniform3f(glU.c3, a3[0], a3[1], a3[2]);
     gl.uniform3f(glU.tapP, (tapAt.x - w * .5) / h, -(tapAt.y - h * .5) / h, tapAt.age);
     for (var fi = 0; fi < 4; fi++) {
       var fc = tint(flowRgb[fi] || presets[preset].accent, 1);

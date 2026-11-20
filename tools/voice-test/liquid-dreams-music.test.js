@@ -28,7 +28,7 @@ assert(/dream\.f\('bassL', bassL\); dream\.f\('midL', midL\); dream\.f\('highL',
 });
 // Existing controls and interactions must still be intact.
 ['data-action="next"', 'data-action="shift"', 'data-play="visual"', 'data-play="color"', 'data-action="touch"',
-  'data-action="save"', 'data-action="lowmotion"', 'data-action="shuffle"', 'data-action="clean"', 'startGravity', 'addPulse', 'ld-slider'
+  'data-action="save"', 'data-action="lowmotion"', 'data-action="shuffle"', 'data-action="clean"', 'startGravity', 'startWave', 'ld-slider'
 ].forEach(s => assert(source.includes(s), 'control preserved: ' + s));
 assert(/function liquidDreams\(\)/.test(source), 'liquidDreams() experience function is present');
 
@@ -150,7 +150,7 @@ const scenario = `
  // Touch interaction still works while/after music has been playing.
  const Rc = L().getBoundingClientRect(), ev = (t, x, y) => L().dispatchEvent(new PointerEvent(t, { clientX: Rc.left + x * Rc.width, clientY: Rc.top + y * Rc.height, pointerId: 11, bubbles: true, cancelable: true }));
  ev('pointerdown', .35, .4); await wait(60); ev('pointerup', .35, .4); await wait(120);
- R.pulseAfterMusic = D().pulses.length;
+ R.pulseAfterMusic = D().wave ? 1 : 0;
  ev('pointerdown', .6, .5); await wait(500); R.gravityAfterMusic = D().gravity.strength > .7;
  ev('pointerup', .6, .5);
  // Sliders, Play All and saved settings still function.
@@ -209,7 +209,7 @@ out.textContent='RESULT='+JSON.stringify(R);
   assert(app.silent.bass < .15 && app.silent.energy < .2, 'the analysis settles back down in silence rather than holding the last loud reading (' + JSON.stringify(app.silent) + ')');
 
   // Controls still work during and after music.
-  assert.strictEqual(app.pulseAfterMusic, 1, 'Color Pulse still fires after music has been playing');
+  assert.strictEqual(app.pulseAfterMusic, 1, 'a tap still starts a Colour Wave after music has been playing');
   assert(app.gravityAfterMusic, 'Gravity Point still builds under a held finger after music has been playing');
   assert.strictEqual(app.controlsAfterMusic.speed, 1.6, 'the speed slider still saves its value');
   assert.strictEqual(app.controlsAfterMusic.playOn, true, 'Visual Play All still toggles on');
