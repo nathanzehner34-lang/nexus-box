@@ -168,7 +168,7 @@ try {
   assert.deepStrictEqual(a.errors, [], 'Liquid Dreams raised no browser errors');
   assert(a.gl, 'Liquid Dreams draws with the GPU in the 2 GB profile');
   assert.strictEqual(a.envButtons, 6, 'six environment buttons');
-  assert.strictEqual(a.colorButtons, 16, 'fourteen palettes plus Signature and Music Reactive');
+  assert.strictEqual(a.colorButtons, 15, 'fourteen palettes plus Signature (the Music Reactive option is gone)');
   assert.strictEqual(a.sliders, 8, 'eight working adjustment sliders');
   assert.deepStrictEqual(a.migrated, { env: 'iridescence', color: 'aurora', complexity: 1.8, audio: 1.2, touch: true, v: 3 }, 'saved settings from the earlier Liquid Dreams migrate');
   assert.deepStrictEqual(a.after, { env: 'chrome', color: 'aurora', speed: 1.5, lowMotion: true }, 'environment, palette, slider and low-motion controls save their changes');

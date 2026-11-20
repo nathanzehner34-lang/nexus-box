@@ -69,6 +69,7 @@ jobs:
           node tools/voice-test/visual-gallery-render.test.js
           node tools/voice-test/liquid-dreams-development.test.js
           node tools/voice-test/liquid-dreams-render.test.js
+          node --check tools/voice-test/liquid-dreams-playall.test.js
           node tools/voice-test/party-mode-render.test.js
           node --check tools/voice-test/party-experiences-render.test.js
           node --check tools/voice-test/visuals-five-render.test.js

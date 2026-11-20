@@ -529,7 +529,6 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #xp.liquid-dreams .ld-colors button{display:flex;align-items:center;gap:8px;min-height:38px;padding:7px 11px 7px 8px;border-radius:999px;font-size:clamp(11px,.78vw,12.5px);color:rgba(236,240,248,.85)}
 #xp.liquid-dreams .ld-dot{width:16px;height:16px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
 #xp.liquid-dreams .ld-dot-sig{background:conic-gradient(from 200deg,#0a5560,#4b2a7a,#7b7f88,#2f7a55,#0a5560)}
-#xp.liquid-dreams .ld-dot-music{background:radial-gradient(circle at 35% 35%,#e4f6ff,#6d8cff 45%,#2a1640 100%)}
 #xp.liquid-dreams .ld-quick{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:16px}
 #xp.liquid-dreams .ld-quick button{font-size:clamp(11px,.76vw,12.5px);letter-spacing:.03em;padding:9px 4px}
 #xp.liquid-dreams .ld-group{margin-top:12px;border-top:1px solid rgba(255,255,255,.07);padding-top:4px}
@@ -618,3 +617,12 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #vxBar .vx-list { display: flex; gap: .4vw; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; min-width: 0; }
 #vxBar .vx-list::-webkit-scrollbar { display: none; }
 #vxBar .vx-exit { flex: 0 0 auto; }
+#xp.liquid-dreams .ld-play{display:grid;gap:8px;margin-top:4px}
+#xp.liquid-dreams .ld-play-row{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"sw k" "secs secs";gap:6px 10px;align-items:center;padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.025)}
+#xp.liquid-dreams .ld-play-sw{grid-area:sw;min-width:58px;padding:8px 10px;font-size:12px;letter-spacing:.06em}
+#xp.liquid-dreams .ld-play-k{grid-area:k;display:flex;flex-direction:column;gap:2px;font-size:clamp(12px,.82vw,13.5px);color:#eef3ff}
+#xp.liquid-dreams .ld-play-k small{font-size:clamp(10px,.7vw,11.5px);color:rgba(220,226,240,.5)}
+#xp.liquid-dreams .ld-play-secs{grid-area:secs;display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+#xp.liquid-dreams .ld-play-secs button{padding:8px 4px;font-size:12px}
+#xp.liquid-dreams .ld-next,#xp.liquid-dreams .ld-shift{position:relative}
+#xp.liquid-dreams .ld-auto::after{content:'AUTO';position:absolute;top:6px;right:10px;font-size:9px;letter-spacing:.16em;color:rgba(160,230,255,.85)}

@@ -524,9 +524,9 @@ void main(){
   // COLOR SHIFT walks this order; it never changes the experience.
   var LD_SHIFT_ORDER = ['electric','pink','rainbow','ultraviolet','flowing','neon','midnight','deepteal','violet','chrome','iridescent','aurora','obsidian','arctic'];
   var LD_PALETTE_ORDER = LD_SHIFT_ORDER;
-  // Music Reactive mode moves along this calm-to-vivid order as the music's long-term mood changes.
-  var LD_MOOD_ORDER = ['midnight','obsidian','deepteal','violet','electric','arctic','flowing','pink','neon','rainbow'];
-  var LD_RANGES = { speed: [.2, 2], movement: [0, 2], audio: [0, 2], bass: [0, 2], colorSpeed: [.25, 3], brightness: [.6, 1.5], detail: [0, 2], complexity: [0, 2] };
+  var LD_RANGES = { speed: [.2, 2], movement: [0, 2], audio: [.3, 2], bass: [.3, 2], colorSpeed: [.25, 3], brightness: [.6, 1.5], detail: [0, 2], complexity: [0, 2] };
+  // Play All intervals (seconds). Visual Play All cycles the six experiences, Colour Play All the palettes.
+  var LD_VISUAL_PLAY_SECS = [10, 30, 60], LD_COLOR_PLAY_SECS = [10, 20, 30];
   var LD_ICONS = {
     exit: '<svg viewBox="0 0 24 24"><path d="M14.5 6.5L9 12l5.5 5.5"/><path d="M9.5 12H20"/><path d="M4 4.5v15"/></svg>',
     next: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
@@ -536,10 +536,10 @@ void main(){
   function liquidDreams() {
     var b = beatTracker({ quiet: true }), lastT = performance.now();
     var envIds = LD_ENVIRONMENTS.map(function (e) { return e.id; });
-    var colors = ['signature'].concat(LD_SHIFT_ORDER, ['music']);
+    var colors = ['signature'].concat(LD_SHIFT_ORDER);
     var defaults = { v: 3, env: 'deepflow', color: 'electric', speed: 1, movement: 1, audio: 1, bass: 1, colorSpeed: 1, brightness: 1, detail: 1, complexity: 1, lowMotion: false, touch: true };
     var legacyEnv = { tunnel: 'cosmic', kaleidoscope: 'iridescence', liquid: 'deepflow', cosmic: 'cosmic', morph: 'organic', prism: 'iridescence', ink: 'deepflow', clouds: 'ether', chrome: 'ether', fluid: 'deepflow', oil: 'deepflow', psychedelic: 'iridescence' };
-    var legacyColor = { spectrum: 'music', electric: 'arctic', rush: 'aurora', rainbow: 'iridescent', ultraviolet: 'violet', storm: 'chrome' };
+    var legacyColor = { spectrum: 'electric', electric: 'arctic', rush: 'aurora', rainbow: 'iridescent', ultraviolet: 'violet', storm: 'chrome' };
     function read(key, fallback) { try { var v = N.pref(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
     function write(key, val) { try { if (A && A.setPref) A.setPref(key, JSON.stringify(val)); else localStorage.setItem('p_' + key, JSON.stringify(val)); } catch (e) {} }
     function normalizeState(value) {
@@ -557,7 +557,9 @@ void main(){
       // Version 2 kept touch off in its default Driving mode; touch interaction is now on unless switched off.
       if (src.v !== 3) next.touch = true;
       if (envIds.indexOf(next.env) < 0) next.env = defaults.env;
-      if (colors.indexOf(next.color) < 0) next.color = defaults.color;
+      // The old Music Reactive colour mode is gone: music now animates every palette, and automatic
+      // colour changes belong to Colour Play All. Saved settings and looks using it move to the default palette.
+      if (next.color === 'music' || colors.indexOf(next.color) < 0) next.color = defaults.color;
       next.lowMotion = next.lowMotion === true;
       next.touch = next.touch !== false;
       Object.keys(LD_RANGES).forEach(function (k) {
@@ -570,6 +572,15 @@ void main(){
     var state = normalizeState(read('liquidDreams.settings', defaults));
     var presets = read('liquidDreams.presets', []);
     if (!Array.isArray(presets)) presets = [];
+    presets = presets.filter(function (p) { return p && typeof p === 'object'; }).map(function (p) { return { name: String(p.name || 'Saved look'), settings: normalizeState(p.settings) }; });
+    // Visual Play All and Colour Play All: independent switches and intervals, remembered between visits.
+    function normalizePlay(v) {
+      var src = v && typeof v === 'object' ? v : {}, vis = src.visual || {}, col = src.color || {};
+      return { visual: { on: vis.on === true, secs: LD_VISUAL_PLAY_SECS.indexOf(+vis.secs) >= 0 ? +vis.secs : 30 },
+        color: { on: col.on === true, secs: LD_COLOR_PLAY_SECS.indexOf(+col.secs) >= 0 ? +col.secs : 20 } };
+    }
+    var play = normalizePlay(read('liquidDreams.playAll', null)), visualDueAt = 0, colorDueAt = 0;
+    function savePlay() { write('liquidDreams.playAll', play); }
     var clean = false, alive = true, idleTimer = 0, toastTimer = 0;
     function envInfo(id) { for (var i = 0; i < LD_ENVIRONMENTS.length; i++) if (LD_ENVIRONMENTS[i].id === id) return LD_ENVIRONMENTS[i]; return LD_ENVIRONMENTS[0]; }
     function css(c) { return 'rgb(' + c.map(function (v) { return Math.round(Math.min(1, v) * 255); }).join(',') + ')'; }
@@ -578,7 +589,7 @@ void main(){
       if (p.s > .5) return 'linear-gradient(135deg,#ff3b6b,#ffb52e 25%,#4dff7a 45%,#2ec8ff 65%,#8a4dff 85%,#ff4de1)';
       return 'linear-gradient(135deg,' + css(c[0]) + ' 0%,' + css(c[1]) + ' 38%,' + css(c[2]) + ' 72%,' + css(c[3]) + ' 100%)';
     }
-    function activePaletteKey() { return state.color === 'signature' ? envInfo(state.env).palette : state.color === 'music' ? moodPalette : state.color; }
+    function activePaletteKey() { return state.color === 'signature' ? envInfo(state.env).palette : state.color; }
     function slider(key, label) { var r = LD_RANGES[key]; return '<label class="ld-slider"><span>' + label + '</span><output data-out="' + key + '"></output><input type="range" min="' + r[0] + '" max="' + r[1] + '" step=".05" data-setting="' + key + '"></label>'; }
     var ui = document.createElement('div'); ui.className = 'ld-ui';
     ui.innerHTML =
@@ -598,8 +609,12 @@ void main(){
       }).join('') + '</div>' +
       '<div class="ld-title">Colour</div><div class="ld-colors">' +
       LD_SHIFT_ORDER.map(function (k) { return '<button type="button" data-color="' + k + '"><span class="ld-dot" style="background:' + swatch(k) + '"></span>' + LD_PALETTES[k].name + '</button>'; }).join('') +
-      '<button type="button" data-color="signature"><span class="ld-dot ld-dot-sig"></span>Signature</button>' +
-      '<button type="button" data-color="music"><span class="ld-dot ld-dot-music"></span>Music Reactive</button></div>' +
+      '<button type="button" data-color="signature"><span class="ld-dot ld-dot-sig"></span>Signature</button></div>' +
+      '<div class="ld-title">Play All</div><div class="ld-play">' +
+      '<div class="ld-play-row" data-play-row="visual"><button type="button" class="ld-play-sw" data-play="visual" aria-pressed="false"></button><span class="ld-play-k">Visual Play All<small>All six experiences, in order</small></span><div class="ld-play-secs">' +
+      LD_VISUAL_PLAY_SECS.map(function (n) { return '<button type="button" data-play-secs="visual:' + n + '">' + (n < 60 ? n + 's' : '1 min') + '</button>'; }).join('') + '</div></div>' +
+      '<div class="ld-play-row" data-play-row="color"><button type="button" class="ld-play-sw" data-play="color" aria-pressed="false"></button><span class="ld-play-k">Colour Play All<small>Every palette, experience stays</small></span><div class="ld-play-secs">' +
+      LD_COLOR_PLAY_SECS.map(function (n) { return '<button type="button" data-play-secs="color:' + n + '">' + n + 's</button>'; }).join('') + '</div></div></div>' +
       '<div class="ld-quick"><button type="button" data-action="lowmotion">Low motion</button><button type="button" data-action="shuffle">Shuffle</button><button type="button" data-action="clean">Clean screen</button></div>' +
       '<details class="ld-group" open><summary>Motion</summary>' + slider('speed', 'Animation speed') + slider('movement', 'Movement intensity') + slider('colorSpeed', 'Colour transition speed') + '</details>' +
       '<details class="ld-group"><summary>Sound</summary>' + slider('audio', 'Audio sensitivity') + slider('bass', 'Bass response') + '</details>' +
@@ -622,7 +637,7 @@ void main(){
         row.appendChild(load); row.appendChild(del); presetBox.appendChild(row);
       });
     }
-    function colorName() { return state.color === 'signature' ? 'Signature' : state.color === 'music' ? 'Music Reactive' : LD_PALETTES[state.color].name; }
+    function colorName() { return state.color === 'signature' ? 'Signature' : LD_PALETTES[state.color].name; }
     function syncUi() {
       ui.querySelectorAll('[data-setting]').forEach(function (el) { el.value = state[el.dataset.setting]; });
       ui.querySelectorAll('[data-out]').forEach(function (el) { el.textContent = Math.round(state[el.dataset.out] * 100) + '%'; });
@@ -635,7 +650,14 @@ void main(){
       nowLabel.textContent = envInfo(state.env).name + ' · ' + colorName();
       ui.querySelector('[data-envname]').textContent = envInfo(state.env).name;
       ui.querySelector('[data-palname]').textContent = colorName();
-      ui.querySelector('[data-shiftsw]').style.background = state.color === 'music' ? 'radial-gradient(circle at 35% 35%,#e4f6ff,#6d8cff 45%,#2a1640)' : swatch(activePaletteKey());
+      ui.querySelector('[data-shiftsw]').style.background = swatch(activePaletteKey());
+      ['visual', 'color'].forEach(function (kind) {
+        var sw = ui.querySelector('[data-play="' + kind + '"]'), on = play[kind].on;
+        sw.textContent = on ? 'On' : 'Off'; sw.classList.toggle('selected', on); sw.setAttribute('aria-pressed', on ? 'true' : 'false');
+        ui.querySelectorAll('[data-play-secs^="' + kind + ':"]').forEach(function (el) { var sel = +el.dataset.playSecs.split(':')[1] === play[kind].secs; el.classList.toggle('selected', sel); el.setAttribute('aria-pressed', sel ? 'true' : 'false'); });
+      });
+      ui.querySelector('.ld-next').classList.toggle('ld-auto', play.visual.on);
+      ui.querySelector('.ld-shift').classList.toggle('ld-auto', play.color.on);
     }
     // The dock stays reachable at all times; it settles to a quiet state when untouched.
     function wake() { ui.classList.remove('ld-idle'); clearTimeout(idleTimer); idleTimer = setTimeout(function () { if (alive) ui.classList.add('ld-idle'); }, 5000); }
@@ -658,23 +680,32 @@ void main(){
       state.color = LD_SHIFT_ORDER[(i + 1) % LD_SHIFT_ORDER.length];
       syncUi(); saveState(); showToast(LD_PALETTES[state.color].name, 'Color Shift');
     }
+    function secsLabel(n) { return n < 60 ? n + ' seconds' : '1 minute'; }
+    // Play All runs from the render loop's clock: one schedule per control, nothing left running after exit.
+    function runPlayAll(now) {
+      if (play.visual.on) { if (!visualDueAt) visualDueAt = now + play.visual.secs * 1000; else if (now >= visualDueAt) { nextExperience(); visualDueAt = now + play.visual.secs * 1000; } } else visualDueAt = 0;
+      if (play.color.on) { if (!colorDueAt) colorDueAt = now + play.color.secs * 1000; else if (now >= colorDueAt) { colorShift(); colorDueAt = now + play.color.secs * 1000; } } else colorDueAt = 0;
+    }
     function shuffle() {
       var options = envIds.filter(function (id) { return id !== state.env; });
       state.env = options[Math.floor(Math.random() * options.length)];
       state.color = LD_SHIFT_ORDER[Math.floor(Math.random() * LD_SHIFT_ORDER.length)];
+      visualDueAt = 0; colorDueAt = 0;
       syncUi(); saveState(); showToast(envInfo(state.env).name, LD_PALETTES[state.color].name);
     }
     function resetTouch() { touchGestures = Object.create(null); touchPointers = 0; touchHueTarget = 0; grav.held = false; }
     function handleClick(e) {
       var t = e.target.closest('button'); if (!t) return;
       wake();
-      if (t.dataset.env) { if (state.color === 'signature' && t.dataset.env !== state.env) state.color = envInfo(state.env).palette; state.env = t.dataset.env; syncUi(); saveState(); return; }
-      if (t.dataset.color) { state.color = t.dataset.color; syncUi(); saveState(); return; }
-      if (t.dataset.load !== undefined) { var p = presets[+t.dataset.load]; if (p) { state = normalizeState(p.settings); syncUi(); saveState(); } return; }
+      if (t.dataset.env) { if (state.color === 'signature' && t.dataset.env !== state.env) state.color = envInfo(state.env).palette; state.env = t.dataset.env; visualDueAt = 0; syncUi(); saveState(); return; }
+      if (t.dataset.color) { state.color = t.dataset.color; colorDueAt = 0; syncUi(); saveState(); return; }
+      if (t.dataset.play) { var pk = t.dataset.play; play[pk].on = !play[pk].on; if (pk === 'visual') visualDueAt = 0; else colorDueAt = 0; savePlay(); syncUi(); showToast(pk === 'visual' ? 'Visual Play All' : 'Colour Play All', play[pk].on ? 'On · every ' + secsLabel(play[pk].secs) : 'Off'); return; }
+      if (t.dataset.playSecs) { var parts = t.dataset.playSecs.split(':'); play[parts[0]].secs = +parts[1]; play = normalizePlay(play); if (parts[0] === 'visual') visualDueAt = 0; else colorDueAt = 0; savePlay(); syncUi(); return; }
+      if (t.dataset.load !== undefined) { var p = presets[+t.dataset.load]; if (p) { state = normalizeState(p.settings); visualDueAt = 0; colorDueAt = 0; syncUi(); saveState(); } return; }
       if (t.dataset.delete !== undefined) { presets.splice(+t.dataset.delete, 1); write('liquidDreams.presets', presets); presetList(); return; }
       switch (t.dataset.action) {
-        case 'next': nextExperience(); break;
-        case 'shift': colorShift(); break;
+        case 'next': nextExperience(); visualDueAt = 0; break;
+        case 'shift': colorShift(); colorDueAt = 0; break;
         case 'controls': if (panel.classList.contains('ld-hidden')) openPanel(); else closePanel(); break;
         case 'close': closePanel(); break;
         case 'exit': $('xpClose').click(); break;
@@ -761,26 +792,14 @@ void main(){
 
     // Live render state. Everything eases: no flashes, no hard cuts, no black frames.
     var envIndex = envIds.indexOf(state.env), envFrom = envIndex, envTo = envIndex, envMix = 0;
-    var moodPalette = LD_PALETTES[state.color] ? state.color : envInfo(state.env).palette, moodSwitchAt = 0, moodEnergy = 0, moodBright = 0;
+    var moodPalette = activePaletteKey(), beatHit = 0;
     var palette = LD_PALETTES[activePaletteKey()].c.map(function (c) { return c.slice(); }), spectralNow = LD_PALETTES[activePaletteKey()].s, colorPhase = Math.random();
     var sBass = 0, sMid = 0, sHigh = 0, sEnergy = 0, flow = 20 + Math.random() * 40, speedNow = state.speed, moveNow = state.movement;
     // A palette-coloured backdrop sits under the GPU canvas so the first frames are never black.
     function paintBackdrop() { layer.style.background = 'radial-gradient(ellipse at 40% 45%,' + css(palette[1].map(function (v) { return v * .6; })) + ' 0%,' + css(palette[0]) + ' 70%)'; }
     paintBackdrop();
     function ease(cur, target, dt, up, down) { return cur + (target - cur) * (1 - Math.exp(-dt / (target > cur ? up : down))); }
-    function targetPalette(now, dt) {
-      if (state.color === 'music') {
-        if (b.live) {
-          moodEnergy = ease(moodEnergy, Math.min(1, b.e), dt, 9000, 9000);
-          moodBright = ease(moodBright, Math.min(1, b.high), dt, 9000, 9000);
-          if (now - moodSwitchAt > 15000) {
-            var score = Math.max(0, Math.min(1, moodEnergy * 1.1 + moodBright * .5 - .1));
-            var pick = LD_MOOD_ORDER[Math.round(score * (LD_MOOD_ORDER.length - 1))];
-            if (pick !== moodPalette) { moodPalette = pick; moodSwitchAt = now; }
-          }
-        }
-        return LD_PALETTES[moodPalette];
-      }
+    function targetPalette() {
       moodPalette = activePaletteKey();
       return LD_PALETTES[moodPalette];
     }
@@ -809,12 +828,13 @@ void main(){
       }
       cx.globalCompositeOperation = 'source-over';
     }
-    var TAU = Math.PI * 2;
+    var TAU = Math.PI * 2, lastLevels = [0, 0, 0, 0];
     XP.liquidDebug = function () {
       return { env: state.env, color: state.color, palette: activePaletteKey(), envFrom: envIds[envFrom], envTo: envIds[envTo], envMix: envMix, spectral: spectralNow,
         gravity: { held: grav.held, strength: grav.s, x: grav.x, y: grav.y, spin: grav.spin }, pulses: pulses.map(function (p) { return { x: p.x, y: p.y, age: p.age, str: p.str }; }),
         frames: frames, firstFrame: firstFrame, canvasOpacity: glc ? glc.style.opacity : null, gpu: ldGpuActive, panelOpen: !panel.classList.contains('ld-hidden'),
-        audio: { bass: sBass, mid: sMid, high: sHigh, energy: sEnergy } };
+        audio: { bass: sBass, mid: sMid, high: sHigh, energy: sEnergy, beat: beatHit }, react: { bass: lastLevels[0], mid: lastLevels[1], high: lastLevels[2], energy: lastLevels[3] },
+        play: { visual: { on: play.visual.on, secs: play.visual.secs, dueIn: visualDueAt ? visualDueAt - performance.now() : null }, color: { on: play.color.on, secs: play.color.secs, dueIn: colorDueAt ? colorDueAt - performance.now() : null } } };
     };
     function draw(now) {
       if (!alive || !XP.active || XP.current !== 'liquiddreams') return;
@@ -828,8 +848,12 @@ void main(){
       sMid = ease(sMid, live ? Math.min(1.2, b.mid) : 0, dt, 220, 900);
       sHigh = ease(sHigh, live ? Math.min(1.2, b.high) : 0, dt, 70, 380);
       sEnergy = ease(sEnergy, live ? Math.min(1.2, b.e) : 0, dt, 250, 1400);
-      var react = state.audio * (low ? .35 : 1);
-      var bassL = Math.min(1, sBass * react * state.bass * 1.6), midL = Math.min(1, sMid * react * 1.5), highL = Math.min(1, sHigh * react * 1.6), energyL = Math.min(1, sEnergy * react * 1.3);
+      // Music reactivity is always on: sensitivity can be tuned but never switched off, in every experience and palette.
+      if (live && b.hit) beatHit = Math.min(1, beatHit + .55 + Math.min(1, b.k) * .45);
+      beatHit *= Math.exp(-dt / 260);
+      var react = Math.max(LD_RANGES.audio[0], state.audio) * (low ? .35 : 1);
+      var bassL = Math.min(1, (sBass + beatHit * .35) * react * state.bass * 1.6), midL = Math.min(1, sMid * react * 1.5), highL = Math.min(1, sHigh * react * 1.6), energyL = Math.min(1, (sEnergy + beatHit * .2) * react * 1.3);
+      lastLevels = [bassL, midL, highL, energyL];
       speedNow = ease(speedNow, state.speed * (low ? .4 : 1), dt, 600, 600);
       moveNow = ease(moveNow, state.movement * (low ? .45 : 1), dt, 600, 600);
       flow += sec * speedNow * (1 + midL * .5 + energyL * .4);
@@ -837,7 +861,8 @@ void main(){
       var wanted = envIds.indexOf(state.env);
       if (wanted !== envTo) { if (envFrom !== envTo && envMix > .5) envFrom = envTo; envTo = wanted; envMix = 0; }
       if (envFrom !== envTo) { envMix += dt / (low ? 4200 : 2600); if (envMix >= 1) { envFrom = envTo; envMix = 0; } }
-      var target = targetPalette(now, dt), k = 1 - Math.exp(-dt / (2400 / state.colorSpeed * (low ? 1.6 : 1)));
+      runPlayAll(now);
+      var target = targetPalette(), k = 1 - Math.exp(-dt / (2400 / state.colorSpeed * (low ? 1.6 : 1)));
       for (var pi = 0; pi < 4; pi++) for (var ci = 0; ci < 3; ci++) palette[pi][ci] += (target.c[pi][ci] - palette[pi][ci]) * k;
       spectralNow += (target.s - spectralNow) * k;
       colorPhase += sec * (.012 + energyL * .06 + midL * .03) * state.colorSpeed * (low ? .4 : 1);
@@ -856,7 +881,7 @@ void main(){
         var mixEased = envMix * envMix * (3 - 2 * envMix), aspect = W / H;
         dream.f('envA', envFrom); dream.f('envB', envTo); dream.f('envMix', envFrom === envTo ? 0 : mixEased);
         dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL); dream.f('energyL', energyL);
-        dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35)); dream.f('detailAmt', detail); dream.f('complexity', complexity);
+        dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35 + beatHit * .25 * (low ? .4 : 1))); dream.f('detailAmt', detail); dream.f('complexity', complexity);
         dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
         dream.v3('pal0', palette[0]); dream.v3('pal1', palette[1]); dream.v3('pal2', palette[2]); dream.v3('pal3', palette[3]);
         dream.f('spectral', spectralNow); dream.f('colorPhase', colorPhase); dream.f('touchHue', touchHueShift);

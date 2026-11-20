@@ -21,7 +21,8 @@ for (const family of ['space','fluid','prism','organic','neon']) assert(xp.inclu
 assert(xp.includes('HIGH_MEMORY_DEVICE ? 0.9 : 0.8') && xp.includes('HIGH_MEMORY_DEVICE ? 88 : 30') && xp.includes('VX_GLX_MAX = HIGH_MEMORY_DEVICE ? 1.25 : 1'), 'Visuals adapt resolution and detail to device memory');
 assert(xp.includes('function liquidDreams()') && xp.includes('liquiddreams: liquidDreams'), 'Liquid Dreams is independently registered');
 for (const env of ['deepflow','iridescence','ether','chrome','cosmic','organic']) assert(xp.includes("id: '" + env + "'") && xp.includes('data-env="'), env + ' Liquid Dreams environment exists and is selectable');
-for (const color of ['midnight','deepteal','violet','chrome','iridescent','aurora','obsidian','arctic','signature','music']) assert(xp.includes(color + ': {') || xp.includes("'" + color + "'"), color + ' colour mode exists');
+for (const color of ['midnight','deepteal','violet','chrome','iridescent','aurora','obsidian','arctic','signature']) assert(xp.includes(color + ': {') || xp.includes("'" + color + "'"), color + ' colour mode exists');
+assert(!xp.includes('data-color="music"') && !xp.includes('Music Reactive</button>'), 'the separate Music Reactive colour option is removed');
 for (const setting of ['speed','movement','audio','bass','colorSpeed','brightness','detail','complexity']) assert(xp.includes("slider('" + setting + "'"), setting + ' controller is present');
 for (const action of ['next','shift','controls','shuffle','lowmotion','clean','touch','save','reset','exit']) assert(xp.includes("case '" + action + "'"), action + ' control is connected');
 assert(xp.includes('liquidDreams.settings') && xp.includes('liquidDreams.presets') && xp.includes('p.settings'), 'Liquid Dreams settings and named presets persist');
