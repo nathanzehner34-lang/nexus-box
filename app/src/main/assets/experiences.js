@@ -844,10 +844,12 @@ void main(){
       var low = state.lowMotion, live = b.live;
       // Bass drives the large forms, midrange the flow, treble the fine highlights, and the overall
       // beat energy the movement and colour flow. Each band is smoothed so the response is fluid.
-      sBass = ease(sBass, live ? Math.min(1.2, Math.max(b.k * .8, b.e * .75)) : 0, dt, 110, 600);
+      // Bass and overall energy are driven mainly off absolute (not peak-relative) levels, so a
+      // genuinely quiet, unvarying passage reads as calm instead of drifting louder over time.
+      sBass = ease(sBass, live ? Math.min(1.2, Math.max(b.bass, b.k * .8)) : 0, dt, 110, 600);
       sMid = ease(sMid, live ? Math.min(1.2, b.mid) : 0, dt, 220, 900);
       sHigh = ease(sHigh, live ? Math.min(1.2, b.high) : 0, dt, 70, 380);
-      sEnergy = ease(sEnergy, live ? Math.min(1.2, b.e) : 0, dt, 250, 1400);
+      sEnergy = ease(sEnergy, live ? Math.min(1.2, b.level) : 0, dt, 250, 1400);
       // Music reactivity is always on: sensitivity can be tuned but never switched off, in every experience and palette.
       if (live && b.hit) beatHit = Math.min(1, beatHit + .55 + Math.min(1, b.k) * .45);
       beatHit *= Math.exp(-dt / 260);
@@ -3251,7 +3253,7 @@ vec3 ndSky(vec3 rd, float t){
     var quiet = !!(opts && opts.quiet);
     // Music playing  -> energy + kicks follow the real beat.
     // No music       -> everything eases to calm (no fake beat, no pulsing, no flashes).
-    var B = window.BEAT, b = { e: 0, k: 0, mid: 0, high: 0, hit: false, live: false, lastKicks: B ? B.kicks : 0, lastHit: 0, musicAt: 0 };
+    var B = window.BEAT, b = { e: 0, k: 0, mid: 0, high: 0, bass: 0, level: 0, hit: false, live: false, lastKicks: B ? B.kicks : 0, lastHit: 0, musicAt: 0 };
     XP.onMeter = function () {};
     try { if (A) A.meter(true); } catch (e) {}
     var musicOn = !A, nextCheck = 0;
@@ -3265,6 +3267,9 @@ vec3 ndSky(vec3 rd, float t){
         b.e += ((B.e || 0) - b.e) * .18;
         b.k = B.k || 0;
         b.mid += ((B.mid || 0) - b.mid) * .22; b.high += ((B.high || 0) - b.high) * .24;
+        // Absolute bands (not peak-relative like e): a quiet, unvarying passage stays quiet here
+        // instead of drifting up once the recent peak has had time to decay away.
+        b.bass += ((B.bass || 0) - b.bass) * .3; b.level += ((B.level || 0) - b.level) * .22;
         var fresh = B.kicks !== b.lastKicks; b.lastKicks = B.kicks;
         b.hit = fresh && now - b.lastHit > 230; if (b.hit) b.lastHit = now;
         // THE DROP: the music was quiet/building, then slams in
@@ -3272,7 +3277,7 @@ vec3 ndSky(vec3 rd, float t){
         b.drop = b.hit && b.k > .8 && b.e > .45 && b.e > b.slow * 1.9 && now - (b.lastDrop || 0) > 9000;
         if (b.drop) { b.lastDrop = now; if (!quiet) dropFlash(); }
       } else {
-        b.e *= .9; b.k *= .8; b.mid *= .85; b.high *= .85; b.hit = false; b.drop = false; if (B) b.lastKicks = B.kicks;
+        b.e *= .9; b.k *= .8; b.mid *= .85; b.high *= .85; b.bass *= .85; b.level *= .9; b.hit = false; b.drop = false; if (B) b.lastKicks = B.kicks;
       }
       return Math.max(b.e * .8, b.k);
     };

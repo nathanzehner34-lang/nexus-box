@@ -1050,12 +1050,16 @@
   }
 
   // ---- Beat analyser: turns the music signal into "energy" (0-1) and "kicks" (bass hits) ----
-  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, mid: 0, high: 0, last: 0, kicks: 0, live: 0 };
-  BEAT.tick = function () { BEAT.k *= .86; BEAT.e *= .97; BEAT.mid *= .9; BEAT.high *= .9; return Math.max(BEAT.e, BEAT.k); };
+  var BEAT = window.BEAT = { avg: .02, bavg: .02, peak: .05, e: 0, k: 0, mid: 0, high: 0, bass: 0, level: 0, last: 0, kicks: 0, live: 0 };
+  BEAT.tick = function () { BEAT.k *= .86; BEAT.e *= .97; BEAT.mid *= .9; BEAT.high *= .9; BEAT.bass *= .9; BEAT.level *= .95; return Math.max(BEAT.e, BEAT.k); };
   function feedBeat(all, bass, mid, high) {
     if (bass === undefined) bass = all;
     BEAT.mid = BEAT.mid * .72 + (Number(mid) || 0) * .28;
     BEAT.high = BEAT.high * .72 + (Number(high) || 0) * .28;
+    // Absolute (not peak-relative) bands: a quiet, unvarying passage reads as quiet here even after
+    // the recent peak has decayed, which is what keeps genuinely quiet music looking calm.
+    BEAT.bass = BEAT.bass * .7 + Math.min(1.4, (Number(bass) || 0) * 11) * .3;
+    BEAT.level = BEAT.level * .82 + Math.min(1.4, (Number(all) || 0) * 11) * .18;
     var now = Date.now();
     BEAT.avg = BEAT.avg * .97 + all * .03;
     BEAT.bavg = BEAT.bavg * .94 + bass * .06;

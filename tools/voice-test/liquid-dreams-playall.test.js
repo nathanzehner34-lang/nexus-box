@@ -41,7 +41,7 @@ window.__errors=[];window.addEventListener('error',e=>window.__errors.push(Strin
 window.requestAnimationFrame=fn=>setTimeout(()=>fn(performance.now()),100);window.cancelAnimationFrame=id=>clearTimeout(id);
 Object.defineProperty(navigator,'deviceMemory',{configurable:true,get:()=>${mem}});
 const store={'p_liquidDreams.settings':${JSON.stringify(oldSettings)},'p_liquidDreams.presets':${JSON.stringify(oldPresets)}};
-window.BEAT={live:Date.now(),e:.5,k:.6,mid:.5,high:.5,kicks:0,tick(){this.live=Date.now();if(Math.random()<.25)this.kicks++;}};
+window.BEAT={live:Date.now(),e:.5,k:.6,mid:.5,high:.5,bass:.5,level:.5,kicks:0,tick(){this.live=Date.now();if(Math.random()<.25)this.kicks++;}};
 window.Nexus={speaking:false,_img(){}};window.__media=[];
 window.__audio={meterOn:0,meterOff:0,stopTalking:0};window.NX={A:{setPref:(k,v)=>{store['p_'+k]=v;},meter(on){if(on)window.__audio.meterOn++;else window.__audio.meterOff++;},isMusicActive:()=>true,nowPlaying:()=>JSON.stringify({playing:true,title:'Song',artist:'Artist'}),media:c=>__media.push(c),deviceMemoryGb:()=>${mem}},$:id=>document.getElementById(id),pref:k=>store['p_'+k]||'',stopTalking(){window.__audio.stopTalking++;}};
 </script><script src="${fileUrl(path.join(assets, 'experiences.js'))}"></script><script>
@@ -63,8 +63,8 @@ window.__audio={meterOn:0,meterOff:0,stopTalking:0};window.NX={A:{setPref:(k,v)=
  R.react=[];const audio0=Object.assign({},window.__audio);
  for(const env of ${JSON.stringify(ENVS)}){for(const col of ['signature','obsidian','rainbow']){click('[data-env="'+env+'"]');click('[data-color="'+col+'"]');await wait(1500);const d=D();R.react.push({env,col,bass:d.react.bass,mid:d.react.mid,high:d.react.high,energy:d.react.energy,beat:d.audio.beat});}}
  const sens=ui.querySelector('[data-setting="audio"]');R.sensMin=+sens.min;sens.value=sens.min;sens.dispatchEvent(new Event('change',{bubbles:true}));await wait(1500);R.reactAtMin=D().react;
- window.BEAT.e=.02;window.BEAT.k=0;window.BEAT.mid=0;window.BEAT.high=0;await wait(3000);R.reactQuiet=D().react;window.BEAT.e=.9;window.BEAT.k=.9;window.BEAT.mid=.8;window.BEAT.high=.8;await wait(2500);R.reactLoud=D().react;
- window.BEAT.e=.5;window.BEAT.k=.6;window.BEAT.mid=.5;window.BEAT.high=.5;
+ window.BEAT.e=.02;window.BEAT.k=0;window.BEAT.mid=0;window.BEAT.high=0;window.BEAT.bass=0;window.BEAT.level=.02;await wait(3000);R.reactQuiet=D().react;window.BEAT.e=.9;window.BEAT.k=.9;window.BEAT.mid=.8;window.BEAT.high=.8;window.BEAT.bass=.9;window.BEAT.level=.9;await wait(2500);R.reactLoud=D().react;
+ window.BEAT.e=.5;window.BEAT.k=.6;window.BEAT.mid=.5;window.BEAT.high=.5;window.BEAT.bass=.5;window.BEAT.level=.5;
  click('[data-env="deepflow"]');click('[data-color="neon"]');
  // ---- Visual Play All: each interval, all six in order, palette untouched
  R.visual={};
