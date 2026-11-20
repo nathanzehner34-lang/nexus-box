@@ -1675,11 +1675,19 @@
   };
   // The Visuals collection: five procedural, music-reactive experiences (rendered in experiences.js).
   var VISUALS = [
-    ['firetornado', '🌪', 'FIRE TORNADO', 'Molten vortex · embers · heat haze'],
-    ['bluefire', '🔥', 'BLUE FIRE', 'Rising plasma flames · energy arcs'],
-    ['hollowhead', '👤', 'HOLLOW HEAD', 'Living holographic grid head'],
-    ['cybereye', '👁', 'CYBER EYE', 'Mechanical iris · aperture · scanning'],
-    ['wormhole', '🕳', 'WORMHOLE', 'Dimensional tunnel through deep space']
+    ['firetornado', '🌪', 'FIRE TORNADO', 'Molten vortex · embers · heat haze', 'Fire Tornado'],
+    ['bluefire', '🔥', 'BLUE FIRE', 'Rising plasma flames · energy arcs', 'Blue Fire'],
+    ['hollowhead', '👤', 'HOLLOW HEAD', 'Living holographic grid head', 'Hollow Head'],
+    ['cybereye', '👁', 'CYBER EYE', 'Mechanical iris · aperture · scanning', 'Cyber Eye'],
+    ['wormhole', '🕳', 'WORMHOLE', 'Dimensional tunnel through deep space', 'Wormhole'],
+    ['deepsea', '🪼', 'DEEP SEA EXPLORER', 'Glide through an alien ocean canyon', 'Deep Sea Explorer'],
+    ['robotdj', '🤖', 'ROBOT DJ', 'Chrome DJ performing in a neon megaclub', 'Robot DJ'],
+    ['mushroomworld', '🍄', 'ALIEN MUSHROOM WORLD', 'Living psychedelic fungal forest', 'Alien Mushroom World'],
+    ['ufo', '🛸', 'UFO ENCOUNTER', 'Mothership over an alien desert', 'UFO Encounter'],
+    ['rollercoaster', '🎢', 'COSMIC ROLLERCOASTER', 'Endless ride through impossible loops', 'Cosmic Rollercoaster'],
+    ['livingskull', '💀', 'LIVING SKULL', 'Supernatural skull alive with energy', 'Living Skull'],
+    ['alienparty', '👽', 'ALIEN DANCE PARTY', 'Five aliens, five dance styles', 'Alien Dance Party'],
+    ['neonhighway', '🌙', 'NEON HIGHWAY', 'Endless night drive toward the moon', 'Neon Highway']
   ];
   // ---- Shared control markup (design system components) ----
   function switchHtml(attrs, label, on) {
@@ -1754,7 +1762,7 @@
         var on = favs.indexOf(v[0]) >= 0, img = previews && previews[v[0]];
         return '<button type="button" class="vis-card vis-' + v[0] + (v[0] === last ? ' selected' : '') + '" data-vis="' + v[0] + '" aria-label="' + esc(v[2]) + '">' +
           '<span class="vis-shot">' + (img ? '<img alt="" src="' + img + '">' : '') + '</span>' +
-          '<span class="env-meta"><span class="env-num">0' + (i + 1) + '</span><b>' + esc(v[2].charAt(0) + v[2].slice(1).toLowerCase().replace(/ (\w)/g, function (m, c) { return ' ' + c.toUpperCase(); })) + '</b><small>' + esc(v[3]) + '</small></span>' +
+          '<span class="env-meta"><span class="env-num">' + (i < 9 ? '0' : '') + (i + 1) + '</span><b>' + esc(v[4] || v[2]) + '</b><small>' + esc(v[3]) + '</small></span>' +
           '<span class="fav' + (on ? ' on' : '') + '" data-fav="' + v[0] + '" role="button" aria-label="Favourite">' + (on ? '★' : '☆') + '</span></button>';
       }).join('') + '</div>' +
       '<div class="playbar"><span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' +

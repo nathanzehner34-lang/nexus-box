@@ -72,6 +72,7 @@ jobs:
           node tools/voice-test/party-mode-render.test.js
           node --check tools/voice-test/party-experiences-render.test.js
           node --check tools/voice-test/visuals-five-render.test.js
+          node --check tools/voice-test/visuals-eight-render.test.js
           node tools/voice-test/live-environments.test.js
 
       - name: Build APK

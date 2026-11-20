@@ -601,10 +601,12 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .vis-card.selected { border-color: rgba(116,232,255,.7); box-shadow: 0 0 0 1px rgba(116,232,255,.45) inset, 0 0 3vmin rgba(116,232,255,.18); }
 .vis-firetornado .env-num { color: #ffab5c; } .vis-bluefire .env-num { color: #6fd2ff; } .vis-hollowhead .env-num { color: #c98bff; }
 .vis-cybereye .env-num { color: #5fe3ff; } .vis-wormhole .env-num { color: #ff7fe0; }
+.vis-deepsea .env-num { color: #4fe6d8; } .vis-robotdj .env-num { color: #ff6ad5; } .vis-mushroomworld .env-num { color: #ffb36b; } .vis-ufo .env-num { color: #6fffd2; }
+.vis-rollercoaster .env-num { color: #e58bff; } .vis-livingskull .env-num { color: #b48cff; } .vis-alienparty .env-num { color: #8be8ff; } .vis-neonhighway .env-num { color: #ff7fc1; }
 .vis-card .fav { top: .5vmin; right: .6vmin; text-shadow: 0 0 1vmin rgba(0,0,0,.8); }
 #vxSnap { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0; }
 #xp.vx-active #xpTop, #xp.vx-active #xpMid:empty, #xp.vx-active #xpBottom:empty { display: none; }
-#vxBar { position: absolute; left: 50%; bottom: 3.2vh; z-index: 6; display: flex; align-items: center; gap: .5vw; padding: .7vh .7vw; transform: translate(-50%, 1.5vh);
+#vxBar { position: absolute; left: 50%; bottom: 3.2vh; z-index: 6; display: flex; align-items: center; gap: .5vw; padding: .7vh .7vw; transform: translate(-50%, 1.5vh); max-width: 94vw;
   border: 1px solid rgba(170,206,240,.18); border-radius: 99px; background: rgba(5,8,16,.78); box-shadow: 0 1vh 3vh rgba(0,0,0,.45);
   opacity: 0; pointer-events: none; transition: opacity .35s ease, transform .35s ease; backdrop-filter: blur(6px); }
 #vxBar.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
@@ -613,3 +615,6 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #vxBar button span { font-size: .8em; opacity: .55; letter-spacing: .2em; }
 #vxBar button.active { color: #fff; border-color: rgba(116,232,255,.75); background: rgba(80,190,255,.18); box-shadow: 0 0 1.6vmin rgba(116,232,255,.35); }
 #vxBar .vx-exit { margin-left: .4vw; color: #ffd6e8; border-color: rgba(255,140,200,.4); }
+#vxBar .vx-list { display: flex; gap: .4vw; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; min-width: 0; }
+#vxBar .vx-list::-webkit-scrollbar { display: none; }
+#vxBar .vx-exit { flex: 0 0 auto; }

@@ -13,7 +13,7 @@ const galleryIds = Array.from(gallery.matchAll(/\['([^']+)'/g), match => match[1
 
 assert(html.includes('data-act="liquiddreams"') && app.includes("case 'liquiddreams': openExperience(name);"), 'Liquid Dreams is a home-screen experience');
 assert(app.includes("pref('homeVer') === '4'") && app.includes("'liquiddreams'") && app.includes("'5'"), 'existing custom home layouts gain Liquid Dreams without resetting preferences');
-assert.deepStrictEqual(galleryIds, ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole'], 'the Visuals catalog is the five new experiences');
+assert.deepStrictEqual(galleryIds, ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole', 'deepsea', 'robotdj', 'mushroomworld', 'ufo', 'rollercoaster', 'livingskull', 'alienparty', 'neonhighway'], 'the Visuals catalog is the thirteen experiences');
 assert(xp.includes("var VX_ORDER = ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole']") && xp.includes('if (VX_ORDER.indexOf(name) >= 0) { vxStart(name); return true; }'), 'every catalog entry dispatches to the Visuals engine');
 assert(galleryIds.length === new Set(galleryIds).size, 'the gallery has no duplicate or stale selection entries');
 assert(xp.includes('function renderAtmosphere(now)') && xp.includes('renderAtmosphere(now);'), 'the utility experiences keep their atmospheric pass');

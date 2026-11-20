@@ -10,7 +10,7 @@ const catalog = app.slice(app.indexOf('var VISUALS = ['), app.indexOf('];', app.
 const names = Array.from(catalog.matchAll(/\['([^']+)'/g), match => match[1]);
 const selectedNames = process.env.NEXUS_GALLERY_SCENES ? process.env.NEXUS_GALLERY_SCENES.split(',') : names;
 const memoryGb = Number(process.env.NEXUS_GALLERY_MEMORY_GB || 2);
-assert.deepStrictEqual(names, ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole'], 'expected the five-experience Visuals catalog');
+assert.deepStrictEqual(names, ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole', 'deepsea', 'robotdj', 'mushroomworld', 'ufo', 'rollercoaster', 'livingskull', 'alienparty', 'neonhighway'], 'expected the thirteen-experience Visuals catalog');
 const browser = process.env.LIQUID_DREAMS_BROWSER || [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -37,8 +37,8 @@ document.getElementById('result').textContent='GALLERY_RESULT='+JSON.stringify({
 </script>`;
 fs.writeFileSync(htmlPath, html);
 try {
- const args=['--headless=new','--no-sandbox','--disable-gpu-sandbox','--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader','--allow-file-access-from-files','--disable-extensions','--virtual-time-budget=30000','--user-data-dir='+path.join(temp,'profile'),'--dump-dom','file:///'+htmlPath.replace(/\\/g,'/')];
- const run=cp.spawnSync(browser,args,{encoding:'utf8',timeout:120000,maxBuffer:12*1024*1024,windowsHide:true});if(run.error)throw run.error;if(run.status!==0)throw new Error('Browser exited '+run.status+'\n'+run.stderr);
+ const args=['--headless=new','--no-sandbox','--disable-gpu-sandbox','--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader','--allow-file-access-from-files','--disable-extensions','--virtual-time-budget=60000','--user-data-dir='+path.join(temp,'profile'),'--dump-dom','file:///'+htmlPath.replace(/\\/g,'/')];
+ const run=cp.spawnSync(browser,args,{encoding:'utf8',timeout:300000,maxBuffer:12*1024*1024,windowsHide:true});if(run.error)throw run.error;if(run.status!==0)throw new Error('Browser exited '+run.status+'\n'+run.stderr);
  const match=run.stdout.match(/GALLERY_RESULT=([\s\S]*?)<\/pre>/);if(!match)throw new Error((run.stdout.match(/GALLERY_ERROR=([\s\S]*?)<\/pre>/)||[])[1]||'Gallery browser did not return render results: '+run.stderr);
  const report=JSON.parse(match[1]);if(process.env.NEXUS_GALLERY_DEBUG)console.log(JSON.stringify(report));assert.strictEqual(report.results.length,selectedNames.length,'every selected gallery experience was opened');
  for(const scene of report.results){assert(scene.draws2d+scene.drawsGl>0,scene.name+' executed its renderer');assert(scene.mean>2&&scene.variance>2,scene.name+' produced actual non-flat visible pixels');assert.strictEqual(scene.overlayDraws,0,scene.name+' renders without the old overlay layers');assert(!scene.worldPass,scene.name+' has no retired finishing pass');assert(scene.drawsGl>0,scene.name+' renders on the GPU');assert(scene.width>0&&scene.height>0,scene.name+' has a valid render target');}

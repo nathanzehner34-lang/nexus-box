@@ -1406,7 +1406,7 @@ void main(){
 
   // ---- shared music model: bass, mid, treble and beat are smoothed separately ----
   function vxAudio() {
-    var b = beatTracker({ quiet: true }), A2 = { bass: 0, mid: 0, high: 0, beat: 0, energy: 0, drama: 0, hit: false, strong: false, rise: 0, lastHighs: 0 };
+    var b = beatTracker({ quiet: true }), A2 = { bass: 0, mid: 0, high: 0, beat: 0, energy: 0, drama: 0, hit: false, strong: false, rise: 0, lastHighs: 0, slow: 0, build: 0, phase: 0, period: 520, lastHitAt: 0, quiet: 1 };
     A2.tick = function (now, dt) {
       b.tick(now); var k = Math.min(1, b.k || 0), s = dt / 1000;
       A2.bass += (k - A2.bass) * (k > A2.bass ? Math.min(1, s * 9) : Math.min(1, s * 2.4));
@@ -1418,6 +1418,13 @@ void main(){
       if (A2.hit) A2.beat = Math.max(A2.beat, .55 + k * .45);
       A2.beat *= Math.exp(-dt / 320);
       A2.live = b.live;
+      // build-ups: energy rising above its long-term average; quiet: little energy for a while
+      A2.slow += (A2.energy - A2.slow) * Math.min(1, s * .15);
+      A2.build += (Math.max(0, Math.min(1, (A2.energy - A2.slow) * 4)) - A2.build) * Math.min(1, s * 1.5);
+      A2.quiet += ((A2.energy < .12 ? 1 : 0) - A2.quiet) * Math.min(1, s * .5);
+      // beat clock: tempo follows detected hits, phase runs continuously between them
+      if (A2.hit) { var iv = now - A2.lastHitAt; if (iv > 280 && iv < 1100) A2.period += (iv - A2.period) * .25; A2.lastHitAt = now; var near = Math.round(A2.phase); A2.phase += (near - A2.phase) * .35; }
+      A2.phase += dt / (A2.live ? A2.period : 1300);
       return A2;
     };
     return A2;
@@ -1572,6 +1579,1073 @@ void main(){
     }
   };
 
+  // ---- Eight worlds: Deep Sea Explorer, Robot DJ, Alien Mushroom World, UFO Encounter,
+  //      Cosmic Rollercoaster, Living Skull, Alien Dance Party, Neon Highway ----
+  var VX_COMMON = [
+    "uniform float T, bass, mid, high, beat, quality, build;",
+    "float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<5;i++){if(float(i)>=4.+quality)break;v+=a*noise(p);p=mat2(1.6,1.2,-1.2,1.6)*p+vec2(3.1,1.7);a*=.5;}return v;}",
+    "float fbm3(vec2 p){float v=0.,a=.5;for(int i=0;i<3;i++){v+=a*noise(p);p=mat2(1.6,1.2,-1.2,1.6)*p+vec2(3.1,1.7);a*=.5;}return v;}",
+    "mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}",
+    "float hash1(float n){return fract(sin(n)*43758.5453);}",
+    "float smin(float a,float b,float k){float h=clamp(.5+.5*(b-a)/k,0.,1.);return mix(b,a,h)-k*h*(1.-h);}",
+    "float sdCap(vec3 p,vec3 a,vec3 b,float r){vec3 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h)-r;}",
+    "float sdEll(vec3 p,vec3 r){float k0=length(p/r),k1=length(p/(r*r));return k0*(k0-1.)/k1;}",
+    "float sdBox(vec3 p,vec3 b){vec3 q=abs(p)-b;return length(max(q,0.))+min(max(q.x,max(q.y,q.z)),0.);}",
+    "float sdRBox(vec3 p,vec3 b,float r){return sdBox(p,b-r)-r;}",
+    "float sdTor(vec3 p,vec2 t){vec2 q=vec2(length(p.xz)-t.x,p.y);return length(q)-t.y;}",
+    "float sdCyl(vec3 p,float h,float r){vec2 d=abs(vec2(length(p.xz),p.y))-vec2(r,h);return min(max(d.x,d.y),0.)+length(max(d,0.));}",
+    "vec3 tonemap(vec3 c){c=max(c,0.);c=c*(2.51*c+.03)/(c*(2.43*c+.59)+.14);return clamp(c,0.,1.);}",
+    "float stars(vec2 p,float sc,float th){vec2 g=p*sc,id=floor(g);float h=hash(id);return step(th,h)*smoothstep(.35,0.,length(fract(g)-.5-(vec2(hash(id+1.7),hash(id+3.3))-.5)*.5))*(.5+.5*sin(T*(1.+h*3.)+h*40.));}"
+  ].join('\n');
+  var VX8 = { deepsea: [
+    "uniform float zph, sway, wave, flashes;",
+    "uniform vec4 beast;   // x, y, scale, swim phase",
+    "uniform float layers;",
+    "float jelly(vec2 q,float ph,out float glow){",
+    " vec2 b=q;b.y-=.02*sin(ph);float bell=length(b*vec2(1.,1.6))-.08*(1.+.08*sin(ph*2.));bell=max(bell,-b.y-.01);",
+    " glow=exp(-max(bell,0.)*40.);",
+    " float ten=9.;for(int k=0;k<5;k++){float fk=float(k);float x=-.05+fk*.025;float yy=-b.y;",
+    "  float tx=x+.02*sin(yy*25.-ph*3.+fk)*smoothstep(0.,.1,yy);ten=min(ten,abs(b.x-tx)+max(0.,-yy)*9.+max(0.,yy-.25-fk*.03)*9.);}",
+    " return min(bell,ten-.003);",
+    "}",
+    "vec3 sea(vec2 p){",
+    " vec3 c=mix(vec3(.0,.015,.04),vec3(.02,.08,.16),smoothstep(-.6,.7,p.y));",
+    " // light beams from the far surface",
+    " for(int i=0;i<4;i++){float fi=float(i);float x0=-.8+fi*.55+.15*sin(T*.07+fi*2.);float sl=(p.x-x0)+(p.y-.6)*(.25+fi*.05);",
+    "  c+=vec3(.15,.45,.6)*exp(-abs(sl)*(10.+fi*4.))*smoothstep(-.6,.6,p.y)*(.22+.08*sin(T*.3+fi));}",
+    " return c;",
+    "}",
+    "void main(){",
+    " vec2 p=(gl_FragCoord.xy-.5*res)/res.y;",
+    " // pressure wave from the bass",
+    " float pr=length(p);p+=p/max(pr,.001)*sin(pr*18.-wave*12.)*.006*wave*smoothstep(.0,.3,pr);",
+    " vec3 col=sea(p);",
+    " // distant leviathan silhouette passing through the gloom",
+    " {vec2 q=(p-beast.xy)/beast.z;float sw=sin(q.x*5.-beast.w)*.04;q.y-=sw;",
+    "  float body=length(q*vec2(.55,2.2))-.18;float tail=length((q-vec2(-.42,.02*sin(beast.w*1.3)))*vec2(2.,1.))-.06;float fin=length((q-vec2(.05,-.07))*vec2(2.5,1.4))-.05;",
+    "  float b=min(min(body,tail),fin);float fogB=.3+.55*smoothstep(.35,1.3,beast.z);",
+    "  col=mix(col,vec3(.0,.02,.04),smoothstep(.01,-.01,b)*fogB);",
+    "  col+=vec3(.2,.8,1.)*exp(-length((q-vec2(.3,.02))*vec2(1.,1.))*60.)*.5*fogB+vec3(.3,.9,1.)*smoothstep(.01,0.,abs(b))*.25*fogB*(1.+bass);}",
+    " // depth layers streaming toward the viewport",
+    " for(int i=0;i<8;i++){float fi=float(i);if(fi>=layers)break;",
+    "  float z=fract(fi/layers-zph);float depth=mix(.08,1.,z);float sc=1./depth;",
+    "  float id=floor(fi/layers-zph)*layers+fi;float fade=smoothstep(1.,.85,z)*smoothstep(.0,.12,z);",
+    "  vec2 q=p*depth*2.2;",
+    "  float fog=1.-z*.75;",
+    "  // seabed and canyon walls",
+    "  float ground=-.75+.18*fbm3(vec2(q.x*1.3,id))+.08*sin(q.x*3.+id);",
+    "  float wallL=-1.1-.25*fbm3(vec2(q.y*2.,id+3.)),wallR=1.1+.25*fbm3(vec2(q.y*2.,id+9.));",
+    "  float rock=max(max(step(q.y,ground),step(q.x,wallL+q.y*.2)),step(wallR-q.y*.2,q.x));",
+    "  float rt=fbm3(q*6.);",
+    "  vec3 rc=vec3(.02,.03,.05)+vec3(.05,.15,.2)*rt*.4;",
+    "  rc+=mix(vec3(.2,1.,.9),vec3(.9,.3,1.),hash(floor(q*30.)))*step(.97-flashes*.05,hash(floor(q*30.)+floor(T*2.)))*smoothstep(.4,.1,length(fract(q*30.)-.5))*(.4+flashes*1.5);",
+    "  // glowing river / vent along the canyon floor",
+    "  float riv=abs(q.y-ground+.03+.02*sin(q.x*7.+id));rc+=vec3(.1,.9,1.)*exp(-riv*60.)*.8*step(.5,hash1(id+.3))*(.6+bass*.6);",
+    "  col=mix(col,rc*fog+vec3(.0,.03,.06)*(1.-fog),rock*fade);",
+    "  // bioluminescent kelp and plants swaying in the current",
+    "  for(int k=0;k<3;k++){float fk=float(k);float kx=-.8+fk*.8+(hash1(id*3.+fk)-.5)*.5;float base=-.75+.18*fbm3(vec2(kx*1.3,id))+.08*sin(kx*3.+id);",
+    "   float h=.25+.35*hash1(id+fk*7.);float yy=q.y-base;",
+    "   float bend=sway*(.08+.1*hash1(fk+id))*yy*yy*4.+.03*sin(T*.9+yy*6.+fk);",
+    "   float dx=abs(q.x-kx-bend);float stalk=smoothstep(.012,.0,dx)*step(0.,yy)*step(yy,h);",
+    "   vec3 kc=mix(vec3(.2,1.,.6),vec3(.9,.4,1.),hash1(id+fk));",
+    "   col+=kc*stalk*fade*fog*.9;",
+    "   float tipd=length(vec2(q.x-kx-bend,yy-h));col+=kc*exp(-tipd*35.)*fade*fog*(1.+high*1.5);",
+    "   col+=kc*exp(-tipd*8.)*fade*fog*.12;}",
+    "  // drifting jellyfish",
+    "  vec2 jc=vec2((hash1(id+5.)-.5)*1.6+.1*sin(T*.2+id),-.1+.5*hash1(id+11.)+.05*sin(T*.5+id));float gl;",
+    "  float jd=jelly(q-jc,T*2.+id,gl);vec3 jcol=mix(vec3(.5,.8,1.),vec3(1.,.5,.9),hash1(id+2.));",
+    "  col+=jcol*(smoothstep(.006,0.,jd)*.45+gl*.3)*fade*fog*(.7+high*.6+bass*.3);",
+    " }",
+    " // marine snow drifting several ways, and rising bubbles",
+    " for(int L=0;L<2;L++){float fl=float(L);vec2 g=p*(18.+fl*14.)+vec2(T*(.3+fl*.2)*(fl>.5?-1.:1.)+sway*2.,-T*.2+zph*(3.+fl*4.));vec2 id=floor(g);float h=hash(id);",
+    "  col+=vec3(.6,.8,.9)*step(.88,h)*smoothstep(.12,0.,length(fract(g)-.5))*(.25+fl*.15+high*.3);}",
+    " vec2 bg=p*vec2(9.,5.)+vec2(0.,T*1.2)+vec2(0.,zph*2.);vec2 bid=floor(bg);float bh=hash(bid);vec2 bf=fract(bg)-.5;bf.x+=.15*sin(T*3.+bh*20.);",
+    " float bub=abs(length(bf)-.13)-.01;col+=vec3(.6,.9,1.)*step(.95,bh)*(smoothstep(.02,0.,bub)*.5+smoothstep(.06,.0,length(bf-vec2(-.05,.05)))*.4);",
+    " // viewing window of the exploration vehicle",
+    " vec2 w=abs(p)-vec2(.82,.43);float frame=length(max(w,0.))+min(max(w.x,w.y),0.)-.08;",
+    " col*=smoothstep(.06,-.02,frame);",
+    " col+=vec3(.3,.8,1.)*smoothstep(.006,0.,abs(frame))*.25;",
+    " col+=vec3(.4,.9,1.)*step(abs(p.y+.44),.002)*step(abs(p.x),.12)*.5+vec3(.4,.9,1.)*step(abs(p.x),.002)*step(abs(p.y),.03)*.25;",
+    " col+=vec3(.3,.7,.9)*(1.-smoothstep(-.1,.0,frame))*.0;",
+    " col*=.85+.15*smoothstep(1.,.3,length(p));",
+    " gl_FragColor=vec4(tonemap(col*1.15),1.);",
+    "}"
+  ].join('\n'), robotdj: [
+    "uniform vec4 jp[10];   // 0 head(xyz,yaw) 1 neck(xyz,pitch) 2 shL 3 elL 4 wrL 5 shR 6 elR 7 wrR 8 chest(xyz,lean) 9 (curlL,curlR,deckA,deckB)",
+    "uniform float lasers, screens, crowd, cam;",
+    "float mat;",
+    "vec3 ROT_P;",
+    "float handSD(vec3 p,vec3 w,vec3 e,float curl){",
+    " vec3 dir=normalize(w-e);vec3 side=normalize(cross(dir,vec3(0.,1.,0.)));vec3 up=cross(side,dir);",
+    " vec3 q=p-w;vec3 lq=vec3(dot(q,side),dot(q,up),dot(q,dir));",
+    " float palm=sdRBox(lq-vec3(0.,0.,.06),vec3(.055,.022,.06),.015);",
+    " float f=9.;",
+    " for(int i=0;i<4;i++){float fi=float(i);float x=-.04+fi*.027;",
+    "  vec3 a=vec3(x,0.,.12),b=a+vec3(0.,-.05*curl-.01,.07-.03*curl),c=b+vec3(0.,-.045*curl,.03-.04*curl);",
+    "  f=min(f,min(sdCap(lq,a,b,.011),sdCap(lq,b,c,.01)));}",
+    " f=min(f,sdCap(lq,vec3(-.06,0.,.04),vec3(-.09,-.02,.1),.012));",
+    " return smin(palm,f,.01);",
+    "}",
+    "float robot(vec3 p){",
+    " mat=0.;",
+    " vec3 hd=jp[0].xyz,nk=jp[1].xyz,ch=jp[8].xyz;",
+    " // torso: chest shell + segmented abdomen",
+    " vec3 tp=p-ch;tp.xy=rot(jp[8].w)*tp.xy;",
+    " vec3 tq=tp;tq.x*=1.+max(0.,-tq.y)*.9;",
+    " float chest=sdRBox(tq,vec3(.36,.3,.2),.12)/(1.+max(0.,-tp.y)*.9);",
+    " chest=smin(chest,sdEll(tp-vec3(0.,.22,0.),vec3(.5,.14,.2)),.08);",
+    " chest=smin(chest,sdEll(tp-vec3(0.,.05,.12),vec3(.3,.25,.14)),.06);",
+    " float ab=9.;for(int i=0;i<3;i++){float fi=float(i);ab=min(ab,sdCyl(tp-vec3(0.,-.38-fi*.13,0.),.05,.2-fi*.02));}",
+    " float d=min(chest,ab);",
+    " d=min(d,sdCap(p,nk,hd-vec3(0.,.12,0.),.06));",
+    " // head: helmet, visor, headphones",
+    " vec3 hp=p-hd;hp.xz=rot(jp[0].w)*hp.xz;hp.yz=rot(jp[1].w)*hp.yz;",
+    " float helm=sdEll(hp,vec3(.19,.23,.21));",
+    " helm=smin(helm,sdEll(hp-vec3(0.,-.1,.06),vec3(.13,.1,.15)),.05);",
+    " float cup=sdCyl(vec3(abs(hp.x)-.2,hp.y,hp.z).yxz,.045,.1);",
+    " float band=sdTor(vec3(hp.x,hp.y-.02,hp.z).xzy*vec3(1.,1.,1.),vec2(.215,.022));band=max(band,-hp.y+.0);",
+    " float h=min(min(helm,cup),band);",
+    " if(h<d){d=h;mat=hp.z>.1&&abs(hp.y-.02)<.05&&helm<cup?3.:(cup<helm?4.:1.);}",
+    " // arms",
+    " for(int s=0;s<2;s++){vec3 sh=s==0?jp[2].xyz:jp[5].xyz,el=s==0?jp[3].xyz:jp[6].xyz,wr=s==0?jp[4].xyz:jp[7].xyz;float curl=s==0?jp[9].x:jp[9].y;",
+    "  float a=min(sdCap(p,sh,el,.07),sdCap(p,el,wr,.058));",
+    "  a=min(a,length(p-sh)-.12);a=min(a,length(p-el)-.075);",
+    "  float hn=handSD(p,wr,el,curl);",
+    "  float aa=min(a,hn);if(aa<d){d=aa;mat=hn<a?2.:1.;}}",
+    " return d;",
+    "}",
+    "float console(vec3 p){",
+    " vec3 q=p-vec3(0.,.85,.55);",
+    " float c=sdRBox(q,vec3(1.15,.2,.32),.03);",
+    " c=max(c,-(q.y-.18+q.z*.15));",
+    " return c;",
+    "}",
+    "float map(vec3 p){float r=robot(p);float c=console(p);if(c<r){mat=5.;return c;}return r;}",
+    "vec3 clubEnv(vec3 rd){",
+    " vec3 c=vec3(.02,.01,.04)+vec3(.5,.1,.6)*pow(max(rd.y,0.),.5)*.15;",
+    " c+=vec3(1.,.2,.8)*pow(.5+.5*sin(rd.x*14.+T),20.)*.4*step(0.,rd.y)+vec3(.2,.8,1.)*pow(.5+.5*sin(rd.x*9.-T*.7+1.),24.)*.35*step(0.,rd.y);",
+    " return c;",
+    "}",
+    "vec3 background(vec2 uv){",
+    " vec3 c=vec3(.01,.005,.025);",
+    " // LED walls with animated chevrons",
+    " for(int i=-1;i<=1;i++){float fi=float(i);vec2 s=uv-vec2(fi*.62,.28);if(abs(s.x)<.22&&abs(s.y)<.12){",
+    "  float chev=fract((abs(s.x)*3.+s.y*2.)*2.-T*(.6+screens*2.));float pat=smoothstep(.4,.5,chev)*smoothstep(.9,.8,chev);",
+    "  c=mix(c,mix(vec3(.2,.6,1.),vec3(1.,.3,.9),.5+.5*sin(T*.3+fi)),pat*(.35+screens*.5)+.05);}}",
+    " // lasers fanning from the stage",
+    " for(int k=0;k<6;k++){float fk=float(k);vec2 o=vec2(fk<3.?-.9:.9,.45);float ang=(fk<3.?-.5:.5)+ (mod(fk,3.)-1.)*.22+sin(T*(.5+fk*.13)+fk)*.25*(1.+mid);",
+    "  vec2 dir=vec2(sin(ang),-cos(ang));if(fk>=3.)dir.x=-abs(dir.x);else dir.x=abs(dir.x);vec2 q=uv-o;float al=dot(q,dir),ac=abs(dot(q,vec2(-dir.y,dir.x)));",
+    "  c+=mix(vec3(1.,.2,.9),vec3(.3,.9,1.),mod(fk,2.))*exp(-ac*(300.-lasers*120.))*step(0.,al)*lasers*(.6+high*.8)*smoothstep(1.6,.2,al);}",
+    " // haze",
+    " c+=vec3(.35,.15,.5)*fbm3(uv*3.+vec2(T*.05,0.))*.18;",
+    " // crowd silhouettes with raised hands",
+    " float cy=-.36+.05*noise(vec2(uv.x*9.,1.))+.015*sin(uv.x*40.+T*5.)*crowd;",
+    " float hands=0.;for(int k=0;k<9;k++){float fk=float(k);float x=-.9+fk*.23+.05*sin(fk*3.);float up=step(.4,hash1(fk+floor(T*1.5)))*crowd;",
+    "  hands=max(hands,smoothstep(.012,.0,abs(uv.x-x-.02*sin(T*3.+fk)))*step(uv.y,cy+.15*up)*step(cy,uv.y));}",
+    " float body=step(uv.y,cy)+hands;",
+    " c=mix(c,vec3(.0,.0,.01)+vec3(.4,.1,.5)*.05,clamp(body,0.,1.));",
+    " return c;",
+    "}",
+    "void main(){",
+    " vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;",
+    " vec3 ro=vec3(sin(cam)*.7,1.75+cos(cam*.7)*.06,5.)*1.,ta=vec3(0.,1.5,0.);",
+    " vec3 fw=normalize(ta-ro),rt=normalize(cross(fw,vec3(0.,1.,0.))),up=cross(rt,fw);",
+    " vec3 rd=normalize(fw*2.2+rt*uv.x+up*uv.y);",
+    " vec3 col=background(uv);",
+    " // volumetric spot beams",
+    " for(int i=0;i<3;i++){float fi=float(i);vec2 o=vec2(-.6+fi*.6,.55);vec2 q=uv-o;float a=atan(q.x,-q.y)-sin(T*.4+fi*2.)*.4;",
+    "  col+=vec3(.6,.3,1.)*smoothstep(.12,.0,abs(a))*smoothstep(1.2,.0,length(q))*.12*(1.+beat);}",
+    " // raymarch inside the robot/console bounds",
+    " vec3 bmin=vec3(-1.35,.5,-.5),bmax=vec3(1.35,2.6,.95);vec3 t0=(bmin-ro)/rd,t1=(bmax-ro)/rd;vec3 tmn=min(t0,t1),tmx=max(t0,t1);",
+    " float tn=max(max(tmn.x,tmn.y),tmn.z),tf=min(min(tmx.x,tmx.y),tmx.z);",
+    " if(tf>max(tn,0.)){",
+    "  float t=max(tn,0.);float hit=0.;",
+    "  for(int i=0;i<96;i++){if(float(i)>=60.+quality*36.)break;float d=map(ro+rd*t);if(d<.001){hit=1.;break;}t+=d;if(t>tf)break;}",
+    "  if(hit>0.){vec3 p=ro+rd*t;float m=mat;vec2 e=vec2(.0015,-.0015);",
+    "   vec3 n=normalize(e.xyy*map(p+e.xyy)+e.yyx*map(p+e.yyx)+e.yxy*map(p+e.yxy)+e.xxx*map(p+e.xxx));",
+    "   vec3 L=normalize(vec3(.4,.8,.6));float dif=max(dot(n,L),0.),fr=pow(1.-max(dot(n,-rd),0.),4.);",
+    "   vec3 R=reflect(rd,n);vec3 env=clubEnv(R);",
+    "   vec3 c;",
+    "   if(m<.5||m==1.||m==2.){                                  // chrome & dark metal",
+    "    vec3 base=m==2.?vec3(.25,.25,.3):vec3(.35,.36,.42);",
+    "    c=base*dif*.35+env*(1.4+fr*2.)+vec3(1.,.3,.9)*fr*.3;",
+    "    // circuitry glow traces on the chest plates",
+    "    vec3 tp=p-jp[8].xyz;vec2 g=tp.xy*vec2(14.,14.);vec2 id=floor(g),f=fract(g);float hsh=hash(id);",
+    "    float tr=(hsh<.5?smoothstep(.08,.0,abs(f.x-.5)):smoothstep(.08,.0,abs(f.y-.5)))*step(.4,hash(id+2.));",
+    "    float onChest=step(length(tp/vec3(.5,.45,.3)),1.)*step(.05,tp.z);",
+    "    float flow=.5+.5*sin(tp.y*20.-T*4.*(1.+mid)+hsh*6.);",
+    "    c+=mix(vec3(1.,.2,.8),vec3(.2,.9,1.),step(0.,tp.x))*tr*onChest*(.6+flow*.8+beat*.6);",
+    "   } else if(m==3.){ c=vec3(.2,.9,1.)*(1.5+high*1.5+beat)*(.6+.4*step(.5,fract(p.x*30.)));      // visor eyes",
+    "   } else if(m==4.){ vec3 hp=p-jp[0].xyz;c=vec3(.03)+env*.5+vec3(.2,.6,1.)*smoothstep(.03,.0,abs(length(hp.yz)-.06))*1.5*(1.+bass);  // headphone rings",
+    "   } else {                                                 // console with decks, faders and screens",
+    "    vec3 q=p-vec3(0.,.85,.55);c=vec3(.03,.03,.05)+env*.35;",
+    "    if(n.y>.5){vec2 d1=q.xz-vec2(-.6,0.),d2=q.xz-vec2(.6,0.);",
+    "     for(int k=0;k<2;k++){vec2 dd=k==0?d1:d2;float ang=atan(dd.y,dd.x)+(k==0?jp[9].z:jp[9].w);float r=length(dd);",
+    "      float plat=smoothstep(.2,.19,r);c=mix(c,vec3(.08,.08,.1)+vec3(.2,.6,1.)*step(.98,fract(ang*.159*8.))*.6+vec3(1.,.3,.9)*smoothstep(.01,.0,abs(r-.18))*(1.+beat),plat);}",
+    "     float fad=step(abs(q.x),.25);vec2 fg=vec2(fract(q.x*12.),q.z);float sl=smoothstep(.02,.0,abs(fg.x-.5)-.01)*step(abs(q.z),.2)*fad;",
+    "     c+=vec3(.3,.9,1.)*sl*.5;",
+    "     float led=step(.8,hash(floor(q.xz*vec2(40.,20.))+floor(T*8.)))*step(.6,abs(q.x))*step(abs(q.z),.28)*(.3+high);",
+    "     c+=mix(vec3(1.,.2,.8),vec3(.2,1.,.7),hash(floor(q.xz*vec2(40.,20.))))*led*.0+vec3(.6,.9,1.)*led*.4;",
+    "     float wave=smoothstep(.01,.0,abs(q.z-.22-.03*sin(q.x*30.-T*8.)*(.3+bass)))*step(abs(q.x),.25);c+=vec3(.2,1.,.8)*wave;",
+    "    } else { c+=vec3(1.,.2,.8)*smoothstep(.01,.0,abs(q.y+.1))*(.8+bass)+vec3(.2,.8,1.)*smoothstep(.006,.0,abs(q.y-.05))*.6; }",
+    "   }",
+    "   col=c;",
+    "  }",
+    " }",
+    " // floor reflection glow",
+    " col+=vec3(.5,.15,.6)*exp(-abs(uv.y+.45)*12.)*.08*(1.+bass);",
+    " col*=.82+.18*smoothstep(1.2,.3,length(uv));",
+    " gl_FragColor=vec4(tonemap(col),1.);",
+    "}"
+  ].join('\n'), mushroomworld: [
+    "uniform float camx, flow, burst, open, spores;",
+    "vec3 shroom(vec2 p,vec2 base,float h,float R,float hue,float puls,float sw,float seed,inout float mask,float fog){",
+    " vec2 q=p-base;",
+    " float bend=sw*q.y*q.y*.6;",
+    " vec2 cap=vec2(bend*0.+sw*h*h*.6,h);",
+    " float sx=q.x-sw*q.y*q.y*.6;",
+    " float sw2=.12*R*(1.+.5*smoothstep(h*.25,0.,q.y));",
+    " vec3 c=vec3(0.);float m=0.;",
+    " // stem with roots",
+    " float stem=step(abs(sx),sw2)*step(-.02,q.y)*step(q.y,h);",
+    " if(stem>0.){float u=sx/sw2;c=mix(vec3(.25,.12,.2),vec3(.9,.6,.5),pow(1.-u*u,.6)*.6)*(.4+.6*smoothstep(0.,h,q.y));",
+    "  c+=vec3(1.,.5,.6)*smoothstep(h*.6,h,q.y)*.4;m=1.;}",
+    " // cap dome with patterned top and glowing gills beneath",
+    " float Rr=R*(1.+puls*.12);vec2 cq=vec2(q.x-cap.x,q.y-cap.y);",
+    " float dome=length(cq/vec2(Rr,Rr*.55));",
+    " if(dome<1.&&cq.y>-.02*R){float z=sqrt(1.-dome*dome);",
+    "  float pat=seed<.33?step(.6,noise(cq*28./R+seed*9.)):seed<.66?pow(1.-abs(fbm3(cq*14./R+seed*5.)*2.-1.),6.):.5+.5*sin(length(cq)*90./R-T*.5);",
+    "  vec3 cc=.5+.5*cos(6.283*(hue+vec3(0.,.33,.67)));",
+    "  c=cc*(.25+.75*z)*(.55+.45*pat)+vec3(1.)*pow(z,8.)*.12;c+=cc*smoothstep(.85,1.,dome)*.4;m=1.;}",
+    " float under=step(abs(cq.x),Rr*.97)*step(cq.y,.0)*step(-.22*R*(1.-cq.x*cq.x/(Rr*Rr))-.01*R,cq.y);",
+    " if(under>0.&&m<.5){float ang=atan(cq.x,-cq.y-.0);float gills=.5+.5*sin(cq.x/Rr*60.);",
+    "  float dep=-cq.y/(.22*R+.001);c=mix(vec3(1.,.4,.35),vec3(1.,.85,.6),gills)*(.5+open*.8+puls*.3)*(1.-dep*.6);m=1.;}",
+    " // glow halo around the cap",
+    " c+=(.5+.5*cos(6.283*(hue+vec3(0.,.33,.67))))*exp(-max(dome-1.,0.)*6.)*.15*(1.+puls)*(1.-m);",
+    " mask=max(mask,m*fog);",
+    " return c*fog;",
+    "}",
+    "void main(){",
+    " vec2 p=(gl_FragCoord.xy-.5*res)/res.y;",
+    " float hz=.02;",
+    " // sky: dark forest canopy, stars and a swirling cosmic vortex",
+    " vec3 col=mix(vec3(.03,.0,.06),vec3(.0,.01,.03),p.y+.5);",
+    " vec2 vq=p-vec2(.55-camx*.05,.32);float va=atan(vq.y,vq.x),vr=length(vq*vec2(1.,1.6));",
+    " col+=vec3(1.,.3,.8)*exp(-vr*6.)*(.5+.5*sin(va*3.-log(vr+.01)*6.+T*.5))*.6;",
+    " col+=vec3(.9,.8,1.)*stars(p,70.,.975)*.6*(.6+high);",
+    " // far forest silhouettes",
+    " float tree=0.;for(int i=0;i<10;i++){float fi=float(i);float x=-1.2+fi*.27-camx*.15;float w=.012+.01*hash1(fi);tree=max(tree,step(abs(p.x-x+.02*sin(p.y*10.+fi)),w));}",
+    " col=mix(col,vec3(.02,.0,.03),tree*step(hz-.05,p.y)*.8);",
+    " // ground plane with a glowing winding stream",
+    " if(p.y<hz){float z=.35/(hz-p.y+.01);float wx=p.x*z+camx*1.5;float sx=.6*sin(z*.35+1.)+.25*sin(z*.9);",
+    "  vec3 g=vec3(.03,.01,.04)+vec3(.15,.05,.2)*fbm3(vec2(wx*.8,z*.6))*.5;",
+    "  float st=smoothstep(.25,.12,abs(wx-sx));float ripple=fbm3(vec2(wx*3.,z*2.-flow*2.));",
+    "  float sparkle=pow(ripple,4.)*3.;g=mix(g,mix(vec3(.9,.2,.15),vec3(1.,.65,.3),ripple)*(.4+.9*ripple+sparkle)*(.8+bass*.4)+vec3(.8,.2,.6)*.1,st);",
+    "  g*=exp(-z*.04);col=g;}",
+    " // three depths of mushrooms",
+    " float mask=0.;vec3 acc=vec3(0.);",
+    " for(int L=0;L<3;L++){float fl=float(L);float par=.25+fl*.45;float fog=.45+fl*.28;float sc=.42+fl*.33;",
+    "  for(int i=0;i<5;i++){float fi=float(i);float sd=hash1(fi*7.+fl*31.);",
+    "   float bx=-1.1+fi*.55+(sd-.5)*.3-camx*par;bx=mod(bx+1.5,3.)-1.5;",
+    "   float by=hz-.02-fl*.12-sd*.04;float h=(.12+.16*sd)*sc;float R=(.12+.1*hash1(sd*13.))*sc*(1.5-fl*.2);",
+    "   float ph=T*(.4+sd)*1.+fi;float puls=bass*(.6+sd*.6)+burst*.6+.15*sin(ph);",
+    "   float sw=(.25*sin(T*.5+fi*1.7)+mid*.5*sin(T*1.3+fi))*.25;",
+    "   float m=0.;vec3 c=shroom(p,vec2(bx,by),h,R,sd,puls,sw,hash1(sd*5.),m,fog);",
+    "   col=mix(col,c,m);col+=c*(1.-m)*1.;",
+    "  }",
+    " }",
+    " // foreground plants: curled fronds and luminous flowers opening and closing",
+    " for(int i=0;i<6;i++){float fi=float(i);vec2 b=vec2(-1.+fi*.4-camx*1.6,-.5);b.x=mod(b.x+1.2,2.4)-1.2;",
+    "  vec2 q=p-b;float yy=q.y;float curl=.06*sin(yy*12.+T*(.6+mid)+fi);float fr=smoothstep(.01,.0,abs(q.x-curl-yy*yy*.4*sin(fi)))*step(0.,yy)*step(yy,.22+.08*hash1(fi));",
+    "  col=mix(col,vec3(.05,.25,.2)+vec3(.2,1.,.6)*fr*.2,fr*.9);",
+    "  vec2 fq=q-vec2(curl+.22*.22*.4*sin(fi),.24+.08*hash1(fi));float fa=atan(fq.y,fq.x),fl2=length(fq);",
+    "  float petals=.03*(.4+.6*open)*(1.+.5*sin(fa*6.+fi));col+=mix(vec3(1.,.3,.8),vec3(.3,.9,1.),hash1(fi+2.))*(smoothstep(petals,petals*.6,fl2)*.8+exp(-fl2*30.)*.3*(1.+high));}",
+    " // small glowing creatures crawling through the undergrowth",
+    " for(int i=0;i<4;i++){float fi=float(i);float x=fract(T*.03*(1.+fi*.3)+fi*.27)*2.6-1.3;vec2 c0=vec2(x,-.38-fi*.025+.01*sin(T*6.+fi));",
+    "  for(int k=0;k<5;k++){float fk=float(k);vec2 sp=c0-vec2(fk*.014,.004*sin(T*8.-fk+fi));col+=vec3(.6,1.,.5)*exp(-length(p-sp)*220.)*1.2;}}",
+    " // spores drifting and released in clouds",
+    " for(int L=0;L<2;L++){float fl=float(L);vec2 g=p*(14.+fl*10.)+vec2(sin(p.y*3.+T*.3)*.8-camx*(2.+fl),-T*(.35+fl*.2));vec2 id=floor(g);float h=hash(id);",
+    "  col+=mix(vec3(.9,1.,.5),vec3(1.,.5,1.),hash(id+1.))*step(.9-spores*.08,h)*smoothstep(.15,0.,length(fract(g)-.5))*(.35+spores*1.2);}",
+    " // mist",
+    " col+=vec3(.3,.1,.4)*fbm3(p*vec2(2.,6.)+vec2(T*.05-camx,0.))*smoothstep(.15,-.2,p.y)*.18;",
+    " col*=.85+.15*smoothstep(1.2,.3,length(p));",
+    " gl_FragColor=vec4(tonemap(col*1.1),1.);",
+    "}"
+  ].join('\n'), ufo: [
+    "uniform vec3 upos;      // craft position",
+    "uniform vec3 uang;      // yaw, tilt x, tilt z",
+    "uniform float ringA, ringB, tractor, field, sweep, discharge;",
+    "uniform vec4 minis[3];",
+    "float mt;",
+    "vec3 toLocal(vec3 p){p-=upos;p.xz=rot(uang.x)*p.xz;p.xy=rot(uang.z)*p.xy;p.yz=rot(uang.y)*p.yz;return p;}",
+    "float craft(vec3 p){",
+    " vec3 q=toLocal(p);mt=0.;",
+    " float disc=sdEll(q,vec3(1.6,.2,1.6));",
+    " float dome=sdEll(q-vec3(0.,.16,0.),vec3(.55,.36,.55));",
+    " float d=smin(disc,dome,.12);",
+    " float rim=sdTor(q,vec2(1.52,.075));if(rim<d){d=rim;mt=1.;}",
+    " float under=sdTor(q-vec3(0.,-.16,0.),vec2(.85,.07));if(under<d){d=under;mt=2.;}",
+    " float core=sdCyl(q-vec3(0.,-.2,0.),.03,.5);if(core<d){d=core;mt=3.;}",
+    " return d;",
+    "}",
+    "vec3 sky(vec2 uv){",
+    " vec3 c=mix(vec3(.02,.09,.1),vec3(.0,.01,.03),smoothstep(-.1,.6,uv.y));",
+    " float neb=fbm(uv*vec2(2.,3.)+vec2(T*.005,0.));float neb2=fbm(uv*4.+neb*2.+3.);",
+    " c+=mix(vec3(.1,.8,.6),vec3(.9,.2,.7),neb2)*pow(neb,2.5)*1.2*smoothstep(-.1,.4,uv.y)*smoothstep(.3,-.3,uv.x-.6+uv.y*.4);",
+    " c+=vec3(.8,.9,1.)*stars(uv,80.,.97)*.8*(.6+high*.6);",
+    " // big ringed planet and small moon",
+    " vec2 pc=uv-vec2(-.72,.33);float pr=length(pc);",
+    " if(pr<.2){float z=sqrt(1.-pr*pr/.04);c=mix(c,vec3(.25,.22,.3)*(.25+.75*max(0.,dot(normalize(vec3(pc,z*.2)),normalize(vec3(.6,.3,.5)))))*(.8+.4*fbm3(pc*10.)),smoothstep(.2,.195,pr));}",
+    " vec2 rq=rot(-.35)*pc;float ring=abs(length(rq*vec2(1.,3.4))-.29);c+=vec3(.8,.3,.8)*smoothstep(.02,.0,ring)*.35*step(.0,rq.y*-1.+.02*0.+(pr>.2?1.:-1.)*1.);",
+    " vec2 mc=uv-vec2(-.42,.06);c=mix(c,vec3(.5,.55,.6)*(.4+.6*fbm3(mc*30.)),smoothstep(.03,.028,length(mc)));",
+    " return c;",
+    "}",
+    "vec3 land(vec2 uv,float hz){",
+    " vec3 c=sky(uv);",
+    " float m1=hz+.13*fbm(vec2(uv.x*1.6,2.))+.05*noise(vec2(uv.x*6.,1.));",
+    " float m2=hz+.06*fbm(vec2(uv.x*3.+5.,4.));",
+    " c=mix(c,vec3(.06,.07,.09)+vec3(.1,.4,.35)*.12,smoothstep(.002,-.002,uv.y-m1));",
+    " c=mix(c,vec3(.05,.05,.07)*(.6+.4*fbm3(uv*20.)),smoothstep(.002,-.002,uv.y-m2));",
+    " // stepped pyramid in the middle distance",
+    " vec2 pq=uv-vec2(.08,hz);float step6=floor(clamp(pq.y,0.,.2)/.025);float pw=.2-step6*.023;",
+    " float pyr=step(abs(pq.x),pw)*step(0.,pq.y)*step(pq.y,.2);",
+    " c=mix(c,vec3(.12,.06,.14)+vec3(.3,.1,.35)*fract(pq.y/.025)*.3+vec3(.1,1.,.8)*step(abs(pq.x),.018)*step(pq.y,.07)*(.6+bass*.6),pyr);",
+    " if(uv.y<hz){float z=1./(hz-uv.y+.02);",
+    "  vec3 g=vec3(.12,.11,.12)*(.55+.45*fbm(vec2(uv.x*z*.8,z*1.5)));",
+    "  g*=.6+.4*smoothstep(.0,.25,hz-uv.y);",
+    "  c=mix(c,g,smoothstep(.002,-.002,uv.y-hz));}",
+    " return c;",
+    "}",
+    "float seg2(vec2 p,vec2 a,vec2 b,float r){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h)-r;}",
+    "float cactus(vec2 p,float h,float s){",
+    " float d=seg2(p,vec2(0.,0.),vec2(0.,h),.028*s);",
+    " d=min(d,seg2(p,vec2(0.,h*.42),vec2(-.07*s,h*.42),.018*s));d=min(d,seg2(p,vec2(-.07*s,h*.42),vec2(-.07*s,h*.75),.018*s));",
+    " d=min(d,seg2(p,vec2(0.,h*.55),vec2(.065*s,h*.55),.016*s));d=min(d,seg2(p,vec2(.065*s,h*.55),vec2(.065*s,h*.82),.016*s));",
+    " return d;",
+    "}",
+    "void main(){",
+    " vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;",
+    " float hz=-.12;",
+    " vec3 ro=vec3(0.,0.,5.),rd=normalize(vec3(uv,-1.8));",
+    " // energy field distorts the air around the craft",
+    " vec2 cs=(upos.xy)/(ro.z-upos.z)*1.8;float cr=length((uv-cs)*vec2(1.,2.5));",
+    " vec2 duv=uv+(vec2(noise(uv*30.+T*2.),noise(uv*30.-T*2.))-.5)*.012*field*exp(-cr*3.);",
+    " vec3 col=land(duv,hz);",
+    " // searchlights sweeping the landscape",
+    " vec2 under=cs-vec2(0.,.08);",
+    " for(int i=0;i<2;i++){float fi=float(i);float gx=sin(sweep*(1.+fi*.3)+fi*2.)*.6;vec2 g=vec2(gx,hz-.12-.05*fi);",
+    "  vec2 ab=g-under;float k=clamp(dot(uv-under,ab)/dot(ab,ab),0.,1.);float w=.005+k*.06;float dd=length(uv-under-ab*k);",
+    "  col+=vec3(.6,1.,.9)*smoothstep(w,0.,dd)*(.08+.1*k)*(.7+high*.5);",
+    "  col+=vec3(.5,1.,.8)*exp(-length((uv-g)*vec2(1.,4.))*14.)*.35*step(uv.y,hz);}",
+    " // tractor beam: volumetric cone with motes rising",
+    " vec2 bq=uv-under;float bw=.12+(-bq.y)*.35;float inB=smoothstep(bw,bw*.6,abs(bq.x))*step(bq.y,0.)*step(hz-.15,uv.y);",
+    " float swirl=fbm3(vec2(bq.x*9./max(bw,.05),bq.y*6.+T*1.5));",
+    " col+=vec3(.95,.3,.8)*inB*(.25+.5*swirl)*tractor*(.8+bass*.6);",
+    " vec2 mg=vec2(bq.x*140.,bq.y*90.+T*14.);col+=vec3(1.,.7,.95)*inB*step(.95,hash(floor(mg)))*smoothstep(.4,.1,length(fract(mg)-.5))*tractor;",
+    " col+=vec3(.95,.35,.8)*exp(-length((uv-vec2(under.x,hz-.13))*vec2(1.,5.))*6.)*tractor*.5;",
+    " // foreground cacti and glowing crystals",
+    " for(int i=0;i<4;i++){float fi=float(i);vec2 cp=vec2(-.95+fi*.62+.1*sin(fi*7.),-.5);float h=.25+.12*hash1(fi*3.);float s=1.2+hash1(fi)*.6;",
+    "  float d=cactus(uv-cp,h,s);col=mix(col,vec3(.02,.06,.05)+vec3(.1,.5,.4)*.12,smoothstep(.003,-.003,d));",
+    "  col+=vec3(.2,1.,.8)*smoothstep(.006,0.,abs(d))*.2*(.4+high);}",
+    " for(int i=0;i<3;i++){float fi=float(i);vec2 kp=uv-vec2(-.6+fi*.7,-.47);vec2 aq=abs(kp);float tri=max(aq.x*1.4+kp.y*.8-.05,-kp.y-.02);",
+    "  float glow=.6+.4*sin(T*2.+fi*2.)+beat*.6;col=mix(col,mix(vec3(.3,.2,1.),vec3(1.,.3,.9),fract(kp.y*20.+fi))*glow*.8,smoothstep(.004,-.004,tri));",
+    "  col+=vec3(.7,.4,1.)*exp(-max(tri,0.)*40.)*.2*glow;}",
+    " // small craft circling the mothership",
+    " for(int i=0;i<3;i++){vec4 m=minis[i];vec2 q=uv-m.xy;float sz=m.z;",
+    "  col+=vec3(.6,1.,.9)*smoothstep(sz*1.6,sz,length(q*vec2(1.,3.)))*1.4+vec3(.4,1.,.8)*exp(-length(q*vec2(1.,2.))/sz*.8)*.5;",
+    "  vec2 tq=q-vec2(m.w*.08,0.);col+=vec3(.3,.9,.8)*exp(-abs(q.y)/sz*6.)*smoothstep(0.,m.w*.15,q.x*sign(m.w))*step(abs(q.x),.15)*.12;}",
+    " // the mothership",
+    " float bt=dot(upos-ro,rd);float bd=length(ro+rd*bt-upos);",
+    " if(bd<1.75){float t=max(0.,bt-1.8),hit=0.;",
+    "  for(int i=0;i<80;i++){if(float(i)>=50.+quality*30.)break;float d=craft(ro+rd*t);if(d<.002){hit=1.;break;}t+=d;if(t>bt+2.)break;}",
+    "  if(hit>0.){vec3 p=ro+rd*t;float m=mt;vec2 e=vec2(.002,-.002);",
+    "   vec3 n=normalize(e.xyy*craft(p+e.xyy)+e.yyx*craft(p+e.yyx)+e.yxy*craft(p+e.yxy)+e.xxx*craft(p+e.xxx));",
+    "   vec3 q=toLocal(p);float ang=atan(q.z,q.x),r=length(q.xz);",
+    "   vec3 L=normalize(vec3(-.4,.6,.7));float dif=max(dot(n,L),0.),fr=pow(1.-max(dot(n,-rd),0.),3.);",
+    "   vec3 env=sky(vec2(reflect(rd,n).x*.5,max(reflect(rd,n).y,.0)*.6));",
+    "   vec3 c=vec3(.09,.1,.12)*(.2+dif*.9)+env*.22*(.3+fr)+vec3(.1,.9,.7)*fr*.12;",
+    "   // hull panels and circuit lines",
+    "   float panels=smoothstep(.02,.0,abs(fract(ang*12./6.283)-.5)-.47)+smoothstep(.01,0.,abs(fract(r*5.)-.5)-.47);",
+    "   c+=vec3(.1,.8,.6)*panels*.35*step(0.,q.y)*(.6+.4*sin(ang*3.+T));",
+    "   float glyph=step(.75,hash(floor(vec2(ang*30./6.283,r*14.))))*step(abs(fract(r*14.)-.5),.3)*step(.0,q.y)*step(.65,r);c+=vec3(.2,1.,.8)*glyph*.35*(.6+mid);",
+    "   if(m==1.){float la=fract(ang*48./6.283+ringA*2.);float lights=smoothstep(.35,.2,abs(la-.5))*smoothstep(.05,.02,abs(q.y));vec3 lc=mix(vec3(.2,1.,.7),vec3(1.,.4,.9),step(.5,fract(ang*3./6.283+ringA*.25)));",
+    "    c=vec3(.05,.06,.07)+env*.2+lc*lights*(1.+high*1.2+discharge*1.5);}",
+    "   if(m==2.){float tl=exp(-pow(mod(ang-ringB*1.5,6.283)-3.14,2.)*4.);c=vec3(.06)+vec3(1.,.3,.85)*(.4+tl*2.+bass*.6);}",
+    "   if(m==3.){c=vec3(1.,.5,.95)*(1.2+tractor*1.5+bass)*(.7+.3*sin(r*40.-T*6.));}",
+    "   float win=step(abs(q.y-.24),.04)*step(.5,fract(ang*10./6.283))*step(r,.56);",
+    "   c+=vec3(.6,1.,.9)*win*(.8+high*.6);",
+    "   col=c;",
+    "  } else {",
+    "   col+=vec3(.2,1.,.8)*exp(-bd*bd*1.5)*.05*field;",
+    "  }",
+    " }",
+    " // discharge rings expanding from the rim on strong beats",
+    " float er=length((uv-cs)*vec2(1.,3.))-discharge*.0;col+=vec3(.6,1.,.9)*exp(-abs(er-(1.-discharge)*.9-.2)*30.)*discharge*.6;",
+    " col*=.85+.15*smoothstep(1.2,.3,length(uv));",
+    " gl_FragColor=vec4(tonemap(col),1.);",
+    "}"
+  ].join('\n'), rollercoaster: [
+    "uniform float zc, speed, pulse, flash;",
+    "float secAmp(float z){return 1.+.8*sin(z*.004)+.5*sin(z*.0017+2.);}",
+    "vec2 path(float z){float a=secAmp(z);return vec2(3.2*a*sin(z*.045)+1.6*sin(z*.11+1.),2.2*a*sin(z*.037+1.3)+1.2*cos(z*.09));}",
+    "float bank(float z){vec2 d1=path(z+1.)-path(z-1.);vec2 d2=path(z+2.)-2.*path(z)+path(z-2.);return clamp(-d2.x*1.4,-.9,.9);}",
+    "float mt;",
+    "float scene(vec3 p){",
+    " vec2 c=path(p.z);vec3 q=vec3(p.xy-c,p.z);q.xy=rot(bank(p.z))*q.xy;",
+    " vec3 rq=vec3(abs(q.x)-.55,q.y,q.z);",
+    " float rails=length(rq.xy)-.04;",
+    " float spine=length(q.xy-vec2(0.,-.24))-.07;",
+    " float tz=mod(q.z,1.1)-.55;float ties=sdBox(vec3(q.x,q.y+.13,tz),vec3(.6,.03,.05));",
+    " ties=min(ties,sdBox(vec3(abs(q.x)-.3,q.y+.18,tz),vec3(.02,.07,.04)));",
+    " float d=rails;mt=0.;",
+    " if(spine<d){d=spine;mt=1.;} if(ties<d){d=ties;mt=1.;}",
+    " // support pylons dropping into the void",
+    " float pz=mod(q.z,9.)-4.5;float pyl=sdCap(vec3(q.x,q.y,pz),vec3(0.,-.25,0.),vec3(0.,-9.,0.),.09);if(pyl<d){d=pyl;mt=1.;}",
+    " // giant loops the track passes through",
+    " float lz=mod(p.z,46.)-23.;float lp=sdTor(vec3(q.x,lz,q.y-.6),vec2(3.1+sin(floor(p.z/46.))*.6,.16));",
+    " if(lp<d){d=lp;mt=2.;}",
+    " // impossible secondary tracks spiralling around ours",
+    " float ha=p.z*.35+T*.0;vec2 hc=vec2(cos(ha),sin(ha))*5.5;float hel=length(q.xy-hc)-.09;",
+    " vec2 hc2=vec2(cos(ha*.7+3.),sin(ha*.7+3.))*8.;hel=min(hel,length(q.xy-hc2)-.12);",
+    " if(hel<d){d=hel;mt=3.;}",
+    " // floating platforms and geometric formations",
+    " vec3 fp=vec3(abs(q.x)-7.,q.y-2.+sin(floor(p.z/18.))*3.,mod(p.z,18.)-9.);",
+    " fp.xz=rot(T*.2+floor(p.z/18.))*fp.xz;",
+    " float plat=sdRBox(fp,vec3(1.,.12,1.),.05);plat=min(plat,sdBox(fp-vec3(0.,.6,0.),vec3(.25,.5,.25)));",
+    " if(plat<d){d=plat;mt=4.;}",
+    " return d;",
+    "}",
+    "vec3 space(vec3 rd){",
+    " vec2 sp=vec2(atan(rd.x,rd.z),asin(clamp(rd.y,-1.,1.)));",
+    " float sec=zc*.003;",
+    " vec3 c=vec3(.01,.005,.03);",
+    " float n=fbm(sp*1.5+vec2(sec,0.)),n2=fbm(sp*3.+n*2.);",
+    " c+=mix(vec3(.5,.1,.8),vec3(.1,.4,1.),n2)*pow(n,2.)*1.3;",
+    " c+=mix(vec3(1.,.3,.7),vec3(.2,.9,1.),.5+.5*sin(sec*3.))*pow(n2,4.)*.6;",
+    " // distant galaxy",
+    " vec2 g=sp-vec2(.4+sin(sec)*.3,.25);float ga=atan(g.y,g.x),gr=length(g*vec2(1.,2.2));",
+    " c+=vec3(.9,.6,1.)*exp(-gr*9.)*(.6+.4*sin(ga*2.-log(gr+.01)*5.))*.8;",
+    " vec2 sg=sp*vec2(90.,90.);vec2 id=floor(sg);float h=hash(id);",
+    " c+=vec3(.9,.9,1.)*step(.975,h)*smoothstep(.3,0.,length(fract(sg)-.5))*(.6+high);",
+    " return c;",
+    "}",
+    "void main(){",
+    " vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;",
+    " vec3 ro=vec3(path(zc),zc);float bk=bank(zc);",
+    " vec2 up2=rot(-bk)*vec2(0.,.5);ro.xy+=up2;",
+    " vec3 ta=vec3(path(zc+4.),zc+4.);ta.xy+=rot(-bank(zc+4.))*vec2(0.,.3);",
+    " vec3 fw=normalize(ta-ro);vec3 wu=vec3(rot(-bk*.85)*vec2(0.,1.),0.);vec3 rt=normalize(cross(fw,wu));vec3 up=cross(rt,fw);",
+    " float fov=1.25-speed*.12;",
+    " vec3 rd=normalize(fw*fov+rt*uv.x+up*uv.y);",
+    " vec3 col=space(rd);",
+    " // star streaks when speeding",
+    " col+=vec3(.7,.8,1.)*pow(max(0.,noise(vec2(atan(uv.y,uv.x)*40.,length(uv)*3.-zc*.5))-.6)*2.5,3.)*smoothstep(.15,.7,length(uv))*speed*.6*(.5+high);",
+    " float t=.05,hit=0.;",
+    " for(int i=0;i<100;i++){if(float(i)>=60.+quality*40.)break;float d=scene(ro+rd*t);if(d<.002*t){hit=1.;break;}t+=d*.8;if(t>70.)break;}",
+    " if(hit>0.){vec3 p=ro+rd*t;float m=mt;vec2 e=vec2(.003,-.003);",
+    "  vec3 n=normalize(e.xyy*scene(p+e.xyy)+e.yyx*scene(p+e.yyx)+e.yxy*scene(p+e.yxy)+e.xxx*scene(p+e.xxx));",
+    "  float fr=pow(1.-max(dot(n,-rd),0.),3.);vec3 env=space(reflect(rd,n));",
+    "  vec3 c;",
+    "  float sec=floor(p.z/120.);vec3 hueA=mix(vec3(1.,.25,.85),vec3(.3,.8,1.),.5+.5*sin(sec*1.7)),hueB=mix(vec3(.6,.3,1.),vec3(1.,.4,.6),.5+.5*sin(sec*2.3));",
+    "  if(m==0.){float flow=pow(fract(p.z*.08-pulse),6.);c=hueA*(1.4+mid*.8)+vec3(1.)*flow*1.5*(.5+beat)+env*.3;}",
+    "  else if(m==1.){c=vec3(.12,.1,.16)*(.3+.7*max(n.y,0.))+env*.6*(.4+fr)+hueA*fr*.4;}",
+    "  else if(m==2.){c=hueB*(1.2+.6*sin(p.z*.5+T)+flash*1.5)+env*.2;}",
+    "  else if(m==3.){c=mix(hueA,hueB,.5)*(.9+.4*sin(p.z*2.-T*4.)*(.5+high));}",
+    "  else {c=vec3(.08,.07,.12)*(.4+.6*max(dot(n,normalize(vec3(.3,1.,.2))),0.))+env*.4*fr+hueB*smoothstep(.03,.0,abs(fract(p.z*.5)-.5)-.47)*.6;}",
+    "  float fog=exp(-t*.035);col=mix(col,c,fog)+c*0.;col=mix(space(rd)*.9,c,fog);",
+    "  col+=hueA*exp(-t*.15)*.0;",
+    " }",
+    " // light flash travelling along the track on beats (no full-screen strobing)",
+    " col*=.85+.15*smoothstep(1.3,.3,length(uv));",
+    " gl_FragColor=vec4(tonemap(col),1.);",
+    "}"
+  ].join('\n'), livingskull: [
+    "uniform vec3 hrot;      // yaw, pitch, roll",
+    "uniform float jaw, glow, crack, beam, mouthE, frag;",
+    "float smax(float a,float b,float k){return -smin(-a,-b,k);}",
+    "float teethRow(vec3 p,float y,float zc,float rad,float h){",
+    " vec3 q=p-vec3(0.,y,zc);float a=atan(q.x,q.z);float sec=.21;",
+    " float ia=clamp(floor(a/sec+.5),-4.,4.);float la=a-ia*sec;",
+    " vec2 rq=vec2(length(q.xz)*sin(la),length(q.xz)*cos(la)-rad);",
+    " float w=ia==0.||abs(ia)==1.?.042:.036;",
+    " return sdRBox(vec3(rq.x,q.y,rq.y),vec3(w,h,.035),.014);",
+    "}",
+    "float bone(vec3 p,out float mat){",
+    " mat=0.;",
+    " float cr=sdEll(p-vec3(0.,.3,-.16),vec3(.68,.76,.86));",
+    " float face=sdEll(p-vec3(0.,-.16,.3),vec3(.42,.42,.36));",
+    " face=smin(face,sdEll(p-vec3(0.,-.38,.36),vec3(.3,.12,.22)),.1);",
+    " float d=smin(cr,face,.18);",
+    " vec3 sp=vec3(abs(p.x),p.yz);",
+    " d=smin(d,sdCap(sp,vec3(.33,-.1,.38),vec3(.58,-.08,.05),.075),.08);       // cheekbones",
+    " d=smin(d,sdCap(sp,vec3(.56,-.1,.05),vec3(.44,-.24,-.1),.05),.06);       // zygomatic arch to the jaw joint",
+    " d=smin(d,sdCap(p,vec3(-.38,.12,.5),vec3(.38,.12,.5),.07),.1);            // brow ridge",
+    " d=smax(d,-sdEll(sp-vec3(.23,.0,.52),vec3(.165,.16,.3)),.03);            // eye sockets",
+    " d=smax(d,-sdEll(p-vec3(0.,-.24,.62),vec3(.07,.11,.2)),.02);                // nasal cavity",
+    " d=smax(d,-sdEll(sp-vec3(.74,.0,.02),vec3(.08,.2,.26)),.05);               // temporal hollows",
+    " d=max(d,-(p.y+.42));                                                    // open below the maxilla",
+    " float up=teethRow(p,-.47,.17,.33,.055);",
+    " if(up<d){mat=1.;} d=min(d,up);",
+    " // mandible hinged at the jaw joint",
+    " vec3 jp=p-vec3(0.,-.32,-.12);jp.yz=rot(jaw)*jp.yz;jp+=vec3(0.,-.32,-.12);",
+    " vec3 sj=vec3(abs(jp.x),jp.yz);",
+    " float ram=sdCap(sj,vec3(.4,-.28,-.1),vec3(.38,-.62,.02),.065);",
+    " float body=sdCap(sj,vec3(.37,-.63,.04),vec3(.17,-.72,.36),.065);",
+    " float chin=max(sdEll(jp-vec3(0.,-.74,.38),vec3(.2,.11,.1)),jp.y+.6);",
+    " float man=smin(smin(ram,body,.08),chin,.1);",
+    " float lo=teethRow(jp,-.6,.17,.31,.05);",
+    " man=min(man,lo);",
+    " if(man<d){mat=lo<man+.001?1.:2.;}",
+    " d=min(d,man);",
+    " return d;",
+    "}",
+    "float map(vec3 p,out float mat){",
+    " p.xz=rot(hrot.x)*p.xz;p.yz=rot(hrot.y)*p.yz;p.xy=rot(hrot.z)*p.xy;",
+    " float d=bone(p,mat);",
+    " if(d<.05&&mat<.5)d+=(noise(p.xy*14.)+noise(p.yz*13.)-1.)*.006;  // bone surface texture",
+    " return d;",
+    "}",
+    "vec3 skullSpace(vec3 p){p.xz=rot(hrot.x)*p.xz;p.yz=rot(hrot.y)*p.yz;p.xy=rot(hrot.z)*p.xy;return p;}",
+    "vec3 worldFromSkull(vec3 s){s.xy=rot(-hrot.z)*s.xy;s.yz=rot(-hrot.y)*s.yz;s.xz=rot(-hrot.x)*s.xz;return s;}",
+    "void main(){",
+    " vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;",
+    " vec3 ro=vec3(0.,-.1,4.2),rd=normalize(vec3(uv,-2.05));",
+    " // background: dark dimension with drifting violet smoke",
+    " vec3 col=vec3(.012,.006,.02)+vec3(.12,.03,.2)*fbm(uv*2.+vec2(T*.03,-T*.02))*.6*(1.-length(uv)*.6);",
+    " col+=vec3(.6,.2,1.)*stars(uv,70.,.985)*.35;",
+    " float t=0.,m=0.;float hit=0.,minD=9.;",
+    " // bounding sphere",
+    " float bb=dot(ro,rd);float cc=dot(ro,ro)-2.3;float disc=bb*bb-cc;",
+    " if(disc>0.){t=max(0.,-bb-sqrt(disc));",
+    "  for(int i=0;i<90;i++){if(float(i)>=58.+quality*32.)break;vec3 p=ro+rd*t;float d=map(p,m);minD=min(minD,d);if(d<.0015){hit=1.;break;}t+=d*.85;if(t>6.)break;}}",
+    " vec3 sp0=worldFromSkull(vec3(.25,0.,.5)),sp1=worldFromSkull(vec3(-.25,0.,.5)),mo=worldFromSkull(vec3(0.,-.55,.4));",
+    " if(hit>0.){",
+    "  vec3 p=ro+rd*t;vec2 e=vec2(.002,-.002);float mm;",
+    "  vec3 n=normalize(e.xyy*map(p+e.xyy,mm)+e.yyx*map(p+e.yyx,mm)+e.yxy*map(p+e.yxy,mm)+e.xxx*map(p+e.xxx,mm));",
+    "  vec3 L=normalize(vec3(-.5,.7,.6)),V=-rd;",
+    "  float dif=max(dot(n,L),0.),amb=.5+.5*n.y,rim=pow(1.-max(dot(n,V),0.),3.);",
+    "  float ao=clamp(map(p+n*.06,mm)/.06,0.,1.)*.6+.4;ao*=clamp(map(p+n*.18,mm)/.18,0.,1.)*.5+.5;",
+    "  vec3 s=skullSpace(p);",
+    "  float pores=fbm3(s.xy*18.+s.z*7.)*.5+fbm3(s.yz*9.)*.5;",
+    "  vec3 boneC=mix(vec3(.3,.28,.34),vec3(.66,.63,.68),pores*pores*1.3)*(m>.5&&m<1.5?1.15:1.);",
+    "  float spec=pow(max(dot(reflect(-L,n),V),0.),18.)*.25;",
+    "  col=boneC*(dif*1.05+amb*.1)*ao+vec3(.65,.3,1.)*rim*(.45+glow*.45)*ao+spec;",
+    "  // inner glow from the eyes and mouth lighting the bone",
+    "  float eg=exp(-min(length(p-sp0),length(p-sp1))*5.)*glow;float mg=exp(-length(p-mo)*5.)*mouthE;",
+    "  col+=vec3(.7,.25,1.)*(eg*.9+mg*1.2)*(.5+.5*max(dot(n,normalize(sp0-p)),0.));",
+    "  // illuminated cracks spreading over the cranium",
+    "  float cn=1.-abs(fbm3(s.xy*3.+vec2(s.z*2.,1.))*2.-1.);float cmask=smoothstep(1.-crack*.25,1.,cn)*step(.1,s.y+.2);",
+    "  col=mix(col,vec3(.85,.5,1.)*1.8,pow(cn,30.)*crack*1.5+0.*cmask);",
+    "  col*=1.-pow(cn,40.)*.2*(1.-crack);",
+    "  // eye-socket interiors glow",
+    "  float inS=smoothstep(.17,.09,length(vec2(abs(s.x),s.y)-vec2(.23,0.)))*smoothstep(.64,.48,s.z);float deep=smoothstep(.5,.32,s.z);col=mix(col,col*.04+vec3(.45,.12,.8)*glow*deep*.7,inS);",
+    " } else {",
+    "  col+=vec3(.55,.2,1.)*exp(-minD*14.)*(.25+glow*.35);                       // aura hugging the silhouette",
+    " }",
+    " // project eyes / mouth to screen for plasma, smoke and beams",
+    " vec2 se0=(sp0.xy-ro.xy)/(ro.z-sp0.z)*2.05,se1=(sp1.xy-ro.xy)/(ro.z-sp1.z)*2.05,sm=(mo.xy-ro.xy)/(ro.z-mo.z)*2.05;",
+    " for(int k=0;k<2;k++){vec2 se=k==0?se0:se1;vec2 q=uv-se;",
+    "  col+=vec3(.8,.45,1.)*(exp(-length(q)*110.)*2.8+exp(-length(q)*35.)*.18)*glow;",
+    "  // plasma beams streaming from the sockets",
+    "  vec2 dir=normalize(vec2(-1.,.12+.1*sin(T*.7+float(k))));float along=dot(q,dir),across=dot(q,vec2(-dir.y,dir.x));",
+    "  float wob=(noise(vec2(along*14.-T*8.,float(k)*3.))-.5)*.02*(1.+high*2.);",
+    "  col+=vec3(.75,.4,1.)*exp(-abs(across+wob)*(160.-beam*60.))*step(0.,along)*exp(-along*1.4)*beam*1.6;",
+    "  col+=vec3(.6,.3,1.)*exp(-abs(across)*25.)*step(0.,along)*exp(-along*2.)*beam*.25;",
+    "  // smoke curling up from the sockets",
+    "  vec2 sq=q*vec2(1.,.6)+vec2(sin(q.y*9.-T*1.5)*.03,0.);float sm2=fbm3(sq*7.+vec2(0.,-T*.8));",
+    "  col+=vec3(.45,.2,.7)*sm2*smoothstep(.25,.0,length(q*vec2(1.6,.7)-vec2(0.,.08)))*.5*(.4+glow*.6+high*.4)*step(-.02,q.y);",
+    " }",
+    " vec2 mq=uv-sm;float pour=fbm3(vec2(mq.x*9.,mq.y*5.+T*2.));",
+    " col+=vec3(.7,.3,1.)*pour*smoothstep(.12,.0,abs(mq.x))*smoothstep(.0,-.5,mq.y)*smoothstep(-.7,-.1,mq.y)*mouthE*.9;",
+    " col+=vec3(.9,.6,1.)*exp(-length(mq*vec2(1.,1.8))*18.)*mouthE*1.2;",
+    " // particles breaking away and drifting back",
+    " vec2 g=uv*vec2(26.,26.);g+=vec2(-T*.6*frag,T*.2);vec2 id=floor(g);float hh=hash(id);",
+    " col+=vec3(.8,.6,1.)*step(.9-high*.05,hh)*smoothstep(.12,0.,length(fract(g)-.5))*smoothstep(.75,.25,length(uv))*(.3+frag*1.5+high*.6);",
+    " col*=.85+.15*smoothstep(1.1,.2,length(uv));",
+    " gl_FragColor=vec4(tonemap(col*1.05),1.);",
+    "}"
+  ].join('\n'), alienparty: [
+    "uniform vec4 J[65];",
+    "uniform float lasers, spot, floorP, group;",
+    "float mt;",
+    "float sdOct(vec3 p,float s){p=abs(p);return (p.x+p.y+p.z-s)*.577;}",
+    "vec3 headLocal(vec3 p,vec3 h,float yaw,float pitch){vec3 q=p-h;q.xz=rot(yaw)*q.xz;q.yz=rot(pitch*.4)*q.yz;return q;}",
+    "float alien(int a,vec3 p,vec4 j0,vec4 j1,vec4 j2,vec4 j3,vec4 j4,vec4 j5,vec4 j6,vec4 j7,vec4 j8,vec4 j9,vec4 j10,vec4 j11,vec4 j12,out float m){",
+    " vec3 pel=j0.xyz,ch=j1.xyz,hd=j2.xyz;float yaw=j2.w,pitch=j1.w,byaw=j0.w;",
+    " float d=9.;m=float(a);",
+    " vec3 shL=j3.xyz,elL=j4.xyz,hdL=j5.xyz,shR=j6.xyz,elR=j7.xyz,hdR=j8.xyz,knL=j9.xyz,ftL=j10.xyz,knR=j11.xyz,ftR=j12.xyz;",
+    " vec3 hq=headLocal(p,hd,yaw,pitch);",
+    " if(a==0){       // the Grey: slender ribbed body, huge swept-back head, black almond eyes",
+    "  float rib=.004*sin(dot(p-ch,vec3(0.,60.,0.)));",
+    "  d=sdCap(p,pel,ch,.075)+rib;d=smin(d,sdEll(p-mix(pel,ch,.7),vec3(.15,.2,.1)),.06);",
+    "  d=min(d,sdCap(p,ch,hd-vec3(0.,.12,0.),.035));",
+    "  float head=sdEll(hq-vec3(0.,.07,-.06),vec3(.17,.21,.23));head=smin(head,sdEll(hq-vec3(0.,-.1,.07),vec3(.08,.08,.07)),.07);",
+    "  d=min(d,head);",
+    "  float eye=sdEll(vec3(abs(hq.x),hq.y,hq.z)-vec3(.07,-.0,.12),vec3(.055,.03,.04));if(eye<d+.004){m=10.;}d=min(d,eye);",
+    "  float lr=.03;d=min(d,min(min(sdCap(p,shL,elL,lr),sdCap(p,elL,hdL,lr*.85)),min(sdCap(p,shR,elR,lr),sdCap(p,elR,hdR,lr*.85))));",
+    "  d=min(d,min(length(p-hdL),length(p-hdR))-.04);",
+    "  d=min(d,min(min(sdCap(p,pel,knL,.045),sdCap(p,knL,ftL,.035)),min(sdCap(p,pel,knR,.045),sdCap(p,knR,ftR,.035))));",
+    "  vec3 sd=normalize(hdR-elR);float stick=sdCap(p,hdR,hdR+sd*.45,.022);if(stick<d){m=11.;}d=min(d,stick);",
+    " } else if(a==1){ // the Blob: round body, one huge eye, antennae",
+    "  vec3 c=mix(pel,ch,.5);d=sdEll(p-c,vec3(.3,.33,.28));",
+    "  vec3 eq=hq-vec3(0.,-.12,.18);float eye=length(eq)-.13;if(eye<d+.003)m=12.;d=min(d,eye);",
+    "  for(int k=0;k<2;k++){float sg=k==0?-1.:1.;vec3 tip=hd+vec3(sg*.18,.28+.04*sin(T*6.+sg),0.);float an=sdCap(p,hd+vec3(sg*.08,.0,0.),tip,.016);float bl=length(p-tip)-.045;if(bl<d&&bl<an)m=13.;d=min(d,min(an,bl));}",
+    "  d=min(d,min(min(sdCap(p,shL,elL,.06),sdCap(p,elL,hdL,.055)),min(sdCap(p,shR,elR,.06),sdCap(p,elR,hdR,.055))));",
+    "  d=min(d,min(min(sdCap(p,pel,knL,.07),sdCap(p,knL,ftL,.065)),min(sdCap(p,pel,knR,.07),sdCap(p,knR,ftR,.065))));",
+    " } else if(a==2){ // the Mantis: segmented chitin, narrow head with mandibles, four arms",
+    "  d=min(sdCap(p,pel,mix(pel,ch,.45),.06),sdCap(p,mix(pel,ch,.55),ch,.08));d=smin(d,sdEll(p-mix(pel,ch,.8),vec3(.12,.14,.08)),.05);",
+    "  d=min(d,sdCap(p,ch,hd-vec3(0.,.1,0.),.03));",
+    "  float head=sdEll(hq,vec3(.09,.16,.1));vec3 ax=vec3(abs(hq.x),hq.yz);head=smin(head,sdEll(ax-vec3(.09,.04,.03),vec3(.05,.04,.045)),.02);",
+    "  float mand=sdCap(ax,vec3(.03,-.12,.05),vec3(.05,-.2,.09),.012);d=min(d,min(head,mand));",
+    "  float eye=length(ax-vec3(.09,.05,.05))-.04;if(eye<d+.003)m=14.;d=min(d,eye);",
+    "  for(int k=0;k<2;k++){vec3 o=k==0?vec3(0.):vec3(0.,-.16,.02);vec3 eL=elL+o+vec3(0.,.04*float(k),0.),hL=hdL+o*1.3,eR=elR+o,hR=hdR+o*1.3;",
+    "   d=min(d,min(min(sdCap(p,shL+o,eL,.03),sdCap(p,eL,hL,.022)),min(sdCap(p,shR+o,eR,.03),sdCap(p,eR,hR,.022))));}",
+    "  d=min(d,min(min(sdCap(p,pel,knL,.04),sdCap(p,knL,ftL,.03)),min(sdCap(p,pel,knR,.04),sdCap(p,knR,ftR,.03))));",
+    " } else if(a==3){ // the Squid: bulbous mantle head, face tentacles",
+    "  d=sdCap(p,pel,ch,.09);d=smin(d,sdEll(p-mix(pel,ch,.75),vec3(.17,.15,.11)),.08);",
+    "  float head=sdEll(hq-vec3(0.,.12,-.04),vec3(.16,.26,.17));d=min(d,head);",
+    "  for(int k=0;k<5;k++){float fk=float(k);vec3 o=vec3(-.08+fk*.04,-.05,.1);vec3 e1=o+vec3(.03*sin(T*3.+fk),-.12,.03),e2=e1+vec3(.05*sin(T*2.5+fk*1.3),-.12,.04*cos(T*2.+fk));",
+    "   d=smin(d,min(sdCap(hq,o,e1,.02),sdCap(hq,e1,e2,.014)),.02);}",
+    "  float eye=length(vec3(abs(hq.x),hq.yz)-vec3(.09,.06,.12))-.035;if(eye<d+.003)m=15.;d=min(d,eye);",
+    "  d=min(d,min(min(sdCap(p,shL,elL,.04),sdCap(p,elL,hdL,.035)),min(sdCap(p,shR,elR,.04),sdCap(p,elR,hdR,.035))));",
+    "  d=min(d,min(min(sdCap(p,pel,knL,.055),sdCap(p,knL,ftL,.045)),min(sdCap(p,pel,knR,.055),sdCap(p,knR,ftR,.045))));",
+    " } else {         // the Crystal: faceted heavy body, octahedral head",
+    "  vec3 tq=p-mix(pel,ch,.6);tq.xz=rot(byaw)*tq.xz;d=sdRBox(tq,vec3(.2,.24,.13),.03);",
+    "  d=min(d,sdRBox(p-pel,vec3(.15,.08,.1),.02));",
+    "  vec3 oq=hq;oq.xz=rot(.785)*oq.xz;float head=sdOct(oq*vec3(1.,.75,1.),.17);d=min(d,head);",
+    "  float eye=sdBox(hq-vec3(0.,.0,.12),vec3(.09,.015,.02));if(eye<d+.003)m=16.;d=min(d,eye);",
+    "  d=min(d,min(min(sdCap(p,shL,elL,.065),sdCap(p,elL,hdL,.06)),min(sdCap(p,shR,elR,.065),sdCap(p,elR,hdR,.06))));",
+    "  d=min(d,min(length(p-hdL),length(p-hdR))-.08);",
+    "  d=min(d,min(min(sdCap(p,pel,knL,.075),sdCap(p,knL,ftL,.065)),min(sdCap(p,pel,knR,.075),sdCap(p,knR,ftR,.065))));",
+    " }",
+    " return d;",
+    "}",
+    "float act[5];",
+    "float map(vec3 p){float d=9.;mt=-1.;",
+    " for(int a=0;a<5;a++){if(act[a]<.5)continue;float m;",
+    "  float da=alien(a,p,J[a*13],J[a*13+1],J[a*13+2],J[a*13+3],J[a*13+4],J[a*13+5],J[a*13+6],J[a*13+7],J[a*13+8],J[a*13+9],J[a*13+10],J[a*13+11],J[a*13+12],m);if(da<d){d=da;mt=m;}}",
+    " return d;}",
+    "vec3 club(vec2 uv){",
+    " vec3 c=vec3(.02,.005,.04)+vec3(.25,.05,.35)*smoothstep(-.2,.6,uv.y)*.4;",
+    " // holographic displays",
+    " for(int i=0;i<3;i++){float fi=float(i);vec2 q=uv-vec2(-.7+fi*.7,.33);if(abs(q.x)<.16&&abs(q.y)<.09){",
+    "  float hol=step(.5,fract((q.y+T*.1)*40.))*.3+.7;float shape=smoothstep(.06,.05,length(q-vec2(.03*sin(T+fi),0.)))*smoothstep(.03,.04,length(q-vec2(.03*sin(T+fi),0.)));",
+    "  c=mix(c,vec3(.2,.8,1.)*hol*(.3+shape*1.5)+vec3(.8,.3,1.)*.05,.8);}}",
+    " // lasers and beams",
+    " for(int k=0;k<5;k++){float fk=float(k);vec2 o=vec2(-1.+fk*.5,.55);float an=sin(T*(.4+fk*.11)+fk*2.)*.6;vec2 dir=vec2(sin(an),-cos(an));vec2 q=uv-o;float al=dot(q,dir),ac=abs(dot(q,vec2(-dir.y,dir.x)));",
+    "  c+=mix(vec3(1.,.2,.9),vec3(.3,.8,1.),mod(fk,2.))*exp(-ac*(250.-lasers*90.))*step(0.,al)*lasers*(.5+high*.8);}",
+    " // crowd silhouettes at the back",
+    " float cy=.02+.03*noise(vec2(uv.x*14.,2.))+.02*abs(sin(uv.x*9.+T*4.))*(.3+bass);",
+    " c=mix(c,vec3(.02,.0,.05),step(uv.y,cy)*step(-.1,uv.y)*.85);",
+    " c+=vec3(.6,.3,.8)*fbm3(uv*vec2(3.,4.)+vec2(T*.04,0.))*.22;",
+    " return c;",
+    "}",
+    "void main(){",
+    " vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;",
+    " vec3 ro=vec3(.4*sin(T*.07),1.55+.08*sin(T*.11),6.1),ta=vec3(0.,.95,-.3);",
+    " vec3 fw=normalize(ta-ro),rt=normalize(cross(fw,vec3(0.,1.,0.))),up=cross(rt,fw);",
+    " vec3 rd=normalize(fw*1.9+rt*uv.x+up*uv.y);",
+    " vec3 col=club(uv);",
+    " // glowing dance floor with reflections",
+    " float tf=-ro.y/rd.y;",
+    " if(rd.y<0.){vec3 fp=ro+rd*tf;vec2 tile=floor(fp.xz*2.);vec2 tf2=fract(fp.xz*2.)-.5;",
+    "  float h=hash(tile+floor(floorP));vec3 tc=.5+.5*cos(6.283*(h+vec3(0.,.33,.67)+T*.05));",
+    "  float lit=step(.62,h)*(.12+bass*.45)+.03;float edge=smoothstep(.47,.5,max(abs(tf2.x),abs(tf2.y)));",
+    "  vec3 fc=vec3(.02,.01,.04)+tc*lit*(1.-edge)*.6+vec3(.5,.2,.8)*edge*.15;",
+    "  fc+=club(vec2(uv.x,-uv.y-.3))*.25;fc*=exp(-tf*.05);col=fc;}",
+    " // spotlights sweeping over the dancers",
+    " for(int i=0;i<3;i++){float fi=float(i);vec2 o=vec2(-.8+fi*.8,.5);vec2 q=uv-o;float a=atan(q.x,-q.y)-sin(T*.5*(1.+fi*.2)+fi)*.5*spot;",
+    "  col+=mix(vec3(.9,.3,1.),vec3(.3,.8,1.),fi*.5)*smoothstep(.1,.0,abs(a))*smoothstep(1.3,.0,length(q))*.09*(1.+beat*.5);}",
+    " // per-ray culling of the five dancers",
+    " float any=0.;for(int a=0;a<5;a++){vec3 c=J[a*13].xyz+vec3(0.,.25,0.);vec3 oc=ro-c;float b=dot(oc,rd),cc=dot(oc,oc)-1.1;act[a]=step(0.,b*b-cc);any+=act[a];}",
+    " if(any>0.){float t=2.5,hit=0.;",
+    "  for(int i=0;i<100;i++){if(float(i)>=56.+quality*40.)break;float d=map(ro+rd*t);if(d<.0015){hit=1.;break;}t+=d;if(t>9.)break;}",
+    "  if(hit>0.){vec3 p=ro+rd*t;float m=mt;vec2 e=vec2(.002,-.002);",
+    "   vec3 n=normalize(e.xyy*map(p+e.xyy)+e.yyx*map(p+e.yyx)+e.yxy*map(p+e.yxy)+e.xxx*map(p+e.xxx));",
+    "   vec3 L1=normalize(vec3(-.6,.7,.4)),L2=normalize(vec3(.7,.4,.3));float d1=max(dot(n,L1),0.),d2=max(dot(n,L2),0.),fr=pow(1.-max(dot(n,-rd),0.),3.);",
+    "   vec3 R=reflect(rd,n);vec3 env=club(R.xy*.6);float sp=pow(max(dot(R,L1),0.),24.);",
+    "   vec3 k1=vec3(1.,.25,.85),k2=vec3(.3,.75,1.);",
+    "   vec3 base;float gloss=.5;",
+    "   if(m<.5){base=vec3(.08,.06,.14);gloss=.9;base+=vec3(.25,.1,.4)*pow(.5+.5*sin(p.y*90.),8.)*.4;if(p.y>J[1].y+.12)base=vec3(.45,.42,.55);}",
+    "   else if(m<1.5){base=vec3(.15,.55,.25);gloss=.7;}",
+    "   else if(m<2.5){base=vec3(.05,.3,.32);gloss=.8;}",
+    "   else if(m<3.5){base=vec3(.4,.15,.5)*(.7+.3*step(.6,noise(p.xy*30.)));gloss=.5;}",
+    "   else if(m<4.5){base=vec3(.25,.6,.9)*.4;gloss=1.;}",
+    "   vec3 c=base*(d1*k1*.8+d2*k2*.7+.12)+env*gloss*(.2+fr*.8)+vec3(1.)*sp*gloss*.5+mix(k1,k2,.5)*fr*.35;",
+    "   if(m>3.5&&m<4.5)c+=vec3(.3,.9,1.)*pow(fract(dot(p,vec3(9.,7.,5.))),12.)*(.5+high);",
+    "   if(m==10.||m==12.||m==14.||m==15.){c=vec3(.01)+env*.6+vec3(1.)*sp;if(m==12.){vec3 eq=n;c=mix(vec3(.9),vec3(.05),step(.92,dot(n,-rd)))+vec3(.2,1.,.6)*smoothstep(.97,.99,dot(n,-rd))*.0;}}",
+    "   if(m==11.)c=vec3(.4,.95,1.)*(2.+high*1.5);",
+    "   if(m==13.)c=vec3(.8,1.,.4)*(1.5+high*2.);",
+    "   if(m==16.)c=vec3(.4,1.,1.)*(1.5+bass);",
+    "   col=c;",
+    "  }",
+    " }",
+    " // glow stick halo",
+    " vec3 hs=J[8].xyz;vec3 rel=hs-ro;vec2 sp2=vec2(dot(rel,rt),dot(rel,up))/dot(rel,fw)*1.9;col+=vec3(.3,.9,1.)*exp(-length(uv-sp2)*14.)*.25;",
+    " col*=.85+.15*smoothstep(1.2,.3,length(uv));",
+    " gl_FragColor=vec4(tonemap(col*1.05),1.);",
+    "}"
+  ].join('\n'), neonhighway: [
+    "uniform float D, run, runAmp, bob, steer, section;",
+    "float curveX(float z){return 2.2*sin(z*.011)+1.1*sin(z*.027+1.3);}",
+    "float relX(float z){float c0=curveX(D),c1=(curveX(D+.5)-curveX(D-.5));return curveX(D+z)-c0-c1*z;}",
+    "vec3 sky(vec2 p,float head){",
+    " vec3 c=mix(vec3(.05,.01,.07),vec3(.01,.0,.03),smoothstep(-.05,.6,p.y));",
+    " c+=vec3(.35,.08,.3)*exp(-abs(p.y-.02)*7.)*.35;",
+    " c+=vec3(.9,.9,1.)*stars(p+vec2(head*.02,0.),60.,.975)*.8*smoothstep(-.02,.15,p.y)*(.6+high*.8);",
+    " // giant moon ahead",
+    " vec2 mc=vec2(-head*.06,.17);float mr=.26+bass*.008;vec2 mq=(p-mc)/mr;float md=length(mq);",
+    " if(md<1.){float z=sqrt(1.-md*md);float cr=fbm(mq*3.+4.)*.6+fbm(mq*9.)*.4;",
+    "  float crat=smoothstep(.55,.62,noise(mq*6.))*.25+smoothstep(.6,.68,noise(mq*14.+2.))*.15;",
+    "  vec3 mcol=mix(vec3(.75,.45,.6),vec3(1.,.82,.9),cr)*(.55+.45*z)-crat*.25;",
+    "  c=mix(c,mcol*(.9+.1*sin(T*.1)),smoothstep(1.,.985,md));}",
+    " c+=vec3(1.,.5,.8)*exp(-max(md-1.,0.)*5.)*.25*(.8+beat*.3);",
+    " // haze bands drifting",
+    " c+=vec3(.5,.2,.5)*fbm3(vec2(p.x*2.+T*.01+head*.03,p.y*8.))*smoothstep(.25,.0,abs(p.y-.08))*.12;",
+    " // mountain ranges and rock formations, two parallax layers",
+    " float m1=.035+.09*fbm(vec2((p.x+head*.1)*2.2+section*3.,section))*(1.+.6*sin(section*1.7))+.08*pow(max(0.,noise(vec2((p.x+head*.1)*7.,section*2.))-.55),1.)*1.5;",
+    " float m2=.0+.05*fbm(vec2((p.x+head*.18)*4.+D*.002,7.+section));",
+    " vec3 rock=vec3(.06,.02,.08)+vec3(.4,.1,.35)*smoothstep(m1-.05,m1,p.y)*.25;",
+    " c=mix(c,rock,smoothstep(.002,-.002,p.y-m1));",
+    " c=mix(c,vec3(.03,.01,.05)+vec3(.6,.15,.4)*.08,smoothstep(.002,-.002,p.y-m2));",
+    " return c;",
+    "}",
+    "void main(){",
+    " vec2 p=(gl_FragCoord.xy-.5*res)/res.y;",
+    " p.y+=bob*.006; p.x+=steer*.01;",
+    " float hz=0.,camH=.32;float head=(curveX(D+.5)-curveX(D-.5))*12.;",
+    " vec3 col=sky(p,head);",
+    " if(p.y<hz){",
+    "  float z=camH/(hz-p.y+1e-4);float x=p.x*z-relX(z);",
+    "  float W=1.25;float fog=exp(-z*.012);",
+    "  // wet reflective asphalt reflecting the sky, moon and roadside light",
+    "  vec3 refl=sky(vec2(p.x+.006*sin(z*2.+T)*(1.+mid),-p.y*.9),head)*.13*(.6+.4*noise(vec2(x*2.,(z+D)*1.5)));",
+    "  float grain=noise(vec2(x*40.,(z+D)*8.))*.06;",
+    "  vec3 road=vec3(.03,.02,.045)+grain*.05+refl*(.7+.3*noise(vec2(x*3.,(z+D)*.5)));",
+    "  float onRoad=step(abs(x),W);",
+    "  vec3 ground=vec3(.04,.015,.05)+vec3(.25,.08,.2)*fbm3(vec2(x*.4,(z+D)*.15))*.25;",
+    "  vec3 c=mix(ground,road,onRoad);",
+    "  // centre dashes and glowing marker boxes",
+    "  float dash=step(fract((z+D)*.18),.45)*smoothstep(.06,.03,abs(x));",
+    "  c+=vec3(1.,.85,1.)*dash*.55*onRoad;",
+    "  float bz=fract((z+D)*.12);float bx=abs(abs(x)-W*.62);",
+    "  float box=smoothstep(.02,.0,abs(max(bx-.12,abs(bz-.25)*7.-.6)))*step(bz,.5);",
+    "  c+=mix(vec3(.4,.9,1.),vec3(1.,.3,.9),step(0.,x))*box*.9*(1.+beat*.6);",
+    "  // light runs racing along the road edges",
+    "  float wave=(exp(-pow((z-run)/7.,2.))+.5*exp(-pow((z-run+12.)/7.,2.)))*runAmp;",
+    "  float edge=exp(-abs(abs(x)-W)*60.);",
+    "  c+=mix(vec3(1.,.25,.85),vec3(.3,.85,1.),step(0.,x))*(edge*(.6+mid*.6+wave*3.5)+exp(-abs(abs(x)-W)*6.)*wave*.35);",
+    "  c*=fog;c+=vec3(.25,.05,.25)*(1.-fog)*.7;",
+    "  col=c;",
+    " }",
+    " // neon light bars running along both sides of the highway",
+    " for(int i=0;i<6;i++){float fi=float(i);float side=fi<3.?-1.:1.;float k=mod(fi,3.);",
+    "  float xs=side*(1.55+k*.16),ys=.02+k*.045;",
+    "  float zz=(camH-ys)/(hz-p.y);",
+    "  if(zz>.3&&zz<300.){float ex=(xs+relX(zz))/zz;float d=abs(p.x-ex)*zz;",
+    "   float wave=(exp(-pow((zz-run)/8.,2.))+.5*exp(-pow((zz-run+12.)/8.,2.)))*runAmp;",
+    "   float seq=.6+.4*sin(zz*.4-T*(3.+mid*4.)+k*2.);",
+    "   vec3 lc=side<0.?mix(vec3(1.,.2,.8),vec3(.4,.8,1.),k*.5):mix(vec3(.3,.85,1.),vec3(1.,.3,.9),k*.5);",
+    "   col+=lc*exp(-d*55.)*exp(-zz*.01)*(.5+seq*.5+high*.4+wave*2.)*1.1;}",
+    " }",
+    " // roadside lamp posts passing at believable intervals",
+    " for(int k=0;k<14;k++){float fk=float(k);",
+    "  for(int s=0;s<2;s++){float side=s==0?-1.:1.;",
+    "   float zk=fk*7.-mod(D,7.)+.5+ (side>0.?3.5:0.);if(zk<.6)continue;",
+    "   float px=(side*1.95+relX(zk))/zk,base=hz-camH/zk,top=hz+(1.9-camH)/zk;",
+    "   float pw=.035/zk;",
+    "   float pole=step(abs(p.x-px),pw)*step(base,p.y)*step(p.y,top);",
+    "   vec3 pc=vec3(.12,.06,.12)*(.6+.4*smoothstep(base,top,p.y));",
+    "   col=mix(col,pc*exp(-zk*.01)+vec3(.2,.05,.15)*(1.-exp(-zk*.01)),pole);",
+    "   float ax=px-side*.35/zk;float arm=step(abs(p.y-top),.012/zk)*step(min(px,ax),p.x)*step(p.x,max(px,ax));",
+    "   col=mix(col,vec3(.15,.07,.15),arm);",
+    "   vec2 lp=vec2(ax,top-.01/zk);float ld=length((p-lp)*vec2(1.,2.2))*zk;",
+    "   float wv=(exp(-pow((zk-run)/8.,2.))+.5*exp(-pow((zk-run+12.)/8.,2.)))*runAmp;",
+    "   col+=vec3(1.,.35,.9)*(exp(-ld*30.)*1.5+exp(-ld*6.)*.25)*(.7+high*.5+wv*1.5)*exp(-zk*.012);",
+    "   // pooled light on the road below",
+    "   float gz=zk;float gx=side*1.6+relX(gz);",
+    "   if(p.y<hz){float z=camH/(hz-p.y+1e-4);float x=p.x*z-relX(z)+relX(z);vec2 dd=vec2((p.x*z-relX(z))-side*1.6,(z-gz)*.6);col+=vec3(.7,.2,.6)*exp(-dot(dd,dd)*1.5)*.12*(1.+wv);}",
+    "  }",
+    " }",
+    " // our car in the foreground (rear view), with suspension and steering",
+    " vec2 cp=p-vec2(steer*.03,-.34+bob*.008);cp.x+=cp.y*steer*.06;",
+    " float yb=(cp.y+.13)/.15;                                  // 0 bumper .. 1 deck lid",
+    " float halfW=.27-.03*smoothstep(.6,1.,yb)+.01*smoothstep(.1,0.,yb);",
+    " float body=smoothstep(.004,-.004,abs(cp.x)-halfW)*step(-.13,cp.y)*step(cp.y,.02);",
+    " float roofW=.17-(cp.y-.02)*.55;float roof=smoothstep(.004,-.004,abs(cp.x)-roofW)*step(.02,cp.y)*step(cp.y,.105);",
+    " float win=smoothstep(.004,-.004,abs(cp.x)-(roofW-.018))*step(.034,cp.y)*step(cp.y,.094);",
+    " float tyre=step(abs(abs(cp.x)-.2),.045)*step(-.165,cp.y)*step(cp.y,-.12);",
+    " float shadow=exp(-pow(cp.x/.32,2.)-pow((cp.y+.16)/.015,2.));",
+    " col*=1.-shadow*.85;col=mix(col,vec3(.01),tyre);",
+    " float curv=1.-pow(abs(cp.x)/halfW,4.);",
+    " vec3 paint=vec3(.05,.045,.07)*(.6+.6*curv)+vec3(.9,.5,.85)*smoothstep(.012,0.,abs(cp.y-.018))*.35*curv",
+    "   +vec3(.5,.3,.6)*smoothstep(.006,0.,abs(cp.y+.085))*.25+vec3(.35,.2,.4)*pow(curv,6.)*smoothstep(-.13,.02,cp.y)*.18;",
+    " paint+=vec3(.9,.6,1.)*smoothstep(.003,0.,abs(abs(cp.x)-halfW+.004))*.3*step(-.13,cp.y);",
+    " vec3 glass=vec3(.015,.01,.03)+vec3(.5,.2,.45)*smoothstep(.1,.034,cp.y)*.12+vec3(1.,.6,.9)*smoothstep(.004,0.,abs(cp.x+cp.y*.8-.03))*.15;",
+    " col=mix(col,paint,max(body,roof));col=mix(col,glass,win);",
+    " float tl=smoothstep(.003,0.,abs(abs(cp.x)-.165)-.075)*smoothstep(.003,0.,abs(cp.y+.04)-.013);",
+    " float tail=.8+bass*.9+beat*.4;",
+    " col=mix(col,vec3(1.,.15,.5)*tail*(.8+.2*sin(cp.x*200.)),tl);",
+    " col+=vec3(1.,.15,.5)*exp(-length(vec2(abs(abs(cp.x)-.165)*.8,(cp.y+.04)*3.))*22.)*.4*tail;",
+    " col+=vec3(1.,.25,.6)*exp(-pow(cp.x/.25,2.)-pow((cp.y+.2)/.05,2.))*.16*tail;",
+    " col+=vec3(1.,.5,.9)*step(abs(cp.x),.035)*step(abs(cp.y+.075),.006)*.6*body;",
+    " col*=.8+.2*smoothstep(1.1,.3,length(p));",
+    " gl_FragColor=vec4(tonemap(col*1.15),1.);",
+    "}"
+  ].join('\n') };
+  Object.keys(VX8).forEach(function (k) { VX_SRC[k] = VX_COMMON + '\n' + VX8[k]; });
+  ['deepsea', 'robotdj', 'mushroomworld', 'ufo', 'rollercoaster', 'livingskull', 'alienparty', 'neonhighway'].forEach(function (k) { VX_ORDER.push(k); });
+  VX_NAMES.deepsea = 'Deep Sea Explorer'; VX_NAMES.robotdj = 'Robot DJ'; VX_NAMES.mushroomworld = 'Alien Mushroom World'; VX_NAMES.ufo = 'UFO Encounter';
+  VX_NAMES.rollercoaster = 'Cosmic Rollercoaster'; VX_NAMES.livingskull = 'Living Skull'; VX_NAMES.alienparty = 'Alien Dance Party'; VX_NAMES.neonhighway = 'Neon Highway';
+  // Alien Dance Party choreography: five characters, each with its own build and dance style.
+  // Joints per alien (13 x vec4): 0 pelvis(w=body yaw) 1 chest(w=head pitch) 2 head(w=head yaw)
+  // 3 shL 4 elL 5 hdL 6 shR 7 elR 8 hdR 9 knL 10 ftL 11 knR 12 ftR
+  function vxDanceRig() {
+    var B = [ // scale, hip height, torso, neck, shoulder half-width, upper arm, forearm, thigh, shin, hip half-width
+      { s: 1.15, hip: .92, torso: .55, neck: .2, sw: .19, ua: .36, fa: .34, th: .47, sh: .46, hw: .1 },
+      { s: .8, hip: .42, torso: .38, neck: .02, sw: .3, ua: .2, fa: .18, th: .22, sh: .21, hw: .16 },
+      { s: 1.05, hip: .86, torso: .6, neck: .16, sw: .17, ua: .38, fa: .4, th: .45, sh: .44, hw: .09 },
+      { s: 1, hip: .78, torso: .5, neck: .14, sw: .2, ua: .32, fa: .3, th: .4, sh: .4, hw: .11 },
+      { s: 1.1, hip: .78, torso: .5, neck: .1, sw: .27, ua: .3, fa: .3, th: .4, sh: .4, hw: .15 }
+    ];
+    var ROOT = [[-1.75, -.55], [-.85, .15], [0, -.75], [.9, .1], [1.8, -.5]];
+    var J = new Float32Array(5 * 13 * 4);
+    var st = { spin: 0, group: 0, groupT: 0, look: [0, 0, 0, 0, 0], lookAt: [0, 0, 0, 0, 0], crossT: 0 };
+    function put(a, j, x, y, z, w) { var o = (a * 13 + j) * 4; J[o] = x; J[o + 1] = y; J[o + 2] = z; J[o + 3] = w || 0; }
+    function arm(sh, side, yaw, raise, swing, bend, len1, len2, out) {
+      // raise: angle from hanging down (0) to straight up (PI); swing: forward(+)/back; side: -1 left, +1 right
+      var dx = Math.sin(raise) * side * Math.cos(swing * .6), dy = -Math.cos(raise), dz = Math.sin(swing) * .8 + .15;
+      var l = Math.hypot(dx, dy, dz); dx /= l; dy /= l; dz /= l;
+      var c = Math.cos(yaw), s = Math.sin(yaw), rx = dx * c + dz * s, rz = -dx * s + dz * c;
+      var el = [sh[0] + rx * len1, sh[1] + dy * len1, sh[2] + rz * len1];
+      // forearm bends toward the front/up
+      var fx = rx * Math.cos(bend) + 0, fy = dy * Math.cos(bend) + Math.sin(bend), fz = rz * Math.cos(bend) + Math.sin(bend) * .4 * Math.cos(yaw);
+      var fl = Math.hypot(fx, fy, fz); out[0] = el; out[1] = [el[0] + fx / fl * len2, el[1] + fy / fl * len2, el[2] + fz / fl * len2];
+    }
+    function leg(hip, foot, l1, l2, yaw) {
+      var dx = foot[0] - hip[0], dy = foot[1] - hip[1], dz = foot[2] - hip[2], d = Math.min(l1 + l2 - .001, Math.hypot(dx, dy, dz));
+      var a = (l1 * l1 + d * d - l2 * l2) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a)), L = Math.hypot(dx, dy, dz) || 1;
+      var ux = dx / L, uy = dy / L, uz = dz / L, kx = Math.sin(yaw), kz = Math.cos(yaw);   // knee bends forward
+      return [hip[0] + ux * a + kx * h, hip[1] + uy * a, hip[2] + uz * a + kz * h];
+    }
+    return {
+      joints: J,
+      pose: function (t, phase, A, dt) {
+        // phase: continuous beat count (fractional), A: smoothed audio
+        var b = phase % 1, e = .35 + A.energy * .65, s = dt / 1000;
+        var hop = Math.pow(Math.max(0, Math.sin(Math.PI * b)), 1.5), kick = Math.exp(-b * 6);
+        st.groupT -= s; if (st.groupT <= 0 && (A.strong && A.drama > .45 || Math.random() < s / 25)) { st.group = 1; st.groupT = 14; }
+        st.group = Math.max(0, st.group - s / 6);
+        var G = st.group > 0 ? Math.sin(Math.PI * Math.min(1, (1 - st.group) * 1.2)) : 0;    // coordinated group move envelope
+        st.spin += s * (A.mid > .5 || A.build > .3 ? 3.2 : .4);
+        for (var i = 0; i < 5; i++) {
+          var bd = B[i], r = ROOT[i], sc = bd.s, yaw = -r[0] * .22, lean = 0, twist = 0, bounce = 0, nod = 0, hy = 0;
+          var sideStep = 0, stepL = 0, stepR = 0, aL = [.35, .2, .5], aR = [.35, .2, .5];   // raise, swing, bend
+          if (i === 0) {        // the Grey: smooth body roll, glow stick waving in arcs
+            lean = .12 * Math.sin(phase * Math.PI * .5) * e; twist = .25 * Math.sin(phase * Math.PI * .5);
+            bounce = -.04 * hop * e; sideStep = .12 * Math.sin(phase * Math.PI * .5);
+            aR = [2.3 + .5 * Math.sin(phase * Math.PI), .3 * Math.cos(phase * Math.PI), .4 + A.mid * .6];
+            aL = [.9 + .5 * Math.sin(phase * Math.PI + 1) * e, .4, 1.2]; nod = .15 * Math.sin(phase * Math.PI * 2) * e;
+          } else if (i === 1) { // the Blob: bouncy hops on every beat, pumping stubby arms
+            bounce = .22 * hop * (.4 + A.bass * .9); var pump = Math.sin(phase * Math.PI * 2);
+            aL = [1.6 + .9 * pump * e, .2, .4]; aR = [1.6 - .9 * pump * e, .2, .4]; nod = -.25 * kick * A.bass;
+            stepL = stepR = .02;
+          } else if (i === 2) { // the Mantis: robotic popping between angular poses each beat
+            var k = Math.floor(phase) % 4, poses = [[1.6, .0, 1.5, .4, .4, .2], [.6, .9, 1.4, 2.5, -.3, .1], [2.6, -.2, .2, 1.6, .2, 1.5], [1.2, .8, .9, 1.2, .8, .9]];
+            var pz = poses[k], ease = Math.min(1, b * 6), pp = poses[(k + 3) % 4];
+            aL = [pp[0] + (pz[0] - pp[0]) * ease, pp[1] + (pz[1] - pp[1]) * ease, pp[2] + (pz[2] - pp[2]) * ease];
+            aR = [pp[3] + (pz[3] - pp[3]) * ease, pp[4] + (pz[4] - pp[4]) * ease, pp[5] + (pz[5] - pp[5]) * ease];
+            hy = .35 * Math.sign(Math.sin(phase * Math.PI * .5)) * (1 - kick * .5); bounce = -.03 * kick; twist = .15 * Math.sign(Math.sin(phase * Math.PI));
+          } else if (i === 3) { // the Squid: hip sway and spins, flowing arms
+            yaw += st.spin * (A.build > .3 || A.mid > .55 ? 1 : .15);
+            twist = .3 * Math.sin(phase * Math.PI); lean = .1 * Math.sin(phase * Math.PI * .5); sideStep = .18 * Math.sin(phase * Math.PI);
+            aL = [1.4 + .8 * Math.sin(t * 1.3), .5 * Math.sin(t), 1.0 + .5 * Math.sin(t * 2)]; aR = [1.4 + .8 * Math.sin(t * 1.3 + 2), .5 * Math.cos(t), 1.0 + .5 * Math.cos(t * 2)];
+            bounce = -.03 * hop;
+          } else {              // the Crystal: heavy stomps, fist pumps and head-banging
+            var stomp = Math.floor(phase) % 2; stepL = stomp ? .0 : .08 * (1 - b); stepR = stomp ? .08 * (1 - b) : 0;
+            bounce = -.08 * kick * (.4 + A.bass); nod = .45 * kick * (.4 + A.bass) - .1;
+            aR = [2.8 * (.5 + .5 * kick) + .2, .1, .3]; aL = [.6 + .3 * kick, .5, 1.6];
+          }
+          // coordinated group move: everyone throws arms up in a wave across the line
+          if (G > 0) { var g = G * (.5 + .5 * Math.sin(phase * Math.PI - i * .7)); aL = [aL[0] + (2.7 - aL[0]) * g, aL[1] * (1 - g), aL[2] * (1 - g) + .2 * g]; aR = [aR[0] + (2.7 - aR[0]) * g, aR[1] * (1 - g), aR[2] * (1 - g) + .2 * g]; bounce += .1 * g * hop; }
+          // treble: small head details; heads turn to look at a neighbour from time to time
+          if (Math.random() < s * .25) st.lookAt[i] = Math.random() < .5 ? 0 : (Math.random() < .5 ? -.6 : .6);
+          st.look[i] += (st.lookAt[i] - st.look[i]) * Math.min(1, s * 3);
+          hy += st.look[i] + .05 * Math.sin(t * 7 + i) * A.high;
+          var x0 = r[0] + sideStep * sc, z0 = r[1];
+          var py = bd.hip * sc + bounce * sc, pel = [x0, py, z0];
+          var cy = Math.cos(yaw + twist), sy = Math.sin(yaw + twist);
+          var ch = [pel[0] + Math.sin(lean) * bd.torso * sc * cy, pel[1] + Math.cos(lean) * bd.torso * sc, pel[2] - Math.sin(lean) * bd.torso * sc * sy];
+          var hd = [ch[0] + Math.sin(nod * .3) * .05, ch[1] + bd.neck * sc + .12 * sc, ch[2] + Math.sin(nod) * .08 * sc];
+          put(i, 0, pel[0], pel[1], pel[2], yaw); put(i, 1, ch[0], ch[1], ch[2], nod); put(i, 2, hd[0], hd[1], hd[2], yaw + twist + hy);
+          var out = [];
+          for (var sd = 0; sd < 2; sd++) {
+            var side = sd ? 1 : -1, a = sd ? aR : aL;
+            var shp = [ch[0] + side * bd.sw * sc * cy, ch[1] - .04 * sc, ch[2] - side * bd.sw * sc * sy];
+            arm(shp, side, yaw + twist, a[0], a[1], a[2], bd.ua * sc, bd.fa * sc, out);
+            put(i, 3 + sd * 3, shp[0], shp[1], shp[2]); put(i, 4 + sd * 3, out[0][0], out[0][1], out[0][2]); put(i, 5 + sd * 3, out[1][0], out[1][1], out[1][2]);
+            var cyy = Math.cos(yaw), syy = Math.sin(yaw);
+            var hip = [pel[0] + side * bd.hw * sc * cyy, pel[1] - .02, pel[2] - side * bd.hw * sc * syy];
+            var lift = (sd ? stepR : stepL) * sc + (i === 1 ? Math.max(0, bounce - .02) : 0);
+            var ft = [r[0] + side * (bd.hw + .04) * sc * cyy + sideStep * sc * .5, Math.max(0, lift), r[1] - side * bd.hw * sc * syy];
+            var kn = leg(hip, ft, bd.th * sc, bd.sh * sc, yaw);
+            put(i, 9 + sd * 2, kn[0], kn[1], kn[2]); put(i, 10 + sd * 2, ft[0], ft[1], ft[2]);
+          }
+        }
+        return J;
+      },
+      state: st
+    };
+  }
+  function vxSpring(st, key, target, k, damp, s) { var v = key + 'V', vel = st[v] || 0; vel += ((target - st[key]) * k - vel * damp) * Math.min(s, .05); st[v] = vel; st[key] += vel * Math.min(s, .05); return st[key]; }
+  // Two-bone arm IK: shoulder S reaches target H; the elbow swings out to the side and down.
+  function vxIK(S, H, l1, l2, side) {
+    var dx = H[0] - S[0], dy = H[1] - S[1], dz = H[2] - S[2], L = Math.hypot(dx, dy, dz) || 1, d = Math.min(l1 + l2 - .002, L);
+    var a = (l1 * l1 + d * d - l2 * l2) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+    var ux = dx / L, uy = dy / L, uz = dz / L, px = side, py = -.6, pz = -.25, dp = px * ux + py * uy + pz * uz;
+    px -= dp * ux; py -= dp * uy; pz -= dp * uz; var pl = Math.hypot(px, py, pz) || 1;
+    var el = [S[0] + ux * a + px / pl * h, S[1] + uy * a + py / pl * h, S[2] + uz * a + pz / pl * h];
+    return [el, [S[0] + ux * d, S[1] + uy * d, S[2] + uz * d]];
+  }
+  VX_SCENE.deepsea = function () {
+    var st = { T: 3, zph: 0, sway: 0, wave: 0, flashes: 0, bx: -1.4, by: .2, bs: .7, bsT: .7, bph: 0, near: 0 };
+    return function (A, dt, t) {
+      var s = dt / 1000;
+      st.T += s * (.7 + A.energy * .4);
+      st.zph += s * (.045 + A.energy * .04 + A.bass * .03);                    // forward travel
+      st.sway += ((.25 * Math.sin(t * .4) + A.mid * .8 * Math.sin(t * 1.1)) - st.sway) * Math.min(1, s * 2);
+      if (A.hit) st.wave = Math.max(st.wave, .4 + A.bass * .6);                 // bass pressure waves
+      st.wave *= Math.exp(-dt / 900);
+      st.flashes += (Math.min(1, A.high * 1.2 + A.rise * 2) - st.flashes) * Math.min(1, s * 5);
+      // a leviathan crosses in the gloom; strong passages bring it close
+      st.near -= s; if (A.drama > .5 && st.near <= 0) { st.bsT = 1.35; st.near = 18; } if (st.near < 10) st.bsT = .55 + .2 * Math.sin(t * .05);
+      st.bs += (st.bsT - st.bs) * Math.min(1, s * .25);
+      st.bx += s * (.04 + st.bs * .03) * (1 + A.bass * .5); if (st.bx > 1.9) { st.bx = -1.9; st.by = (Math.random() - .3) * .4; }
+      st.bph += s * (1.2 + A.bass * 2.5);
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, zph: st.zph, sway: st.sway, wave: st.wave, flashes: st.flashes,
+        beast: [st.bx, st.by + .05 * Math.sin(t * .3), st.bs, st.bph], layers: HIGH_MEMORY_DEVICE ? 7 : 5 };
+    };
+  };
+  VX_SCENE.robotdj = function () {
+    var st = { T: 2, nod: 0, turn: 0, lean: 0, deckA: 0, deckB: 1, fx: 0, scratch: 0, raise: 0, raiseT: 0, raiseSide: 1, cool: 4, cam: 0, jp: new Float32Array(40) };
+    return function (A, dt, t) {
+      var s = dt / 1000, ph = A.phase, b = ph % 1;
+      st.T += s;
+      // head nods with the beat (bass sets the depth), turns between decks and crowd
+      vxSpring(st, 'nod', .1 + .32 * Math.exp(-b * 5) * (.3 + A.bass * .9), 90, 13, s);
+      vxSpring(st, 'turn', .35 * Math.sin(t * .23) + (st.raise > .3 ? -.3 * st.raiseSide : 0), 14, 7, s);
+      vxSpring(st, 'lean', .06 * Math.sin(ph * Math.PI) * (.5 + A.mid), 30, 9, s);
+      // dramatic gesture to the crowd after build-ups or strong beats
+      st.cool -= s; if (st.cool <= 0 && (A.strong && (A.build > .25 || A.drama > .5) || Math.random() < s / 20)) { st.raiseT = 2.6; st.cool = 7; st.raiseSide = Math.random() < .5 ? -1 : 1; }
+      st.raiseT -= s; vxSpring(st, 'raise', st.raiseT > 0 ? 1 : 0, 18, 8, s);
+      st.deckA += s * (3.5 + (st.scratch = .8 * Math.sin(t * 5.5) * (.2 + A.mid))) ; st.deckB += s * 3.5;
+      var ch = [0, 1.45 - st.nod * .03, 0], J = st.jp, lean = st.lean;
+      function put(i, v, w) { J[i * 4] = v[0]; J[i * 4 + 1] = v[1]; J[i * 4 + 2] = v[2]; J[i * 4 + 3] = w || 0; }
+      var shL = [-.42 + lean * .5, 1.72 - lean, 0], shR = [.42 + lean * .5, 1.72 + lean, 0];
+      // left hand works the jog wheel (scratching with the midrange); right hand rides faders and knobs
+      var tL = [-.6 + .06 * Math.cos(t * 2.2) + .05 * st.scratch, 1.08 + .015 * Math.sin(t * 9) * A.high, .55 + .06 * Math.sin(t * 2.2)];
+      var fader = Math.sin(t * 1.3 + Math.sin(t * .37) * 2) * (.15 + A.mid * .1);
+      var tR = [.08 + fader + .2 * (.5 + .5 * Math.sin(t * .19)), 1.1 + .02 * Math.exp(-b * 6) * A.bass, .5 + .05 * Math.sin(t * .8)];
+      var up = [st.raiseSide * .75, 2.45 + .08 * Math.sin(t * 4), .3], rs = st.raise;
+      if (st.raiseSide > 0) tR = [tR[0] + (up[0] - tR[0]) * rs, tR[1] + (up[1] - tR[1]) * rs, tR[2] + (up[2] - tR[2]) * rs];
+      else tL = [tL[0] + (-.75 - tL[0]) * rs, tL[1] + (up[1] - tL[1]) * rs, tL[2] + (up[2] - tL[2]) * rs];
+      var aL = vxIK(shL, tL, .42, .4, -1), aR = vxIK(shR, tR, .42, .4, 1);
+      put(0, [ch[0] + lean * .3, 2.12 - st.nod * .05, .02], st.turn); put(1, [0, 1.85, 0], st.nod); put(2, shL); put(3, aL[0]); put(4, aL[1]);
+      put(5, shR); put(6, aR[0]); put(7, aR[1]); put(8, ch, lean);
+      J[36] = .7 - (st.raiseSide < 0 ? rs * .5 : 0); J[37] = .55 + .2 * Math.sin(t * 6) * A.high - (st.raiseSide > 0 ? rs * .4 : 0); J[38] = st.deckA; J[39] = st.deckB;
+      st.cam += s * .05;
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, jp: J, lasers: .35 + A.high * .55 + A.beat * .2, screens: .2 + A.mid * .8, crowd: .2 + A.energy * .8 + st.raise * .4, cam: .25 * Math.sin(st.cam) };
+    };
+  };
+  VX_SCENE.mushroomworld = function () {
+    var st = { T: 4, camx: 0, flow: 0, burst: 0, open: .3 };
+    return function (A, dt, t) {
+      var s = dt / 1000;
+      st.T += s * (.8 + A.energy * .3);
+      st.camx += s * (.025 + A.mid * .02);                                       // slow drift through the forest
+      st.flow += s * (.5 + A.mid * 1.2);
+      if (A.strong) st.burst = Math.min(1.3, st.burst + .8);                     // coordinated openings and spore clouds
+      st.burst *= Math.exp(-dt / 1400);
+      st.open += ((.3 + .25 * Math.sin(t * .4) + A.mid * .3 + st.burst * .5) - st.open) * Math.min(1, s * 2);
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, camx: .35 * Math.sin(st.camx) + st.camx * .2, flow: st.flow, burst: st.burst, open: st.open, spores: Math.min(1.2, A.high * .9 + st.burst * .8) };
+    };
+  };
+  VX_SCENE.ufo = function () {
+    var st = { T: 6, z: 0, zT: 0, x: 0, ringA: 0, ringB: 0, sweep: 0, tractor: .3, dis: 0, appr: 25, yaw: 0, minis: new Float32Array(12) };
+    return function (A, dt, t) {
+      var s = dt / 1000;
+      st.T += s;
+      st.appr -= s; if (st.appr <= 0 || (A.drama > .6 && st.appr < 15)) { st.zT = st.zT > .5 ? 0 : 1.6; st.appr = 22 + Math.random() * 14; }   // approach, then retreat
+      st.z += (st.zT - st.z) * Math.min(1, s * .18);
+      var xT = .35 * Math.sin(t * .07) * (1 - st.z * .4), vx = xT - st.x; st.x += vx * Math.min(1, s * .5);
+      st.yaw += s * (.15 + A.mid * .4);
+      st.ringA += s * (.25 + A.mid * 1.4); st.ringB -= s * (.4 + A.mid * 1.1);
+      st.sweep += s * (.35 + A.mid * .4);
+      st.tractor += ((.15 + A.bass * .85 + A.beat * .3) * (.5 + .5 * Math.sin(t * .09) > .3 ? 1 : .2) - st.tractor) * Math.min(1, s * 3);
+      if (A.strong) st.dis = 1; st.dis = Math.max(0, st.dis - s / 1.2);
+      var by = .55 + .03 * Math.sin(t * 1.1) + A.bass * .05 - st.z * .12;
+      for (var i = 0; i < 3; i++) { var a = t * (.3 + i * .12) + i * 2.1, rx = .55 + i * .12, sx = st.x * .35 + Math.cos(a) * rx, sy = .3 + .12 * Math.sin(a * 1.3) + i * .05;
+        st.minis[i * 4] = sx; st.minis[i * 4 + 1] = sy; st.minis[i * 4 + 2] = .008 + .004 * (Math.sin(a) * .5 + .5) + i * .001; st.minis[i * 4 + 3] = -Math.sin(a) > 0 ? 1 : -1; }
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, upos: [st.x, by, st.z], uang: [st.yaw, .1 + .05 * Math.sin(t * .5) + vx * .3, -vx * .6 + .04 * Math.sin(t * .7)],
+        ringA: st.ringA, ringB: st.ringB, tractor: st.tractor, field: .25 + A.bass * .6 + st.dis * .4, sweep: st.sweep, discharge: st.dis, minis: st.minis };
+    };
+  };
+  VX_SCENE.rollercoaster = function () {
+    var st = { T: 2, zc: 10, v: 7, pulse: 0, flash: 0 };
+    return function (A, dt, t) {
+      var s = dt / 1000;
+      st.T += s;
+      if (A.strong) st.v += 3 + A.bass * 3;                                       // coordinated acceleration bursts
+      var vT = 6 + A.energy * 6 + A.bass * 4 + 2 * Math.sin(t * .11);              // climbs and dives change pace
+      st.v += (vT - st.v) * Math.min(1, s * .9);
+      st.zc += s * st.v; st.pulse += s * (.6 + A.mid * 1.5);
+      if (A.hit) st.flash = Math.max(st.flash, .5 + A.bass * .5); st.flash *= Math.exp(-dt / 500);
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, zc: st.zc, speed: Math.min(1.2, Math.max(0, (st.v - 5) / 9)), pulse: st.pulse, flash: st.flash };
+    };
+  };
+  VX_SCENE.livingskull = function () {
+    var st = { T: 1, jaw: .04, yaw: 0, pitch: 0, roar: 0, roarT: 0, cool: 6, crack: 0, frag: 0 };
+    return function (A, dt, t) {
+      var s = dt / 1000, b = A.phase % 1;
+      st.T += s;
+      st.cool -= s; if (st.cool <= 0 && (A.strong && (A.drama > .5 || A.build > .3))) { st.roarT = 1.8; st.cool = 8; }
+      st.roarT -= s; st.roar += ((st.roarT > 0 ? 1 : 0) - st.roar) * Math.min(1, s * (st.roarT > 0 ? 5 : 2));
+      // jaw: chatters with bass, accents on beats, opens slowly through build-ups, wide on a roar
+      var jT = .03 + A.bass * .2 * (.6 + .4 * Math.exp(-b * 5)) + A.build * .25 + st.roar * .4 + .015 * Math.sin(t * 2.3);
+      vxSpring(st, 'jaw', Math.min(.55, jT), 120, 15, s);
+      vxSpring(st, 'yaw', .4 * Math.sin(t * .13) + .18 * Math.sin(t * .31 + 1) + A.mid * .12 * Math.sin(t * .9), 6, 4, s);
+      vxSpring(st, 'pitch', -.04 + .08 * Math.sin(t * .17) - st.roar * .12 + A.bass * .05 * Math.exp(-b * 5), 20, 7, s);
+      st.crack += ((A.drama * .7 + st.roar * .6) - st.crack) * Math.min(1, s * .8);
+      st.frag += ((A.high * .35 + st.roar * .8) - st.frag) * Math.min(1, s * 2);
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, hrot: [st.yaw, st.pitch, .05 * Math.sin(t * .11)], jaw: st.jaw,
+        glow: .4 + A.energy * .5 + st.roar * .5, crack: st.crack, beam: .2 + A.high * .4 + st.roar * .6, mouthE: Math.min(1.2, st.jaw * 1.4 + st.roar * .6), frag: st.frag };
+    };
+  };
+  VX_SCENE.alienparty = function () {
+    var rig = vxDanceRig(), st = { T: 1, floorP: 0 };
+    return function (A, dt, t) {
+      var s = dt / 1000;
+      st.T += s; if (A.hit) st.floorP += 1;
+      var J = rig.pose(t, A.phase, A, dt);
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, J: J, lasers: .3 + A.high * .6, spot: .6 + A.mid * .5, floorP: st.floorP, group: rig.state.group };
+    };
+  };
+  VX_SCENE.neonhighway = function () {
+    var st = { T: 2, D: 0, v: 24, run: -50, runAmp: 0, bob: 0, steer: 0 };
+    return function (A, dt, t) {
+      var s = dt / 1000;
+      st.T += s;
+      st.v += ((22 + A.energy * 10 + A.bass * 6) - st.v) * Math.min(1, s * .6);
+      st.D += s * st.v;
+      // light runs race away down the highway on beats; strong sections send brighter runs
+      if (A.hit) { st.run = 0; st.runAmp = Math.min(1.4, .45 + A.bass * .5 + (A.drama > .5 ? .5 : 0)); }
+      st.run += s * (70 + st.v); st.runAmp *= Math.exp(-dt / 1600);
+      vxSpring(st, 'bob', (Math.sin(t * 7.3) * .4 + Math.sin(t * 3.1) * .6) * .5 + A.bass * .8 * Math.exp(-(A.phase % 1) * 6), 60, 9, s);
+      vxSpring(st, 'steer', .35 * Math.sin(t * .23) + .15 * Math.sin(t * .71), 8, 5, s);
+      return { T: st.T, bass: A.bass, mid: A.mid, high: A.high, beat: A.beat, build: A.build, D: st.D, run: st.run, runAmp: st.runAmp, bob: st.bob, steer: st.steer, section: st.D * .0015 };
+    };
+  };
+
   // ---- switcher, crossfade and exit inside the experience ----
   function vxSnapshot() {
     if (!glc || glc.style.display === 'none' || glc.width < 4) return;
@@ -1591,7 +2665,7 @@ void main(){
   function vxEnsureBar() {
     if (!vxBar) {
       vxBar = document.createElement('nav'); vxBar.id = 'vxBar'; vxBar.setAttribute('aria-label', 'Visuals');
-      vxBar.innerHTML = VX_ORDER.map(function (k, i) { return '<button type="button" class="vx-pick" data-vx="' + k + '"><span>0' + (i + 1) + '</span>' + VX_NAMES[k] + '</button>'; }).join('') +
+      vxBar.innerHTML = '<div class="vx-list">' + VX_ORDER.map(function (k, i) { return '<button type="button" class="vx-pick" data-vx="' + k + '"><span>' + (i < 9 ? '0' : '') + (i + 1) + '</span>' + VX_NAMES[k] + '</button>'; }).join('') + '</div>' +
         '<button type="button" class="vx-exit" data-vxexit="1" aria-label="Exit Visuals">EXIT</button>';
       vxBar.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -1603,6 +2677,7 @@ void main(){
     if (vxBar.parentNode !== layer) layer.appendChild(vxBar);
     Array.prototype.forEach.call(vxBar.querySelectorAll('[data-vx]'), function (el) { var on = el.getAttribute('data-vx') === XP.current; el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     vxBar.style.display = '';
+    var act = vxBar.querySelector('.vx-pick.active'); if (act && act.scrollIntoView) try { act.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (err) {}
   }
   function vxStart(name) {
     if (!glStart('vx_boot', 'void main(){ gl_FragColor = vec4(0.,0.,0.,1.); }')) {
@@ -1636,7 +2711,7 @@ void main(){
   // values (merged over its live choreography) and returns an 80x45 luminance grid.
   function vxProbe(name, over, steps, audioIn) {
     if (VX_ORDER.indexOf(name) < 0 || !ensureGl()) return null;
-    var w = 320, h = 180, ow = glc.width, oh = glc.height, A0 = { bass: 0, mid: 0, high: 0, beat: 0, energy: 0, drama: 0, rise: 0, hit: false, strong: false }, scene = VX_SCENE[name](), u;
+    var w = 320, h = 180, ow = glc.width, oh = glc.height, A0 = { bass: 0, mid: 0, high: 0, beat: 0, energy: 0, drama: 0, rise: 0, hit: false, strong: false, build: 0, phase: 2.2, quiet: 1 }, scene = VX_SCENE[name](), u;
     for (var ak in (audioIn || {})) A0[ak] = audioIn[ak];
     for (var i = 0; i < (steps || 3); i++) u = scene(A0, 33, 5 + i * .033);
     for (var k in (over || {})) u[k] = over[k];
@@ -1646,18 +2721,20 @@ void main(){
     var grid = [], rgb = [0, 0, 0];
     for (var y = 0; y < 45; y++) for (var x = 0; x < 80; x++) { var o = ((h - 1 - y * 4) * w + x * 4) * 4; grid.push(Math.round(.299 * px[o] + .587 * px[o + 1] + .114 * px[o + 2])); rgb[0] += px[o]; rgb[1] += px[o + 1]; rgb[2] += px[o + 2]; }
     glc.width = ow; glc.height = oh;
-    return { grid: grid, rgb: rgb.map(function (v) { return v / 3600; }) };
+    var uo = {}; for (var uk in u) { var uv = u[uk]; uo[uk] = typeof uv === 'number' ? uv : Array.prototype.slice.call(uv); }
+    return { grid: grid, rgb: rgb.map(function (v) { return v / 3600; }), u: uo };
   }
   // Still frames of each experience for the Visuals selector (rendered once and cached).
-  var vxPreviewCache = null;
+  var vxPreviewCache = null, VX_PREVIEW_VERSION = '13-1';
   function vxPreviews(cb) {
     if (vxPreviewCache) { cb(vxPreviewCache); return; }
     if (!ensureGl()) { cb({}); return; }
-    var ow = glc.width, oh = glc.height, w = 384, h = 216, out = {};
+    var ow = glc.width, oh = glc.height, w = 320, h = 180, out = {}, cacheKey = 'nexus.vxPreviews.' + VX_PREVIEW_VERSION;
+    try { var cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); if (cached && VX_ORDER.every(function (k) { return cached[k]; })) { vxPreviewCache = cached; cb(cached); return; } } catch (e) {}
     glc.width = w; glc.height = h; gl.viewport(0, 0, w, h);
     VX_ORDER.forEach(function (name) {
       try {
-        var A0 = { bass: .35, mid: .4, high: .45, beat: .2, energy: .45, drama: .2, rise: 0, hit: false, strong: false }, scene = VX_SCENE[name](), u;
+        var A0 = { bass: .35, mid: .4, high: .45, beat: .2, energy: .45, drama: .2, rise: 0, hit: false, strong: false, build: .1, phase: 3.3, quiet: 0 }, scene = VX_SCENE[name](), u;
         for (var i = 0; i < 14; i++) u = scene(A0, 120, 18 + i * .12);
         if (name === 'hollowhead') { u.yaw = -.38; u.pitch = -.14; vxDrawHead(u, w, h); } else vxDrawFull(vxFull(name), u, w, h);
         out[name] = glc.toDataURL('image/jpeg', .84);
@@ -1665,7 +2742,9 @@ void main(){
     });
     glc.width = ow; glc.height = oh;
     if (!XP.active) vxRelease();
-    vxPreviewCache = out; cb(out);
+    vxPreviewCache = out;
+    try { Object.keys(localStorage).forEach(function (k) { if (k.indexOf('nexus.vxPreviews.') === 0 && k !== cacheKey) localStorage.removeItem(k); }); localStorage.setItem(cacheKey, JSON.stringify(out)); } catch (e) {}
+    cb(out);
   }
 
   var XP = window.XP = {
