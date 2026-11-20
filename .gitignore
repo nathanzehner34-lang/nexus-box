@@ -5,3 +5,4 @@ local.properties
 *.keystore
 *.jks
 app/src/main/assets/key.js
+app/src/main/assets/update-compat.bin

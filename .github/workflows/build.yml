@@ -77,7 +77,13 @@ jobs:
           export NEXUS_KEYSTORE="$HOME/nexus-signing/nexus.keystore"
           ls -l "$NEXUS_KEYSTORE"
           keytool -list -v -keystore "$NEXUS_KEYSTORE" -storepass android | grep -m1 SHA256
+          # Boxes running build 45 or older reject update APKs under 1 MB. Until every box has
+          # updated past that check, an incompressible filler asset keeps releases above the limit.
+          head -c 760000 /dev/urandom > app/src/main/assets/update-compat.bin
           gradle assembleDebug --no-daemon --stacktrace
+          SIZE=$(stat -c%s app/build/outputs/apk/debug/app-debug.apk)
+          echo "APK size: $SIZE bytes"
+          test "$SIZE" -gt 1150000
 
       - name: Verify production update compatibility
         env:

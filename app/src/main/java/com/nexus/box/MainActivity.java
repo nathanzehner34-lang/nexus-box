@@ -507,7 +507,8 @@ public class MainActivity extends Activity {
             int statusCol = cur.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS);
             if (statusCol < 0 || cur.getInt(statusCol) != android.app.DownloadManager.STATUS_SUCCESSFUL) throw new Exception("Download incomplete");
             File apk = new File(new File(getExternalFilesDir(null), "updates"), NEXUS_APK_NAME);
-            if (!apk.isFile() || apk.length() < 1024 * 1024) throw new Exception("APK is incomplete");
+            // A complete Nexus APK is well over 256 KB; the version and signature checks below verify the rest.
+            if (!apk.isFile() || apk.length() < 256 * 1024) throw new Exception("APK is incomplete");
             int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
             android.content.pm.PackageInfo downloaded = getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
             android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), flags);
