@@ -37,7 +37,7 @@ assert(liquid.includes('next.touch = true') && liquid.includes("case 'touch':"),
 // music
 assert(liquid.includes('sEnergy = ease(sEnergy') && liquid.includes("dream.f('energyL', energyL)") && liquid.includes('flow += sec * speedNow * (1 + midL * .5 + energyL * .4)') && liquid.includes('colorPhase += sec * (.012 + energyL * .06'), 'bass, mid, treble and beat energy all drive the visuals and colour flow');
 assert(liquid.includes('beatTracker({ quiet: true })') && xp.includes('if (!quiet) dropFlash();'), 'Liquid Dreams never triggers the full-screen drop flash');
-assert(xp.includes("if (name === 'liquiddreams') { atmosphereProfile = null;"), 'the shared colour-cycling atmosphere overlay is not drawn over Liquid Dreams');
+assert(/if \(name === 'liquiddreams'[^)]*\) \{ atmosphereProfile = null;/.test(xp), 'the shared colour-cycling atmosphere overlay is not drawn over Liquid Dreams');
 // no black frames
 assert(liquid.includes("glc.style.opacity = '0'") && liquid.includes("glc.style.opacity = '1'") && liquid.includes('function paintBackdrop()'), 'a palette backdrop shows until the first GPU frame fades in');
 assert(liquid.includes('envMix += dt / (low ? 4200 : 2600)') && shader.includes('envLD(envB,p,t)'), 'experience changes dissolve with both experiences rendering');

@@ -90,7 +90,7 @@
   // Background: the live environment engine (env.js) draws the general interface background.
   // Party Mode, Liquid Dreams and the visuals keep their own renderers; the engine pauses under them.
   // ------------------------------------------------------------------
-  var mode = { night: false, party: false, intruder: false };
+  var mode = { party: false, intruder: false };
   function envMode() { try { if (window.NexusEnv) NexusEnv.setMode(mode); } catch (e) {} }
   function redraw() { envMode(); }
   function envShouldRun() {
@@ -300,7 +300,6 @@
     partyOut: ['Party\'s over. Back to business.', 'Party mode off. That was a good one.'],
     hype: ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'This truck is officially a club!', 'I can feel the bass in my circuits!', 'Hands up in the truck!'],
     shout: ['Shout out to everybody in the truck tonight!', 'Big shout out to the driver. Legend!', 'Shout out to whoever picked this song. Absolute fire!'],
-    night: 'Night drive engaged. Easing everything down.',
     bye: 'Powering down. See you next ride, Nathan.'
   };
   function tod() { var h = L().h; return h >= 4 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening'; }
@@ -599,11 +598,11 @@
   var COMMANDS = [
     [/\b(youtube|smart ?tube)\b/, 'youtube'], [/\b(spotify|music)\b/, 'music'], [/\bstremio|stream ?io\b/, 'stremio'], [/\b(maps?|navigation|navigate)\b/, 'maps'],
     [/\b(messages?|texts?)\b/, 'messages'], [/\bparty\b/, 'party'], [/\btrivia\b/, 'trivia'],
-    [/\bnight (drive|mode)\b/, 'night'],
+    [/\bnight drive\b/, 'night'],
     [/\b(all apps|app drawer)\b/, 'apps'], [/\bsettings\b/, 'settings']
   ];
   function matchCommand(t) {
-    if (!/\b(open|launch|start|turn|engage|activate|run|play|go to|show|enable|disable|switch|stop|end)\b/.test(t) && !/^(party mode|night drive|night mode|trivia|story mode|brief me|intruder alert)/.test(t)) return null;
+    if (!/\b(open|launch|start|turn|engage|activate|run|play|go to|show|enable|disable|switch|stop|end)\b/.test(t) && !/^(party mode|night drive|trivia|story mode|brief me|intruder alert)/.test(t)) return null;
     for (var i = 0; i < COMMANDS.length; i++) if (COMMANDS[i][0].test(t)) return COMMANDS[i][1];
     return null;
   }
@@ -709,7 +708,7 @@
       case 'lyrics': openExperience('lyrics'); break;
       default: if (name && name.indexOf('vis:') === 0) { fromVisuals = false; openExperience(name.slice(4)); } break;
       case 'visuals': openVisuals(); break;
-      case 'night': toggleNight(); break;
+      case 'night': fromVisuals = false; openExperience('nightdrive'); break;
       case 'trivia': openTrivia(); break;
       case 'story': openStory(); break;
       case 'intruder': runIntruder(); break;
@@ -952,23 +951,10 @@
 
   function badges() {
     var b = [];
-    if (mode.night) b.push('<span class="badge">NIGHT DRIVE</span>');
     if (mode.party) b.push('<span class="badge">PARTY MODE</span>');
     $('modeBadges').innerHTML = b.join('');
     if ($('tParty')) $('tParty').classList.toggle('active', mode.party);
-    if ($('tNight')) $('tNight').classList.toggle('active', mode.night);
-    document.body.classList.toggle('night', mode.night);
     document.body.classList.toggle('party', mode.party);
-  }
-
-  // ---- Night drive
-  function toggleNight() {
-    mode.night = !mode.night;
-    if (mode.night && P.on) exitParty(true);
-    try { if (A) A.setBrightness(mode.night ? 0.12 : -1); } catch (e) {}
-    badges();
-    redraw();
-    say(mode.night ? pick(['Night drive engaged. Dimming everything down. Easy on the eyes.', 'Night drive on. Smooth and quiet from here.']) : pick(['Night drive off. Lights back up.', 'Back to full brightness.']));
   }
 
   // ---- Party mode (lights follow the music in the cab via the mic) ----
@@ -1130,7 +1116,6 @@
     clearInterval(P.songTimer);
     P.songTimer = setInterval(pollSong, 4000); setTimeout(pollSong, 600);
     P.on = mode.party = true;
-    if (mode.night) { mode.night = false; try { if (A) A.setBrightness(-1); } catch (e) {} }
     buildBars(); badges();
     $('party').classList.remove('hidden');
     $('pHint').textContent = 'TURN THE MUSIC UP · THE LIGHTS FOLLOW THE BEAT';
@@ -1667,7 +1652,7 @@
     var name = play.list[play.i % play.list.length];
     if (play.started && window.XP && XP.active) xpSnapshot();
     play.started = true;
-    openExperience(name);
+    openExperience(name, true);
     $('xpNext').classList.remove('hidden');
     clearTimeout(play.hint);
     setTimeout(function () { if (play) { $('xpBottom').textContent = '▶ ' + play.label + ' · ' + ((play.i % play.list.length) + 1) + ' / ' + play.list.length; play.hint = setTimeout(function () { if (play) $('xpBottom').textContent = ''; }, 3000); } }, 150);
@@ -1689,8 +1674,9 @@
     sc.onload = function () { xpLoaded = true; var q = xpWaiting; xpWaiting = []; q.forEach(function (f) { f(); }); };
     document.body.appendChild(sc);
   }
-  function openExperience(name) {
+  function openExperience(name, fromPlay) {
     if (P.on) exitParty(true);
+    if (!fromPlay) stopPlaythrough();
     loadExperiences(function () { if (window.XP) XP.open(name); });
   }
 
@@ -1712,7 +1698,7 @@
   var awaySince = 0;
   Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.partyMeter(false); } catch (e) {} };
   Nexus.resumed = function () {
-    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.partyMeter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} if (mode.night && A) A.setBrightness(0.12); };
+    awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.partyMeter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} };
 
   // ------------------------------------------------------------------
   // Start

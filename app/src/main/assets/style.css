@@ -31,7 +31,6 @@ button { font: inherit; color: inherit; }
 #vig { position: fixed; inset: 0; pointer-events: none; background:
   radial-gradient(ellipse at 50% 40%, rgba(0,0,0,0) 45%, rgba(2,3,10,.55) 100%),
   linear-gradient(180deg, rgba(2,3,10,.35) 0%, rgba(2,3,10,0) 22%, rgba(2,3,10,0) 70%, rgba(2,3,10,.45) 100%); }
-body.night #vig { background: radial-gradient(ellipse at center, rgba(0,0,0,.25) 30%, rgba(0,0,0,.8) 100%); }
 #bg { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--nx-bg); }
 .layer { position: fixed; inset: 0; transition: opacity .8s ease; }
 .hidden { display: none !important; }
@@ -244,10 +243,6 @@ input[type=range]:active::-webkit-slider-thumb { box-shadow: 0 2px 10px rgba(0,0
 
 /* ---------- Modes ---------- */
 @keyframes beat { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-body.night .tile { background: rgba(6,8,16,.55); border-color: rgba(255,255,255,.06); box-shadow: none; }
-body.night .tile .lb, body.night #statusBox, body.night #caption { color: #7c86a6; }
-body.night .tile .ic { color: #6b7698; }
-body.night #clock { color: #b4bdd9; text-shadow: none; }
 /* 2 GB boxes: no live blur over the animated world (keeps the GPU for the environment) */
 html.nx-lite .tile, html.nx-lite #panelBox { backdrop-filter: none; -webkit-backdrop-filter: none; }
 html.nx-lite .tile { background: linear-gradient(160deg, rgba(255,255,255,.08), rgba(255,255,255,.01) 45%), rgba(8,10,22,.5); }
@@ -624,3 +619,23 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #xp.liquid-dreams .ld-play-secs button{padding:8px 4px;font-size:12px}
 #xp.liquid-dreams .ld-next,#xp.liquid-dreams .ld-shift{position:relative}
 #xp.liquid-dreams .ld-auto::after{content:'AUTO';position:absolute;top:6px;right:10px;font-size:9px;letter-spacing:.16em;color:rgba(160,230,255,.85)}
+
+/* ---- NIGHT DRIVE: the world is the screen, controls surface on touch ---- */
+#xp.night-drive { background: #02030a; touch-action: manipulation; }
+#xp.night-drive canvas { touch-action: none; }
+#xp.night-drive #xpClose, #xp.night-drive .nd-ui { transition: opacity .55s ease; }
+#xp.night-drive.nd-idle #xpClose, #xp.night-drive.nd-idle .nd-ui { opacity: 0; pointer-events: none; }
+#xp.night-drive .nd-ui { position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; padding: 2vmin 2.4vmin 2.6vmin;
+  display: flex; justify-content: center; pointer-events: none;
+  background: linear-gradient(to top, rgba(2,3,10,.82), rgba(2,3,10,.45) 55%, rgba(2,3,10,0));
+  font-family: 'Segoe UI', Roboto, system-ui, Arial, sans-serif; }
+#xp.night-drive .nd-bar { pointer-events: auto; display: grid; gap: .8vmin; max-width: min(1100px, 94vw); width: 100%; }
+#xp.night-drive .nd-row { display: flex; align-items: center; gap: .7vmin; flex-wrap: wrap; }
+#xp.night-drive .nd-row > span { min-width: 9.5ch; font-size: clamp(10px, 1.45vmin, 13px); letter-spacing: .22em;
+  color: rgba(190,205,240,.62); }
+#xp.night-drive .nd-row button { font: inherit; min-height: 42px; padding: 0 1.25em; border-radius: 999px; cursor: pointer;
+  font-size: clamp(11px, 1.6vmin, 14px); letter-spacing: .16em; color: #dce6ff;
+  border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.045);
+  transition: background .2s ease, border-color .2s ease, color .2s ease; }
+#xp.night-drive .nd-row button.on { color: #061018; border-color: transparent;
+  background: linear-gradient(120deg, #51d9ff, #9a7bff 55%, #ff6fd0); box-shadow: 0 0 22px rgba(110,160,255,.35); }

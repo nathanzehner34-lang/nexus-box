@@ -48,7 +48,7 @@
 
   var cv = null, gl = null, buf = null, programs = {}, blendProg = null, snapTex = null, fbo = null, fboTex = null;
   var active = false, raf = 0, lastFrame = 0, lastT = 0, T = 20 + Math.random() * 60, scale = 1, slowFrames = 0, fastFrames = 0;
-  var envIndex = IDS.indexOf(S.env), fade = 1, mode = { night: false, intruder: false };
+  var envIndex = IDS.indexOf(S.env), fade = 1, mode = { intruder: false };
   var pal = ENVIRONMENTS[envIndex].palettes[S.palettes[S.env]][1].map(function (c) { return c.slice(); });
   var aBass = 0, aMid = 0, aHigh = 0, aEnergy = 0, speedNow = S.speed, moveNow = S.movement, brightNow = S.brightness, tint = [1, 1, 1];
   var previews = [], previewTurn = 0, lastPreview = 0, meterWanted = false, musicCheckAt = 0, musicOn = false;
@@ -128,9 +128,9 @@
     aMid = ease(aMid, B ? Math.min(1, B.mid * 1.4) * sens : 0, dt, 900);
     aHigh = ease(aHigh, B ? Math.min(1, B.high * 1.6) * sens : 0, dt, 300);
     aEnergy = ease(aEnergy, B ? Math.min(1, B.e) * sens : 0, dt, 1500);
-    var targetSpeed = S.speed * (low ? .3 : 1) * (mode.night ? .55 : 1), targetMove = S.movement * (low ? .35 : 1);
+    var targetSpeed = S.speed * (low ? .3 : 1), targetMove = S.movement * (low ? .35 : 1);
     speedNow = ease(speedNow, targetSpeed, dt, 700); moveNow = ease(moveNow, targetMove, dt, 700);
-    brightNow = ease(brightNow, S.brightness * (mode.night ? .5 : 1), dt, 900);
+    brightNow = ease(brightNow, S.brightness, dt, 900);
     var tt = mode.intruder ? [1.35, .35, .35] : [1, 1, 1]; for (var c = 0; c < 3; c++) tint[c] = ease(tint[c], tt[c], dt, 500);
     T += dt / 1000 * speedNow * (1 + aEnergy * .25);
     var target = ENVIRONMENTS[envIndex].palettes[S.palettes[IDS[envIndex]]][1], k = 1 - Math.exp(-dt / (3200 / S.colorSpeed * (low ? 1.5 : 1)));
@@ -220,7 +220,7 @@
     reset: function () { var env = S.env; S = normalize({ env: env }); save(); scale = 1; resize(); },
     select: select,
     setActive: function (on) { on = !!on; if (on === active) return; active = on; if (on) start(); else pause(); },
-    setMode: function (m) { mode.night = !!(m && m.night); mode.intruder = !!(m && m.intruder); },
+    setMode: function (m) { mode.intruder = !!(m && m.intruder); },
     attachPreviews: function (list) { previews = list || []; previewTurn = 0; lastPreview = 0; if (gl) previews.forEach(renderPreview); },
     detachPreviews: function () { previews = []; if (gl && !snapTex) releaseUnused(); },
     status: function () { return { active: active, running: !!raf, env: IDS[envIndex], gl: !!gl, scale: scale, quality: qualityName(), programs: Object.keys(programs).length, transitioning: !!snapTex, T: T, audio: { bass: aBass, mid: aMid, high: aHigh }, meter: meterWanted, width: cv ? cv.width : 0, height: cv ? cv.height : 0 }; }

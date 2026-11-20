@@ -147,7 +147,7 @@
   function resetAtmosphere(name) {
     // The five Visuals carry their own complete lighting, so no overlay is drawn over them.
     if (VX_ORDER.indexOf(name) >= 0) { atmosphereProfile = null; atmosphereParticles = []; if (atmosphereCtx) atmosphereCtx.clearRect(0, 0, atmosphereCanvas.width, atmosphereCanvas.height); return; }
-    if (name === 'liquiddreams') { atmosphereProfile = null; atmosphereParticles = []; if (atmosphereCtx) atmosphereCtx.clearRect(0, 0, atmosphereCanvas.width, atmosphereCanvas.height); return; }
+    if (name === 'liquiddreams' || name === 'nightdrive') { atmosphereProfile = null; atmosphereParticles = []; if (atmosphereCtx) atmosphereCtx.clearRect(0, 0, atmosphereCanvas.width, atmosphereCanvas.height); return; }
     atmosphereProfile = ATMOSPHERE_PROFILES[atmosphereFamily(name)]; atmosphereLast = 0;
     ensureAtmosphere();
     var seed = 271 + String(name).split('').reduce(function (n, c) { return (n * 33 + c.charCodeAt(0)) >>> 0; }, 0), count = HIGH_MEMORY_DEVICE ? 88 : 30;
@@ -2772,6 +2772,345 @@ void main(){
     cb(out);
   }
 
+  // ==================================================================
+  // NIGHT DRIVE — a continuous journey along a neon highway through
+  // alien worlds. The camera, the road, the controls and the audio are
+  // shared; a world supplies only its sky, its horizon haze and the
+  // ground either side of the road, so another world is a new ND_WORLDS
+  // entry rather than another experience.
+  // ==================================================================
+  var ND_HEAD = `
+uniform float travel, night, react, mids, highs, q;
+uniform vec3 cA, cB, cC, cD;
+float fbm(vec2 p, float oct){ float v=0., a=.5; mat2 m=mat2(1.6,1.2,-1.2,1.6);
+ for(int i=0;i<5;i++){ if(float(i)>=oct) break; v+=a*noise(p); p=m*p+vec2(3.1,1.7); a*=.5; } return v; }
+// The road winds and rolls as smooth functions of distance driven, so its shape keeps
+// changing for the whole journey instead of looping back on a short cycle.
+float curveAt(float z){ return 16.*sin(z*.0021) + 9.*sin(z*.00085+1.7) + 5.*sin(z*.0047+4.1); }
+float hillAt(float z){ return 7.*sin(z*.0013+2.2) + 3.5*sin(z*.0031+.6); }
+// Jagged horizon ranges. lay 0 is the near range, lay 1 drifts more slowly for parallax.
+float ndRidge(float az, float lay, float tr){
+ float k = .35 + lay*.55;
+ float x = az*(2.4+lay*2.2) + tr*(.00022+lay*.00055);
+ float n = fbm(vec2(x, lay*9.1), 3.);
+ float n2 = 1.-abs(fbm(vec2(x*2.3+4., lay*9.1+2.), 3.)*2.-1.);
+ float n3 = 1.-abs(fbm(vec2(x*5.1+11., lay*9.1+5.), 2.)*2.-1.);
+ float massif = .35 + 1.25*fbm(vec2(x*.26+30., lay*3.3), 2.);
+ return (n*.55 + pow(n2,1.6)*.75 + pow(n3,2.)*.3) * k * massif;
+}
+`;
+
+  // Every world implements these three, and nothing else.
+  //   ndSky   — everything above the road: sky, celestial bodies, horizon silhouettes
+  //   ndHaze  — the cheap colour the road fades into at the horizon
+  //   ndGround— the terrain either side of the asphalt
+  var ND_MAIN = `
+void main(){
+ vec2 uv = (gl_FragCoord.xy - .5*res)/res.y;
+ float t = time, tr = travel;
+ vec3 ro = vec3(0.);
+ vec3 rd = normalize(vec3(uv.x*1.12, uv.y*1.12 + .085, -1.));
+ vec3 col = ndSky(rd, t);
+ float camH = 2.35;
+ if(rd.y < -.0015){
+  // one refinement pass against the hill height, so crests and dips read as real elevation
+  float zf = camH/(-rd.y);
+  float tg = (camH + hillAt(tr + zf)*.45)/(-rd.y);
+  vec3 g = ro + rd*tg;
+  float zd = -g.z, wz = tr + zd, fade = exp(-zd*.0042);
+  float xr = g.x - curveAt(wz)*min(1., zd*.0026);
+  float edge = abs(xr), HALF = 11.0;
+  vec3 ground = ndGround(xr, wz, fade);
+  if(edge < HALF+1.6){
+   float grain = noise(vec2(xr*2.4, wz*2.4))*.5 + noise(vec2(xr*9., wz*9.))*.25;
+   vec3 road = vec3(.034,.035,.052) + grain*.022;
+   // wet sheen: the sky smeared down the asphalt
+   float wet = smoothstep(1.05,.1,edge/HALF);
+   road += mix(cB, cC, .45) * .042 * wet * (1.-night*.45);
+   road += mix(cB, vec3(1.), .25) * .038 * exp(-abs(xr+3.)*.10) * smoothstep(.0,.25,fade) * (1.-night*.3);
+   road += mix(cA, cB, .5) * .028 * (.5+.5*sin(wz*.02)) * wet * fade;
+   // dashed lane markings
+   float dash = step(.42, fract(wz*.085));
+   float lane1 = smoothstep(.34,.0,abs(edge-3.7)) * dash;
+   float lane2 = smoothstep(.30,.0,abs(edge-7.4)) * dash;
+   road += vec3(.85,.88,.98)*(lane1*.55+lane2*.45)*fade;
+   // neon shoulders and their bloom across the asphalt
+   float sL = smoothstep(.62,.0,abs(edge-HALF));
+   road += mix(cA, vec3(.65,.88,1.), .3)*sL*(1.5+kick*react*.9);
+   road += mix(cA, cB, .55)*exp(-abs(edge-HALF)*1.1)*.5*(1.+energy*react*.5);
+   road += mix(cB, cA, .4)*exp(-abs(edge-HALF)*.38)*.11*smoothstep(HALF,0.,edge);
+   road += mix(cA, cD, .5)*exp(-abs(edge-HALF)*.9)*.16*(1.-fade)*(.8+kick*react*.6);
+   ground = mix(ground, road, smoothstep(HALF+1.6, HALF+.2, edge));
+  }
+  ground = mix(ndHaze(rd, t), ground, fade);
+  col = mix(col, ground, smoothstep(-.0015,-.02, rd.y));
+ }
+ col *= 1. + kick*react*.10;
+ float lum = dot(col, vec3(.299,.587,.114));
+ col = max(mix(vec3(lum), col, 1.14), 0.);
+ col = col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
+ col = pow(clamp(col,0.,1.), vec3(.95));
+ col *= .80 + .20*smoothstep(1.45,.3, length(uv*vec2(.78,1.)));
+ col += (hash(gl_FragCoord.xy + fract(t*11.))-.5)/255.*2.;
+ gl_FragColor = vec4(clamp(col,0.,1.), 1.);
+}
+`;
+
+  // ---- World 1: CELESTIAL RINGS ----
+  var ND_CELESTIAL_RINGS = `
+const vec3 PC = vec3(-430., 300., -1150.);   // planet centre, held in camera space so it
+const float PR = 300.;                       // stays a landmark for the whole journey
+vec3 ndStars(vec3 rd, float t){
+ vec2 g = vec2(atan(rd.x, -rd.z)*2.2, rd.y*3.4);
+ vec3 o = vec3(0.);
+ for(int i=0;i<2;i++){ float fi=float(i);
+  vec2 sc = g*(26.+fi*41.);
+  vec2 id = floor(sc), f = fract(sc)-.5;
+  float h = hash(id+fi*17.), h2 = hash(id+fi*17.+3.3);
+  f -= (vec2(h,h2)-.5)*.66;
+  float tw = .55+.45*sin(t*(.7+h*2.2)+h*40.) + highs*react*.5*step(.5,h2);
+  o += mix(vec3(.80,.88,1.), mix(vec3(1.,.84,.96), cD, .3), h2) * step(.930-fi*.016, h) * exp(-dot(f,f)*(74.+fi*62.)) * tw * (1.-fi*.3);
+ }
+ return o;
+}
+vec3 ndNebula(vec3 rd, float t){
+ vec2 p = vec2(atan(rd.x,-rd.z)*1.25, rd.y*1.9);
+ vec2 w = vec2(fbm(p*1.3+vec2(t*.009,0.),3.), fbm(p*1.3+vec2(4.2,-t*.007),3.))-.5;
+ float n = fbm(p*1.7+w*1.9+vec2(t*.004,t*.003), 3.+q);
+ float m = smoothstep(.30,.84,n);
+ // large, slow zones decide whether a stretch of sky runs magenta, violet or turquoise
+ float zone = fbm(p*.42+vec2(t*.003,1.7), 2.);
+ vec3 c = mix(cC, cB, smoothstep(.30,.72,zone));
+ c = mix(c, cD, smoothstep(.56,.86,zone));
+ c = mix(c, mix(c, vec3(1.), .6), smoothstep(.68,.97,n)*.4);
+ return (c*m*(.42+energy*react*.16) + mix(c,cB,.4)*smoothstep(.18,.7,n)*.08) * (1.-night*.30);
+}
+// The giant: analytic sphere, banded cloud detail, terminator and a lit limb.
+vec4 ndPlanet(vec3 ro, vec3 rd, vec3 L, float t, out float tHit){
+ tHit = 1e9;
+ vec3 oc = ro - PC;
+ float b = dot(oc, rd), c = dot(oc,oc) - PR*PR, d = b*b - c;
+ if(d < 0.) return vec4(0.);
+ float tt = -b - sqrt(d);
+ if(tt < 0.) return vec4(0.);
+ tHit = tt;
+ vec3 pos = ro + rd*tt, n = (pos - PC)/PR;
+ float lat = n.y;
+ vec2 uvp = vec2(atan(n.z, n.x)*1.1 + t*.004, lat*2.6);
+ float bands = fbm(vec2(uvp.x*.8, uvp.y*2.4), 3.+q);
+ float swirl = fbm(uvp*2.2 + bands*1.4, 3.);
+ float band = smoothstep(.22,.86, .5 + .5*sin(lat*11.0 + bands*5.0 + swirl*1.9));
+ float polar = 1.-pow(abs(lat),2.6);
+ vec3 deep = mix(vec3(.006,.006,.030), vec3(.030,.016,.082), band);
+ vec3 cloud = mix(mix(cB*.42, cC*.55, band*.5), vec3(.52,.34,.95), band*.7);
+ vec3 lit = mix(deep, cloud, (.22+band*.52)*polar);
+ float lam = max(dot(n, L), 0.), term = pow(lam, .7);
+ vec3 col = lit * (.03 + .97*term);
+ col += mix(cA, vec3(1.), .25) * pow(smoothstep(.58,.93,swirl),2.5) * (.04+term*.85) * (.6+kick*react*.5) * polar;
+ col += mix(cC, vec3(1.,.8,1.), .3) * pow(smoothstep(.55,.92,band*swirl+.12),3.) * term * .45;
+ float fres = pow(1.-max(dot(n,-rd),0.), 3.2);
+ col += mix(cB, vec3(.88,.93,1.), .45) * fres * (.22 + term*2.1);
+ col += cB * pow(1.-max(dot(n,-rd),0.), 7.) * .35;
+ return vec4(col, 1.);
+}
+// Layered rings: banded dust in a tilted plane, lit by the same star and shadowed by the planet.
+vec4 ndRings(vec3 ro, vec3 rd, vec3 rn, vec3 L, float t, float tPlanet, out float tRing){
+ tRing = 1e9;
+ float den = dot(rd, rn);
+ if(abs(den) < 1e-4) return vec4(0.);
+ float tt = dot(PC - ro, rn)/den;
+ if(tt < 0.) return vec4(0.);
+ tRing = tt;
+ vec3 pos = ro + rd*tt;
+ float r = length(pos - PC)/PR;
+ if(r < 1.22 || r > 2.72) return vec4(0.);
+ float band = fbm(vec2(r*9.5, 3.1), 3.+q);
+ float fine = smoothstep(.15,.95, .5+.5*sin(r*34.+band*7.));
+ float gap = smoothstep(.10,.46, fbm(vec2(r*4.2, 8.2),2.));
+ float dens = gap*(.45+.55*band)*(.42+.58*fine);
+ dens *= smoothstep(1.22,1.42,r)*smoothstep(2.72,2.30,r);
+ // the planet throws a shadow across the far side of the rings
+ float along = dot(PC - pos, L);
+ float distAx = length((PC - pos) - L*along);
+ float shadow = (along > 0. && distAx < PR) ? smoothstep(PR, PR*.72, distAx) : 0.;
+ dens *= 1.-shadow*.88;
+ float hu = r*1.15 + band*.3 + t*.003;
+ float sweep = .5+.5*cos(hu*6.28318);
+ vec3 col = mix(mix(cB, cC, sweep), cA, smoothstep(.55,1., .5+.5*sin(hu*12.566)) * .55);
+ col = mix(col, cA, smoothstep(.5,.95,fine)*.3);
+ col = mix(col, mix(col, vec3(1.), .75), pow(fine,3.)*.5);
+ col += vec3(.75,.85,1.)*pow(smoothstep(.55,1.,dens),2.)*.5;
+ return vec4(col*(.62+dens*1.05)*(1.+energy*react*.3+mids*react*.45), clamp(dens*1.9, 0., 1.));
+}
+vec3 ndHaze(vec3 rd, float t){
+ vec3 skyLow = mix(vec3(.040,.060,.150), vec3(.014,.022,.068), night);
+ return skyLow + mix(mix(cA, cD, .45), cB, .35)*(.14+energy*react*.06)*(1.-night*.62)
+   + mix(cA, cB, .55)*(.05+energy*react*.04)*(1.-night*.35);
+}
+vec3 ndGround(float xr, float wz, float fade){
+ float gn = fbm(vec2(xr*.035, wz*.012), 3.);
+ vec3 c = mix(vec3(.010,.009,.024), vec3(.022,.016,.045), gn) * (1.-night*.35);
+ float sparkle = step(.88, hash(floor(vec2(xr*.22, wz*.22))))*exp(-fract(wz*.22)*4.);
+ return c + mix(cA,cD,.5)*sparkle*.10*fade;
+}
+vec3 ndSky(vec3 rd, float t){
+ vec3 ro = vec3(0.);
+ vec3 L = normalize(vec3(-.62, .52, .58));
+ vec3 rn = normalize(normalize(vec3(.30, .92, -.16)) + vec3(.045*sin(t*.021), 0., .05*sin(t*.017+1.3)));
+ vec3 skyTop = mix(vec3(.014,.012,.062), vec3(.005,.004,.026), night);
+ vec3 skyMid = mix(vec3(.030,.026,.105), vec3(.011,.009,.046), night);
+ vec3 skyLow = mix(vec3(.040,.060,.150), vec3(.014,.022,.068), night);
+ vec3 col = mix(mix(skyLow, skyMid, smoothstep(-.04,.20,rd.y)), skyTop, smoothstep(.12,.62,rd.y));
+ col += ndNebula(rd, t);
+ col += ndStars(rd, t) * (.5+night*.6);
+ float tP, tR; vec4 P = ndPlanet(ro, rd, L, t, tP);
+ vec4 Rg = ndRings(ro, rd, rn, L, t, tP, tR);
+ bool front = Rg.a > 0. && tR < tP;
+ if(Rg.a > 0. && !front) col = mix(col, Rg.rgb, Rg.a);
+ if(P.a > 0.) col = mix(col, P.rgb, P.a);
+ if(front) col = mix(col, Rg.rgb, Rg.a);
+ // broad glow so the formation sits in the sky rather than on it
+ col += mix(cB, cC, .4) * exp(-length(rd - normalize(PC))*3.4) * (.07 + energy*react*.05);
+ col += mix(mix(cA, cD, .45), cB, .35) * exp(-abs(rd.y)*11.) * (.14+energy*react*.06) * (1.-night*.62);
+ // alien ranges, far first
+ float az = atan(rd.x, -rd.z), el = rd.y / max(length(rd.xz), 1e-4);
+ for(int i=1;i>=0;i--){ float lay=float(i);
+  float h = ndRidge(az, lay, travel)*(.085+lay*.06) - .030 + lay*.012;
+  if(el < h){
+   float depth = 1.-lay*.5;
+   vec3 rock = mix(vec3(.008,.007,.022), vec3(.016,.012,.036), lay);
+   col = mix(col, rock, .94);
+   col += mix(cA, cB, .4)*exp(-max(h-el,0.)*210.)*(.75+energy*react*.4)*depth;
+   col += mix(cB, cC, .5)*exp(-max(h-el,0.)*26.)*.07*depth;
+  }
+ }
+ return col;
+}
+`;
+
+  var ND_WORLDS = [
+    { id: 'rings', name: 'CELESTIAL RINGS', frag: ND_CELESTIAL_RINGS }
+  ];
+  var ND_PALETTES = [
+    ['ultraviolet', 'ULTRAVIOLET', [.25, .72, 1], [.52, .35, 1], [1, .35, .85], [.25, .95, .82]],
+    ['electric', 'ELECTRIC', [.20, .86, 1], [.28, .46, 1], [.72, .34, 1], [.22, 1, .80]],
+    ['nebula', 'NEBULA', [.42, .62, 1], [.70, .32, 1], [1, .30, .66], [.45, .90, 1]],
+    ['aurora', 'AURORA', [.34, 1, .82], [.44, .56, 1], [.82, .44, 1], [.30, .96, .96]]
+  ];
+  var ND_TIMES = [['dusk', 'DUSK', 0], ['night', 'NIGHT', .55], ['deep', 'DEEP NIGHT', 1]];
+  var ND_SPEEDS = [['drift', 'DRIFT', 42], ['cruise', 'CRUISE', 96], ['fast', 'FAST', 168]];
+
+  function ndFind(list, id, fallback) {
+    for (var i = 0; i < list.length; i++) if (list[i][0] === id) return list[i];
+    return fallback || list[0];
+  }
+  function ndWorld(id) {
+    for (var i = 0; i < ND_WORLDS.length; i++) if (ND_WORLDS[i].id === id) return ND_WORLDS[i];
+    return ND_WORLDS[0];
+  }
+  function ndSave(key, val) { try { if (A && A.setPref) A.setPref(key, String(val)); else localStorage.setItem('p_' + key, String(val)); } catch (e) {} }
+
+  function nightDrive() {
+    var world = ndWorld(N.pref('ndWorld') || 'rings');
+    var palette = ndFind(ND_PALETTES, N.pref('ndPalette') || 'ultraviolet');
+    var timeOfNight = ndFind(ND_TIMES, N.pref('ndTime') || 'night');
+    var speed = ndFind(ND_SPEEDS, N.pref('ndSpeed') || 'cruise');
+    var react = N.pref('ndReact') !== '0';
+    var oldGLX = GLX;
+    GLX = HIGH_MEMORY_DEVICE ? 1.05 : .70;
+    var quality = HIGH_MEMORY_DEVICE ? 1 : 0;
+    var travel = 0, lastNow = 0, frames = 0, beat = null, g = null, failed = false;
+
+    function beatOn() { if (!beat) beat = beatTracker({ quiet: true }); }
+    function beatOff() { beat = null; try { if (A) A.meter(false); } catch (e) {} }
+    if (react) beatOn();
+
+    function build() {
+      g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN);
+      failed = !g;
+      if (failed) { text('xpMid', 'NIGHT DRIVE NEEDS WEBGL GRAPHICS'); $('xpMid').style.color = '#9fd0ff'; }
+      return !!g;
+    }
+    build();
+
+    // ---- controls: hidden until touched, gone again a few seconds later ----
+    var ui = document.createElement('div');
+    ui.className = 'nd-ui';
+    function chips(rowId, list, selected) {
+      return list.map(function (it) {
+        return '<button type="button" data-' + rowId + '="' + it[0] + '"' + (it[0] === selected ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + it[1] + '</button>';
+      }).join('');
+    }
+    function render() {
+      ui.innerHTML =
+        '<div class="nd-bar">' +
+        '<div class="nd-row"><span>WORLD</span>' + ND_WORLDS.map(function (w) {
+          return '<button type="button" data-world="' + w.id + '"' + (w.id === world.id ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + w.name + '</button>';
+        }).join('') + '</div>' +
+        '<div class="nd-row"><span>TIME</span>' + chips('time', ND_TIMES, timeOfNight[0]) + '</div>' +
+        '<div class="nd-row"><span>COLOUR</span>' + chips('palette', ND_PALETTES, palette[0]) + '</div>' +
+        '<div class="nd-row"><span>SPEED</span>' + chips('speed', ND_SPEEDS, speed[0]) + '</div>' +
+        '<div class="nd-row"><span>MUSIC</span><button type="button" data-react="t"' + (react ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + (react ? 'REACTIVE' : 'OFF') + '</button></div>' +
+        '</div>';
+    }
+    render();
+    layer.appendChild(ui); xpDom.push(ui);
+
+    var idleTimer = 0, alive = true;
+    function wake() {
+      layer.classList.remove('nd-idle');
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(function () { if (alive) layer.classList.add('nd-idle'); }, 4200);
+    }
+    wake();
+
+    ui.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('button');
+      wake();
+      if (!b) return;
+      e.stopPropagation();
+      if (b.dataset.world && b.dataset.world !== world.id) { world = ndWorld(b.dataset.world); ndSave('ndWorld', world.id); build(); }
+      else if (b.dataset.time) { timeOfNight = ndFind(ND_TIMES, b.dataset.time); ndSave('ndTime', timeOfNight[0]); }
+      else if (b.dataset.palette) { palette = ndFind(ND_PALETTES, b.dataset.palette); ndSave('ndPalette', palette[0]); }
+      else if (b.dataset.speed) { speed = ndFind(ND_SPEEDS, b.dataset.speed); ndSave('ndSpeed', speed[0]); }
+      else if (b.dataset.react) { react = !react; ndSave('ndReact', react ? '1' : '0'); if (react) beatOn(); else beatOff(); }
+      render();
+    });
+    layer.addEventListener('pointerdown', wake);
+
+    if (!failed) loop(function (now) {
+      var dt = lastNow ? Math.min(.1, (now - lastNow) / 1000) : .016;
+      lastNow = now;
+      travel += speed[2] * dt;
+      if (travel > 1e7) travel -= 1e7;   // stays in float range on a very long journey
+      var b = null;
+      if (beat) { beat.tick(now); b = beat; }
+      g.f('travel', travel);
+      g.f('night', timeOfNight[2]);
+      g.f('react', react ? 1 : 0);
+      g.f('mids', b ? b.mid : 0);
+      g.f('highs', b ? b.high : 0);
+      g.f('q', quality);
+      g.v3('cA', palette[2]); g.v3('cB', palette[3]); g.v3('cC', palette[4]); g.v3('cD', palette[5]);
+      g.draw(now, b, 0);
+      frames++;
+    }, 30);
+
+    XP.cleanupCurrent = function () {
+      alive = false;
+      clearTimeout(idleTimer);
+      layer.removeEventListener('pointerdown', wake);
+      layer.classList.remove('nd-idle');
+      GLX = oldGLX;
+      beat = null;
+    };
+    XP.ndDebug = function () {
+      return { world: world.id, palette: palette[0], time: timeOfNight[0], speed: speed[0], react: react,
+        travel: travel, frames: frames, gl: !!g, quality: quality, glx: GLX,
+        idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat };
+    };
+  }
+
   var XP = window.XP = {
     active: false,
     current: null,
@@ -2785,11 +3124,13 @@ void main(){
     // Switch between the five visuals without leaving Visuals: the last frame dissolves over the new one.
     switchTo: function (name) { if (VX_ORDER.indexOf(name) < 0) return; vxSnapshot(); XP.open(name); },
     open: function (name) {
-      var known = VX_ORDER.indexOf(name) >= 0 || ({ holo: 1, webcams: 1, clockface: 1, lyrics: 1, liquiddreams: 1 })[name];
+      var known = VX_ORDER.indexOf(name) >= 0 || ({ holo: 1, webcams: 1, clockface: 1, lyrics: 1, liquiddreams: 1, nightdrive: 1 })[name];
       if (!known) return false;
       XP.close(true);
       layer.classList.remove('hidden');
       layer.classList.toggle('liquid-dreams', name === 'liquiddreams');
+      layer.classList.toggle('night-drive', name === 'nightdrive');
+      layer.classList.remove('nd-idle');
       $('xpClose').style.display = name === 'liquiddreams' ? 'none' : '';
       size();
       XP.active = true;
@@ -2800,7 +3141,7 @@ void main(){
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
       if (VX_ORDER.indexOf(name) >= 0) { vxStart(name); return true; }
-      ({ holo: holo, webcams: webcams, clockface: clockface, lyrics: lyrics, liquiddreams: liquidDreams })[name]();
+      ({ holo: holo, webcams: webcams, clockface: clockface, lyrics: lyrics, liquiddreams: liquidDreams, nightdrive: nightDrive })[name]();
       return true;
     },
     close: function (quiet) {
@@ -2826,6 +3167,8 @@ void main(){
       // Leaving Visuals entirely releases the shader programs, head mesh and render buffer.
       if (!quiet) { vxRelease(); if (vxSnapCv) { vxSnapCv.width = 1; vxSnapCv.height = 1; } }
       layer.classList.remove('liquid-dreams');
+      layer.classList.remove('night-drive'); layer.classList.remove('nd-idle');
+      delete XP.ndDebug;
       $('xpClose').style.display = '';
       layer.classList.add('hidden');
       layer.onclick = null;

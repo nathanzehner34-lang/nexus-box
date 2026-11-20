@@ -1553,15 +1553,6 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void setBrightness(float value) {
-            ui.post(() -> {
-                WindowManager.LayoutParams lp = getWindow().getAttributes();
-                lp.screenBrightness = value < 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : value;
-                getWindow().setAttributes(lp);
-            });
-        }
-
-        @JavascriptInterface
         public void toast(String msg) {
             ui.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
         }
