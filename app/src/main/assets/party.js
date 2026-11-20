@@ -23,6 +23,203 @@
   var orbs = [], connectionCounts = new Uint8Array(22), impulses = [], waves = [], particles = [], trails = [], selected = null, pointer = null, gesture = null, dragVelocity = { x: 0, y: 0 };
   var sprites = {}, presetRgb = [], lineDash = [3, 8], audio = null, soundOn = false, lastSong = '', lastTap = null, particleCursor = 0, trailCursor = 0;
   var modeStarted = 0;
+  // Experiences: the upgraded Orb Experience (hero energy orb + selectable backgrounds) and Energy Flow (no orb).
+  var experiences = ['orb', 'flow'], experience = 'orb';
+  var backdrops = ['classic', 'smoke', 'aurora', 'deep', 'iridescent'], backdrop = 'classic';
+  var glCanvas = document.getElementById('partyGL'), gl = null, glProg = null, glBuf = null, glU = {}, glOk = false, glFailed = false;
+  var glScale = .42, glScaleMax = .42, glQuality = 0, glSlowFrames = 0, glFastFrames = 0, glFrames = 0;
+  var sceneT = 0, flowPhase = 0, flowMix = 0, flowTarget = 0, bgFrom = 0, bgTo = 0, bgMix = 0, classicWeight = 1, surge = 0, tapAt = { x: 0, y: 0, age: 9 }, flowCanvasCleared = false;
+  var PARTY_SHADER = [
+    "#ifdef GL_FRAGMENT_PRECISION_HIGH",
+    "precision highp float;",
+    "#else",
+    "precision mediump float;",
+    "#endif",
+    "uniform vec2 res, orbC;",
+    "uniform float T, zph, bass, mid, high, energy, beat, orbR, quality, bgA, bgB, bgMix, flow, surge;",
+    "uniform vec3 c1, c2, c3, tapP;",
+    "float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
+    "vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}",
+    "float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.,1.)),f.x),f.y);}",
+    "float fbm(vec2 p,float oct){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<6;i++){if(float(i)>=oct)break;v+=a*noise(p);p=m*p+vec2(3.1,1.7);a*=.5;}return v;}",
+    "vec3 spectrum(float x){return clamp(abs(fract(x+vec3(0.,.6667,.3333))*6.-3.)-1.,0.,1.);}",
+    "float OCT;",
+    "vec3 stars(vec2 p,float sc,float t){vec2 g=p*sc;vec2 id=floor(g);vec2 h=hash2(id);float s=step(.9,h.x)*exp(-length(fract(g)-.5-(h-.5)*.7)*(16.+h.y*22.));return mix(vec3(.75,.85,1.),vec3(1.,.8,.95),h.y)*s*(.55+.45*sin(t*(1.+h.y*2.)+h.x*50.)+high*.4);}",
+    "// ---------- ORB EXPERIENCE BACKGROUNDS ----------",
+    "vec3 bgClassic(vec2 p,float t){vec3 c=mix(vec3(.012,.027,.067),vec3(.063,.027,.086),smoothstep(-1.,1.,p.x+p.y*.5));return c+c1*(.09+energy*.03)*exp(-length(p-orbC)*1.7);}",
+    "vec3 bgSmoke(vec2 p,float t){",
+    " vec2 q=p*1.35+vec2(t*.008,0.);",
+    " vec2 w=vec2(fbm(q+vec2(t*.02,0.),4.),fbm(q+vec2(3.1,t*.016),4.));",
+    " vec2 wq=q*1.25+w*1.7+vec2(-t*.012,t*.009);",
+    " float n1=fbm(wq,OCT),n1b=fbm(wq+vec2(.03,.04),OCT),n2=fbm(q*2.2-w*1.3+vec2(t*.015,4.),4.);",
+    " vec3 c=vec3(.006,.004,.02)+c1*.05;",
+    " c+=mix(c1,c3,smoothstep(.25,.85,w.x))*pow(smoothstep(.32,.85,n1),1.4)*.95;",
+    " c+=c2*pow(smoothstep(.48,.9,n2),2.)*.7;",
+    " c+=mix(c2,vec3(1.),.45)*clamp((n1b-n1)*9.,0.,1.)*smoothstep(.45,.75,n1)*.8;",
+    " c*=1.-.55*smoothstep(.55,.82,fbm(q*3.1+w*1.4,3.));",
+    " c+=stars(p,70.,t)*.7+stars(p*.6+3.,38.,t);",
+    " c+=mix(c3,vec3(1.),.5)*exp(-length(p-vec2(.62,.28))*14.)*.6;",
+    " return c;",
+    "}",
+    "vec3 bgAurora(vec2 p,float t){",
+    " vec3 c=mix(vec3(.004,.006,.03),vec3(.01,.02,.06),smoothstep(-.6,.6,p.y));",
+    " c+=stars(p,60.,t)*.5;",
+    " for(int i=0;i<4;i++){float fi=float(i);if(fi>=3.+quality)break;",
+    "  vec2 r=p;float ang=-.5+fi*.38;r=mat2(cos(ang),-sin(ang),sin(ang),cos(ang))*r;",
+    "  float base=-.15+fi*.14+.18*sin(r.x*(1.4+fi*.3)+t*(.09+fi*.03)+fi*2.)+.08*fbm(vec2(r.x*1.6+t*.05,fi),4.)+bass*.04*sin(r.x*3.+fi);",
+    "  float dy=r.y-base;",
+    "  float rays=.45+.55*noise(vec2((r.x+.04*sin(r.y*8.+t*.3))*(30.+fi*9.),t*.25+fi));",
+    "  float curtain=smoothstep(-.02,.006,dy)*(exp(-max(dy,0.)*(7.-fi))*.85+exp(-max(dy,0.)*2.2)*.25)*rays;",
+    "  vec3 cc=mix(fi<1.5?mix(c1,c2,.35):c3,mix(c1,c3,.6),smoothstep(0.,.3,dy));",
+    "  c+=cc*curtain*(.5-fi*.08)*(.85+mid*.4);",
+    "  c+=cc*exp(-abs(dy)*16.)*.14;",
+    " }",
+    " return c;",
+    "}",
+    "vec3 bgDeep(vec2 p,float t){",
+    " vec3 c=vec3(.003,.004,.012);",
+    " for(int i=0;i<3;i++){float fi=float(i);float sc=1.+fi*.9;",
+    "  vec2 q=p*sc+vec2(t*(.01+fi*.008),fi*3.);",
+    "  float n=fbm(q+fbm(q*1.4+t*.01,3.)*.8,4.);",
+    "  float den=smoothstep(.42,.82,n)*(.75-fi*.18);",
+    "  vec3 cc=mix(c1*.55,c2*.35,fi*.45);",
+    "  c=mix(c,cc,den*.55);",
+    "  c+=mix(c2,c3,fi*.4)*pow(den,3.)*.25;",
+    " }",
+    " c+=mix(c2,vec3(1.),.4)*pow(max(0.,1.-abs((p.x+.4)*1.6-p.y*.8)),8.)*smoothstep(-.6,.6,p.y)*.05;",
+    " for(int L=0;L<3;L++){float fl=float(L);float sc=8.+fl*7.;",
+    "  vec2 g=p*sc+vec2(t*(.05+fl*.04),-t*(.02+fl*.015));vec2 id=floor(g);vec2 h=hash2(id+fl*7.);",
+    "  vec2 f=fract(g)-.5-(h-.5)*.6;float sz=.22-fl*.06;",
+    "  float b=step(.84,h.x)*smoothstep(sz,sz*.25,length(f))*(.5+.5*sin(t*(.6+h.y)+h.x*20.));",
+    "  c+=mix(c2,c3,h.y)*b*(.5-fl*.1)*(1.+high*.8);}",
+    " return c;",
+    "}",
+    "vec3 bgIrid(vec2 p,float t){",
+    " vec2 q=p*1.1;",
+    " vec2 w=vec2(fbm(q+vec2(t*.03,0.),4.),fbm(q+vec2(5.,t*.025),4.));",
+    " float h=fbm(q*1.2+w*2.+vec2(t*.01,-t*.012),OCT);",
+    " float ph=h*5.+w.x*2.+t*.05;",
+    " vec3 film=c1*(.5+.5*cos(ph))+c3*(.5+.5*cos(ph+2.1))+c2*(.5+.5*cos(ph+4.2))*.8;",
+    " float folds=smoothstep(.3,.75,h);",
+    " float hb=fbm(q*1.2+w*2.+vec2(t*.01,-t*.012)+vec2(.02,.0),OCT);",
+    " float edge=clamp((hb-h)*30.,-1.,1.);",
+    " vec3 c=vec3(.01,.008,.025)+film*(.05+.42*folds*folds);",
+    " c+=mix(film,vec3(1.),.55)*pow(.5+.5*sin(h*26.+t*.2),8.)*folds*.3;",
+    " c+=film*max(edge,0.)*folds*.35;",
+    " return c*(.9+mid*.2);",
+    "}",
+    "vec3 background(float id,vec2 p,float t){if(id<.5)return bgClassic(p,t);if(id<1.5)return bgSmoke(p,t);if(id<2.5)return bgAurora(p,t);if(id<3.5)return bgDeep(p,t);return bgIrid(p,t);}",
+    "// ---------- HERO ENERGY ORB ----------",
+    "vec4 heroOrb(vec2 p,float t){",
+    " vec2 d=p-orbC;float r=length(d),R=orbR*(1.+bass*.09+beat*.05);",
+    " float ang=atan(d.y,d.x),ou=max(r-R,0.);",
+    " vec3 glowC=mix(c1,c3,.45);",
+    " vec3 col=glowC*(exp(-ou/(R*.22))*.5+exp(-ou/(R*1.2))*.2)*(.65+energy*.5+beat*.35);",
+    " if(ou<R*2.2)for(int k=0;k<2;k++){float fk=float(k);",
+    "  float tn=fbm(vec2(ang*(2.2+fk*1.5)+t*.15+fk*5.,ou/R*2.2-t*(1.1+fk*.4)),3.);",
+    "  float ridge=pow(1.-abs(tn*2.-1.),30.);",
+    "  float mask=smoothstep(.6,.85,noise(vec2(ang*1.6-t*.18+fk*9.,t*.45+fk*3.)))*(.5+beat*1.3+high*.6);",
+    "  col+=mix(c2,vec3(.9,.85,1.),.3)*ridge*mask*exp(-ou/(R*(.3+fk*.12)))*smoothstep(R*.92,R,r)*1.4;}",
+    " float a=0.;",
+    " if(r<R*1.01){",
+    "  vec2 q=d/R;float z=sqrt(max(0.,1.-dot(q,q)));vec3 n=vec3(q,z);",
+    "  vec2 s=q*(1.9/(.45+z))+vec2(t*.09,-t*.05);",
+    "  float plasma=fbm(s*1.3+vec2(t*.07,0.),OCT);",
+    "  float fil=fbm(s*1.9-vec2(t*.15,t*.1),4.);",
+    "  float fil2=fbm(s*3.3+vec2(t*.08,t*.19)+3.,4.);",
+    "  float veins=pow(1.-abs(fil*2.-1.),18.)+pow(1.-abs(fil2*2.-1.),26.)*.55;",
+    "  vec3 deep=mix(c3*.10,c1*.16,plasma);",
+    "  vec3 inner=deep+mix(c1,c3,.55)*smoothstep(.45,.85,plasma)*.45;",
+    "  float core=exp(-dot(q,q)*3.)*(.25+bass*.55+energy*.2);",
+    "  vec3 body=inner*(.55+.45*z)+mix(c3,c2,.5)*core*.5;",
+    "  body+=mix(c2,mix(c3,vec3(1.),.3),smoothstep(.4,.7,fil2))*veins*(.9+beat*1.1+high*.6)*(.55+.45*z);",
+    "  float fres=pow(1.-z,2.6);",
+    "  body+=mix(c2,c3,.35+.25*sin(ang*2.+t*.3))*fres*1.35;",
+    "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),48.)*.45;",
+    "  body+=c3*pow(max(dot(n,normalize(vec3(.55,-.6,.55))),0.),5.)*.16;",
+    "  a=smoothstep(1.,.97,length(q));",
+    "  col=mix(col,body,a);",
+    " }",
+    " return vec4(col,a);",
+    "}",
+    "// ---------- ENERGY FLOW ----------",
+    "vec3 ribbon(vec2 p,float t,float fj,vec3 ca,vec3 cb){",
+    " vec2 h2=hash2(vec2(fj,4.2));",
+    " float ph=t*(.045+h2.x*.035)+fj*2.3;",
+    " float side=mod(fj,2.)<.5?-1.:1.;",
+    " vec2 C=vec2(side*(.95+.3*h2.y)+.15*sin(ph),-.55+.35*cos(ph*.8+fj));",
+    " float R=.95+.3*h2.y+.06*sin(t*.23+fj)+bass*.07;",
+    " vec2 dc=p-C;float rr=length(dc),an=atan(dc.y,dc.x);",
+    " float W=(.09+.06*h2.x)*(1.+bass*.55+beat*.25);",
+    " float wav=.05*sin(an*3.+t*.35+fj)*(1.+mid*1.2)+.025*sin(an*7.-t*.6+fj*2.)*(.5+mid);",
+    " float sN=(rr-R-wav)/W;",
+    " if(abs(sN)>1.8)return vec3(0.);",
+    " float twist=sin(an*(2.2+h2.x*2.)+t*.5+mid*.9+fj*3.);",
+    " float width=.35+.65*abs(twist);",
+    " float s=sN/width;",
+    " float bundle=smoothstep(1.25,.15,abs(s));",
+    " float strands=pow(.5+.5*cos(s*(11.+fj*2.)+t*.7+an*3.),6.);",
+    " float sheen=pow(max(0.,1.-abs(s-twist*.5)),5.)*abs(twist);",
+    " float edges=exp(-pow((abs(s)-1.)*5.,2.));",
+    " float fade=smoothstep(-.35,.45,sin(an*side*1.3+ph*1.7+fj));",
+    " vec3 rc=mix(ca,cb,.5+.5*sin(an*2.1+t*.13+fj*1.3));",
+    " vec3 o=rc*bundle*(.1+strands*.38)+mix(rc,vec3(1.),.35)*sheen*(.45+high*.5)+mix(rc,vec3(1.),.5)*edges*bundle*(.18+high*.35);",
+    " return o*fade*(.7+energy*.5+surge*.35);",
+    "}",
+    "vec3 flowScene(vec2 p,float t){",
+    " vec2 tp=tapP.xy;float tAge=tapP.z,tStr=exp(-tAge*1.4)*step(tAge,4.);",
+    " vec2 dTap=p-tp;float rTap=length(dTap);",
+    " p+=dTap/max(rTap,.001)*exp(-pow((rTap-tAge*.45)/.12,2.))*.05*tStr;",
+    " vec2 vp=vec2(.12*sin(t*.045),.06*cos(t*.06));",
+    " vec2 d=p-vp;float r=length(d),a=atan(d.y,d.x);",
+    " vec3 col=vec3(.004,.003,.014);",
+    " float neb=fbm(p*1.6+vec2(t*.02,-t*.015),4.);",
+    " col+=mix(c1,c3,neb)*smoothstep(.45,.9,neb)*.12;",
+    " float z=.3/(r+.04)+zph;",
+    " for(int i=0;i<3;i++){float fi=float(i);if(fi>=2.+quality)break;",
+    "  float tw=a+z*(.55+fi*.2)+fi*1.7+sin(z*.6+fi)*(.25+mid*.35);",
+    "  float k=(9.+fi*7.)/6.2832;",
+    "  float lane=tw*k,id=floor(lane),lf=fract(lane);",
+    "  float h=hash1(vec2(id,fi*3.));",
+    "  float seg=fract(z*(.18+h*.3)+h*7.);",
+    "  float thick=7.+r*14.;",
+    "  float line=exp(-pow((lf-.5)*thick,2.))*smoothstep(0.,.35,seg)*smoothstep(1.,.5,seg)*step(.35,h);",
+    "  vec3 lc=mix(mix(c1,c2,h),c3,smoothstep(.45,1.,fract(h*3.7)));",
+    "  col+=lc*line*smoothstep(.04,.35,r)*smoothstep(1.6,.4,r)*(.42+energy*.45+beat*.35+surge*.45)*(1.1-fi*.25);",
+    " }",
+    " col+=mix(c3,c1,.5)*exp(-r*2.6)*(.05+bass*.08);",
+    " for(int j=0;j<5;j++){float fj=float(j);if(fj>=3.+quality*2.)break;",
+    "  col+=ribbon(p,t,fj,mod(fj,2.)<.5?c1:c3,mod(fj,2.)<.5?c3*.9+c1*.2:mix(c3,vec3(1.,.55,.3),.35));}",
+    " vec2 sp=vec2(a*3.,z*1.4);vec2 sid=floor(sp*vec2(4.,1.));vec2 sh=hash2(sid);",
+    " vec2 sf=fract(sp*vec2(4.,1.))-.5-(sh-.5)*.6;",
+    " col+=mix(c2,vec3(1.),.6)*step(.92-high*.08,sh.x)*exp(-length(sf*vec2(1.,.4))*28.)*smoothstep(.06,.4,r)*(.5+high);",
+    " col*=1.+tStr*exp(-rTap*3.)*.7;\n col+=mix(c3,vec3(1.),.5)*tStr*exp(-pow((rTap-tAge*.45)/.07,2.))*.45;",
+    " return col;",
+    "}",
+    "void main(){",
+    " vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;",
+    " OCT=4.+quality;",
+    " float t=T;",
+    " vec3 col=vec3(0.);",
+    " if(flow<.999){",
+    "  vec3 bg=background(bgA,uv,t);",
+    "  if(bgMix>.001)bg=mix(bg,background(bgB,uv,t),bgMix);",
+    "  vec4 o=heroOrb(uv,t);",
+    "  col=bg*(1.-o.a*.92)+o.rgb;",
+    " }",
+    " if(flow>.001){",
+    "  vec3 f=flowScene(uv,t);",
+    "  float n=fbm(uv*1.8+t*.05,3.);",
+    "  col=flow>=.999?f:mix(col,f,smoothstep(n-.15,n+.15,flow*1.3-.15));",
+    " }",
+    " float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.2),0.);",
+    " col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);",
+    " col=pow(clamp(col,0.,1.),vec3(.92));",
+    " col*=.72+.28*smoothstep(1.3,.25,length(uv*vec2(.85,1.)));",
+    " col+=(hash1(gl_FragCoord.xy+fract(t*11.))-.5)/255.*2.;",
+    " gl_FragColor=vec4(clamp(col,0.,1.),1.);",
+    "}"
+  ].join('\n');
 
   function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
   function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
@@ -56,6 +253,111 @@
     });
     root.setAttribute('data-mode', name);
   }
+  function glCompile(type, src) {
+    var sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { var log = gl.getShaderInfoLog(sh); gl.deleteShader(sh); throw new Error(log || 'shader'); }
+    return sh;
+  }
+  function glInit() {
+    if (glOk || glFailed || !glCanvas) return glOk;
+    try {
+      gl = glCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: highMemory ? 'high-performance' : 'default' }) ||
+        glCanvas.getContext('experimental-webgl', { alpha: false, antialias: false, depth: false });
+      if (!gl) throw new Error('no webgl');
+      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, PARTY_SHADER);
+      glProg = gl.createProgram(); gl.attachShader(glProg, vs); gl.attachShader(glProg, fs); gl.linkProgram(glProg);
+      gl.deleteShader(vs); gl.deleteShader(fs);
+      if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(glProg) || 'link');
+      gl.useProgram(glProg);
+      glBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+      var loc = gl.getAttribLocation(glProg, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      ['res', 'orbC', 'T', 'zph', 'bass', 'mid', 'high', 'energy', 'beat', 'orbR', 'quality', 'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tapP'].forEach(function (n) { glU[n] = gl.getUniformLocation(glProg, n); });
+      glOk = true; glFrames = 0; root.setAttribute('data-gl', 'on');
+    } catch (e) {
+      glFailed = true; glOk = false; glDestroy(); root.setAttribute('data-gl', 'off');
+      if (experience === 'flow') { experience = 'orb'; flowTarget = 0; flowMix = 0; }
+      if (backdrop !== 'classic') { backdrop = 'classic'; bgFrom = bgTo = 0; bgMix = 0; }
+      try { console.warn('Party GL unavailable: ' + e.message); } catch (err) {}
+    }
+    syncExperienceUi();
+    return glOk;
+  }
+  function glDestroy() {
+    if (gl) {
+      try { if (glProg) gl.deleteProgram(glProg); if (glBuf) gl.deleteBuffer(glBuf); } catch (e) {}
+    }
+    gl = null; glProg = null; glBuf = null; glU = {}; glOk = false;
+    if (glCanvas && !glFailed) { glCanvas.width = 1; glCanvas.height = 1; }
+  }
+  function glResize() {
+    if (!glCanvas) return;
+    var gw = Math.max(2, Math.round(w * glScale)), gh = Math.max(2, Math.round(h * glScale));
+    if (glCanvas.width !== gw || glCanvas.height !== gh) { glCanvas.width = gw; glCanvas.height = gh; }
+  }
+  function tint(rgb, k) { return [rgb[0] / 255 * k, rgb[1] / 255 * k, rgb[2] / 255 * k]; }
+  function glDraw(now, dt) {
+    if (!glOk || !gl) return false;
+    if (gl.isContextLost && gl.isContextLost()) { glDestroy(); glFailed = false; return false; }
+    var s = dt / 1000, eNorm = clamp((musicLevel - .08) / 1.1, 0, 1), bN = clamp(bassLevel / 1.2, 0, 1), mN = clamp(midLevel / 1.1, 0, 1), hN = clamp(highLevel / 1.1, 0, 1), beatN = clamp(beatPulse / 1.2, 0, 1);
+    var calm = .55 + eNorm * .75;
+    sceneT = (sceneT + s * calm) % 3600;
+    flowPhase = (flowPhase + s * (.3 + eNorm * .65 + beatN * .5 + surge * 1.2)) % 1000;
+    flowMix += (flowTarget - flowMix) * Math.min(1, s * 1.6); if (Math.abs(flowTarget - flowMix) < .002) flowMix = flowTarget;
+    if (bgTo !== bgFrom) { bgMix = Math.min(1, bgMix + s / 1.3); if (bgMix >= 1) { bgFrom = bgTo; bgMix = 0; } }
+    surge = Math.max(0, surge - s * .9); tapAt.age = Math.min(9, tapAt.age + s);
+    glResize();
+    var pal = presetRgb, U = Math.min(w, h), t = now * .001, cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height); gl.useProgram(glProg);
+    gl.uniform2f(glU.res, glCanvas.width, glCanvas.height);
+    gl.uniform2f(glU.orbC, (cx - w * .5) / h, -(cy - h * .5) / h);
+    gl.uniform1f(glU.orbR, U / h * (.105 + eNorm * .012));
+    gl.uniform1f(glU.T, sceneT); gl.uniform1f(glU.zph, flowPhase);
+    gl.uniform1f(glU.bass, bN); gl.uniform1f(glU.mid, mN); gl.uniform1f(glU.high, hN); gl.uniform1f(glU.energy, eNorm); gl.uniform1f(glU.beat, beatN);
+    gl.uniform1f(glU.quality, glQuality);
+    gl.uniform1f(glU.bgA, bgFrom); gl.uniform1f(glU.bgB, bgTo); gl.uniform1f(glU.bgMix, bgMix * bgMix * (3 - 2 * bgMix));
+    gl.uniform1f(glU.flow, flowMix * flowMix * (3 - 2 * flowMix)); gl.uniform1f(glU.surge, surge);
+    var c1 = tint(pal[0] || [40, 234, 255], 1), c2 = tint(pal[5] || [231, 251, 255], .95), c3 = tint(pal[2] || [165, 104, 255], 1);
+    var flowAccent = tint(pal[3] || [255, 83, 200], 1);
+    gl.uniform3f(glU.c1, c1[0], c1[1], c1[2]); gl.uniform3f(glU.c2, c2[0], c2[1], c2[2]);
+    gl.uniform3f(glU.c3, c3[0] * .55 + flowAccent[0] * .45, c3[1] * .55 + flowAccent[1] * .45, c3[2] * .55 + flowAccent[2] * .45);
+    gl.uniform3f(glU.tapP, (tapAt.x - w * .5) / h, -(tapAt.y - h * .5) / h, tapAt.age);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    glFrames++;
+    // Adaptive resolution: lower the GL render scale when frames run long, recover when there is headroom.
+    if (dt > frameInterval * 1.6) { glSlowFrames++; glFastFrames = 0; } else { glFastFrames++; glSlowFrames = Math.max(0, glSlowFrames - 1); }
+    if (glSlowFrames > 40 && glScale > .26) { glScale = Math.max(.26, glScale * .85); glSlowFrames = 0; }
+    else if (glFastFrames > 240 && glScale < glScaleMax) { glScale = Math.min(glScaleMax, glScale * 1.08); glFastFrames = 0; }
+    return true;
+  }
+  function syncExperienceUi() {
+    root.setAttribute('data-experience', experience);
+    root.setAttribute('data-backdrop', backdrop);
+    Array.prototype.forEach.call(document.querySelectorAll('.party-experience'), function (el) {
+      var on = el.getAttribute('data-experience') === experience;
+      el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (el.getAttribute('data-experience') === 'flow') { el.disabled = glFailed; el.title = glFailed ? 'Energy Flow needs WebGL graphics' : ''; }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.party-backdrop'), function (el) {
+      var on = el.getAttribute('data-backdrop') === backdrop;
+      el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false');
+      el.disabled = glFailed && el.getAttribute('data-backdrop') !== 'classic';
+    });
+  }
+  function setExperience(name) {
+    if (experiences.indexOf(name) < 0 || (name === 'flow' && glFailed)) return;
+    experience = name; flowTarget = name === 'flow' ? 1 : 0; flowCanvasCleared = false;
+    syncExperienceUi();
+    try { localStorage.setItem('nexus.party.experience', name); } catch (e) {}
+  }
+  function setBackdrop(name) {
+    var idx = backdrops.indexOf(name);
+    if (idx < 0 || (glFailed && name !== 'classic')) return;
+    backdrop = name;
+    if (idx !== bgTo) { if (bgMix > 0 && bgMix < 1) bgFrom = bgTo; bgTo = idx; bgMix = 0; if (!active) bgFrom = idx; }
+    syncExperienceUi();
+    try { localStorage.setItem('nexus.party.backdrop', name); } catch (e) {}
+  }
   function addOrb(x, y, index) {
     return { x: x, y: y, vx: rand(-.45, .45), vy: rand(-.4, .4), r: rand(10, 26),
       phase: rand(0, 6.28), rate: rand(.0017, .0046), color: index % presets[preset].colors.length,
@@ -69,6 +371,9 @@
     try { memoryGb = window.Android && Android.deviceMemoryGb ? +Android.deviceMemoryGb() : +(navigator.deviceMemory || 0); } catch (e) {}
     highMemory = memoryGb >= 6; frameInterval = highMemory ? 16 : 32;
     scale = Math.min(window.devicePixelRatio || 1, highMemory ? 1.25 : .76);
+    glScaleMax = highMemory ? .78 : .42; glQuality = highMemory ? 1 : 0;
+    if (glScale > glScaleMax || !glFrames) glScale = glScaleMax;
+    glResize();
     canvas.width = Math.max(1, Math.round(w * scale));
     canvas.height = Math.max(1, Math.round(h * scale));
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
@@ -154,7 +459,7 @@
       var o = orbs[i], dx = o.x - w * .5, dy = o.y - h * .48, d = Math.sqrt(dx * dx + dy * dy) || 1;
       o.vx += dx / d * 7; o.vy += dy / d * 7; o.flash = 1;
     }
-    sound(95, .48);
+    surge = Math.min(1.6, surge + 1); sound(95, .48);
   }
   function update(dt, now) {
     var step = Math.min(2, dt / 16.67), cx = w * .5, cy = h * .46, elapsed = now - modeStarted;
@@ -265,12 +570,14 @@
     var t = now * .001, energy = clamp(musicLevel, .08, 1.3), U = Math.min(w, h), cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
     var bg = ctx.createLinearGradient(0, 0, w, h);
     bg.addColorStop(0, '#030711'); bg.addColorStop(.48, '#080918'); bg.addColorStop(1, '#100716');
-    ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'source-over';
+    if (glOk) ctx.clearRect(0, 0, w, h); else { ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h); }
     var accentRgb = presets[preset].accent, glow = ctx.createRadialGradient(cx, cy, U * .025, cx, cy, U * (.63 + bassLevel * .14));
     glow.addColorStop(0, 'rgba(' + accentRgb.join(',') + ',' + (.065 + energy * .025 + beatPulse * .035) + ')');
     glow.addColorStop(.48, 'rgba(' + accentRgb.join(',') + ',' + (.025 + midLevel * .025) + ')'); glow.addColorStop(1, 'rgba(' + accentRgb.join(',') + ',0)');
-    ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
+    if (!glOk) { ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h); }
     ctx.save(); ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = classicWeight;
     var ringCount = highMemory ? 9 : 6, segments = highMemory ? 88 : 56;
     for (var r = 0; r < ringCount; r++) {
       var radius = U * (.14 + r * (highMemory ? .072 : .09)) + bassLevel * U * (.012 + r * .001) + beatPulse * U * .035;
@@ -287,6 +594,7 @@
       ctx.beginPath(); ctx.arc(mx, my, 1.4 + highLevel * 1.8 + beatPulse * 1.5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(238,249,255,' + (.48 + highLevel * .35) + ')'; ctx.fill();
       ctx.restore();
     }
+    ctx.globalAlpha = 1;
     var threads = highMemory ? 4 : 3;
     for (var th = 0; th < threads; th++) {
       var phase = t * (.32 + th * .09) + th * 2.1, baseY = h * (.28 + th * .19), steps = highMemory ? 32 : 20;
@@ -378,8 +686,19 @@
     var dt = lastFrame ? Math.min(48, elapsed) : 16;
     lastFrame = now;
     update(dt, now);
-    drawAtmosphere(now);
-    drawConnections(now); drawTrails(); drawOrbs(now);
+    if (!glOk && !glFailed) glInit();
+    glDraw(now, dt);
+    var classicTarget = !glOk || (backdrop === 'classic' && experience === 'orb') ? 1 : 0;
+    classicWeight += (classicTarget - classicWeight) * (1 - Math.exp(-dt / 420));
+    if (glOk && experience === 'flow' && flowMix >= 1) {
+      // Energy Flow has no orb field; the 2D layer stays clear while the GL scene runs.
+      if (!flowCanvasCleared) { ctx.clearRect(0, 0, w, h); flowCanvasCleared = true; }
+    } else {
+      flowCanvasCleared = false;
+      canvas.style.opacity = glOk ? String(1 - flowMix) : '1';
+      drawAtmosphere(now);
+      drawConnections(now); drawTrails(); drawOrbs(now);
+    }
     raf = requestAnimationFrame(function (t) { render(t, token); });
   }
   function point(e) { var rect = canvas.getBoundingClientRect(); return { x: e.clientX - rect.left, y: e.clientY - rect.top }; }
@@ -398,6 +717,10 @@
   }
   canvas.addEventListener('pointerdown', function (e) {
     if (!active || gesture || e.isPrimary === false) return;
+    if (experience === 'flow' && glOk) {
+      var fp = point(e); tapAt.x = fp.x; tapAt.y = fp.y; tapAt.age = 0; surge = Math.min(1.6, surge + .55); sound(260, .16);
+      e.preventDefault(); return;
+    }
     var p = point(e), nearest = null, best = 1e9;
     for (var i = 0; i < orbs.length; i++) {
       var dx = orbs[i].x - p.x, dy = orbs[i].y - p.y, d = Math.sqrt(dx * dx + dy * dy);
@@ -448,6 +771,12 @@
   });
   Array.prototype.forEach.call(document.querySelectorAll('.party-preset'), function (el) {
     el.addEventListener('click', function () { setPreset(el.getAttribute('data-preset')); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.party-experience'), function (el) {
+    el.addEventListener('click', function () { setExperience(el.getAttribute('data-experience')); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.party-backdrop'), function (el) {
+    el.addEventListener('click', function () { setBackdrop(el.getAttribute('data-backdrop')); });
   });
   document.getElementById('partyBass').addEventListener('click', bassCannon);
   var soundButton = document.getElementById('partySound');
@@ -532,6 +861,9 @@
     if (active || document.hidden) return;
     active = true; runId++; lastFrame = 0;
     resize();
+    bgFrom = bgTo; bgMix = 0; flowMix = flowTarget; tapAt.age = 9;
+    classicWeight = backdrop === 'classic' && experience === 'orb' ? 1 : 0;
+    glInit();
     var token = runId;
     raf = requestAnimationFrame(function (t) { render(t, token); });
     if (pollTimer) clearInterval(pollTimer);
@@ -544,6 +876,7 @@
     if (pollTimer) clearInterval(pollTimer); pollTimer = 0;
     selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0;
     ctx.clearRect(0, 0, w, h);
+    glDestroy();
   }
   function syncVisibility() {
     if (document.hidden || root.classList.contains('hidden')) stop();
@@ -555,8 +888,13 @@
   try {
     setPreset(localStorage.getItem('nexus.party.preset') || 'orb');
     soundOn = localStorage.getItem('nexus.party.sound') === '1';
+    setBackdrop(localStorage.getItem('nexus.party.backdrop') || 'classic');
+    setExperience(localStorage.getItem('nexus.party.experience') || 'orb');
   } catch (e) { setPreset('orb'); }
+  syncExperienceUi();
   soundButton.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
   soundButton.querySelector('span').textContent = soundOn ? 'SOUND FX ON' : 'SOUND FX OFF';
   setMode('pulse');
+  window.NexusParty = { setExperience: setExperience, setBackdrop: setBackdrop,
+    state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active }; } };
 })();

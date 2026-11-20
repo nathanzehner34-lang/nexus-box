@@ -313,6 +313,36 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .party-bass b { color:#e3ffff;text-shadow:0 0 1.2vmin #34dfff; }
 .party-action[aria-pressed="true"] { border-color:rgba(127,211,255,.7);color:#c8eeff!important; }
 .party-meter { display:none!important; }
+#partyGL { position:absolute;inset:0;z-index:0;width:100%;height:100%;pointer-events:none;display:none;background:#03060b; }
+#party[data-gl="on"] #partyGL { display:block; }
+#party[data-gl="on"] #pWash { opacity:.06; }
+#party[data-gl="on"] #partyCanvas { transition:opacity .9s ease; }
+.party-experiences { display:inline-flex;gap:0;margin:1.6vh auto 0;padding:.45vh;border:1px solid rgba(170,206,240,.2);border-radius:99px;
+  background:rgba(5,8,16,.78);box-shadow:0 .8vh 2.4vh rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.03);pointer-events:auto; }
+.party-experience { display:flex;align-items:center;gap:.55vw;min-width:15vw;min-height:4.6vh;justify-content:center;padding:.6vh 1.3vw;border:1px solid transparent;border-radius:99px;
+  background:transparent;color:#9fb8cf!important;font-size:clamp(10px,1.4vmin,15px)!important;font-weight:800!important;letter-spacing:.2vmin;
+  transition:background .35s,color .35s,border-color .35s,box-shadow .35s; }
+.party-experience b { font-size:2vmin;opacity:.75; }
+.party-experience.active { color:#fff!important;border-color:rgba(var(--party-rgb),.85);
+  background:linear-gradient(120deg,rgba(var(--party-rgb),.32),rgba(176,92,255,.22));box-shadow:0 0 2.2vmin rgba(var(--party-rgb),.45),inset 0 0 1.4vmin rgba(255,255,255,.08); }
+.party-experience.active b { opacity:1;text-shadow:0 0 1.2vmin rgba(var(--party-rgb),.9); }
+.party-experience:disabled { opacity:.35; }
+.party-backdrops { display:flex;justify-content:center;align-items:center;gap:.4vw;margin:1.2vh auto 0;pointer-events:auto; }
+.party-backdrops>span { margin-right:.3vw;color:#8ea6bb;font:700 clamp(9px,1.1vmin,12px) monospace;letter-spacing:.14vmin; }
+.party-backdrop { display:flex;align-items:center;gap:.45vw;padding:.6vh .8vw;border:1px solid rgba(160,200,236,.16);border-radius:99px;background:rgba(5,9,16,.82);
+  color:#9db7cc!important;font-size:clamp(9px,1.15vmin,13px)!important;font-weight:800!important;letter-spacing:.1vmin;transition:background .3s,color .3s,border-color .3s,box-shadow .3s; }
+.party-backdrop i { width:1.3vmin;height:1.3vmin;min-width:8px;min-height:8px;border-radius:50%;box-shadow:0 0 .8vmin rgba(255,255,255,.25); }
+.party-backdrop[data-backdrop="classic"] i { background:radial-gradient(circle at 35% 35%,#9fe8ff,#2a3c8f 60%,#0a0f22); }
+.party-backdrop[data-backdrop="smoke"] i { background:radial-gradient(circle at 30% 40%,#d8f6ff,#3aa6d8 35%,#2a1458 75%); }
+.party-backdrop[data-backdrop="aurora"] i { background:linear-gradient(160deg,#41f0ff,#b04dff 55%,#ff4fc8); }
+.party-backdrop[data-backdrop="deep"] i { background:radial-gradient(circle at 60% 40%,#5d6dff,#1a1f4a 55%,#05060f); }
+.party-backdrop[data-backdrop="iridescent"] i { background:conic-gradient(#3cf0ff,#a35bff,#ff5fd0,#6f8cff,#3cf0ff); }
+.party-backdrop.active { color:#fff!important;border-color:rgba(var(--party-rgb),.8);background:rgba(var(--party-rgb),.18);box-shadow:0 0 1.5vmin rgba(var(--party-rgb),.38); }
+.party-backdrop:disabled { opacity:.3; }
+.party-flow-caption { display:none;margin:1.4vh auto 0;color:rgba(214,230,255,.66);font:600 clamp(9px,1.15vmin,13px) monospace;letter-spacing:.2vmin; }
+#party[data-experience="flow"] .party-modes,#party[data-experience="flow"] .party-backdrops { display:none; }
+#party[data-experience="flow"] .party-flow-caption { display:block; }
+#party:not([data-gl="on"]) .party-flow-caption { display:none; }
 #party[data-preset="orb"] { --party-rgb:39,190,255; }
 #party[data-preset="voltage"] { --party-rgb:35,122,255; }
 #party[data-preset="aurora"] { --party-rgb:94,99,255; }
@@ -336,6 +366,9 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
  .party-action { padding:.45vh .55vw;font-size:clamp(9px,1.15vmin,12px)!important; }
  .party-modes { gap:.35vw; }
  .party-mode { min-width:7.9vw;padding:.75vh .48vw;font-size:clamp(9px,1.15vmin,12px)!important; }
+ .party-experience { min-width:18vw; }
+ .party-backdrops>span { display:none; }
+ .party-backdrop { padding:.5vh .55vw; }
 }
 /* ---------- Experiences ---------- */
 #xp { background: #000; overflow: hidden; }

@@ -86,6 +86,7 @@
 
 <!-- PARTY MODE -->
 <div id="party" class="layer hidden" aria-label="Nexus Party Obsidian">
+  <canvas id="partyGL" aria-hidden="true"></canvas>
   <div id="pWash" aria-hidden="true"></div>
   <canvas id="partyCanvas" aria-label="Interactive Party Mode energy field"></canvas>
   <canvas id="pfx" aria-hidden="true"></canvas>
@@ -110,6 +111,10 @@
     <section class="party-center">
       <div id="pTitle">NEXUS PARTY</div>
       <div id="pHint">TOUCH THE ENERGY FIELD · CONNECT A MEDIA SESSION TO SYNC</div>
+      <div class="party-experiences" role="group" aria-label="Party experience">
+        <button class="party-experience active" data-experience="orb" aria-pressed="true"><b>◎</b><span>ORB EXPERIENCE</span></button>
+        <button class="party-experience" data-experience="flow" aria-pressed="false"><b>≋</b><span>ENERGY FLOW</span></button>
+      </div>
       <div class="party-modes" role="group" aria-label="Visual mode">
         <button class="party-mode active" data-mode="pulse">PULSE</button>
         <button class="party-mode" data-mode="wave">WAVE</button>
@@ -117,11 +122,20 @@
         <button class="party-mode" data-mode="chaos">CHAOS</button>
         <button class="party-mode" data-mode="ripple">RIPPLE</button>
       </div>
+      <div class="party-backdrops" role="group" aria-label="Orb background">
+        <span>BACKGROUND</span>
+        <button class="party-backdrop active" data-backdrop="classic" aria-pressed="true"><i></i>CLASSIC</button>
+        <button class="party-backdrop" data-backdrop="smoke" aria-pressed="false"><i></i>CELESTIAL SMOKE</button>
+        <button class="party-backdrop" data-backdrop="aurora" aria-pressed="false"><i></i>NEON AURORA</button>
+        <button class="party-backdrop" data-backdrop="deep" aria-pressed="false"><i></i>DEEP ATMOSPHERE</button>
+        <button class="party-backdrop" data-backdrop="iridescent" aria-pressed="false"><i></i>IRIDESCENT</button>
+      </div>
+      <div class="party-flow-caption">TAP THE FLOW TO SURGE · BASS CANNON DRIVES THE STREAMS</div>
     </section>
 
     <footer class="party-dock">
-      <div class="party-atmospheres" role="group" aria-label="Orb colour preset">
-        <span>ORB PRESET</span>
+      <div class="party-atmospheres" role="group" aria-label="Colour preset">
+        <span>COLOUR</span>
         <button class="party-preset active" data-preset="orb" aria-pressed="true">ORB</button>
         <button class="party-preset" data-preset="voltage" aria-pressed="false">VOLTAGE</button>
         <button class="party-preset" data-preset="aurora" aria-pressed="false">AURORA</button>
