@@ -101,22 +101,24 @@
   // ---- Fast, forgiving taps: buttons fire the instant your finger lifts, even if it slid a bit
   //      (a bumpy truck makes fingers slide, which used to cancel the tap). ----
   (function () {
-    var sx = 0, sy = 0, st = 0, fired = false;
+    var sx = 0, sy = 0, st = 0, fired = false, handled = false;
     // Home tiles and party buttons fire the moment your finger touches them (no need to lift cleanly).
     var INSTANT = '.tile,.pbtn,#xpClose,#xpNext,#orb,.btn,.app,.sw,[data-vis]';
-    function fire(el, t) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY })); }
+    // Marks this gesture as ours so the browser's own delayed "ghost" click (which follows real touches)
+    // gets swallowed — but only for gestures we actually acted on, so a tap we decline to handle
+    // (finger slid a bit further than our tolerance, say) can still fall through to native click handling
+    // instead of being silently dropped.
+    function fire(el, t) { handled = true; el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY })); }
     document.addEventListener('touchstart', function (e) {
       var t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); fired = false;
       var el = e.target, hit = el.closest && el.closest(INSTANT);
       // inside a scrolling list, wait for the lift so scrolling still works
       if (hit && !el.closest('#panel') && !(el.closest('#tiles') && +$('tiles').getAttribute('data-pages') > 1)) { fired = true; fire(el, t); }
     }, { passive: true });
-    var lastTouch = 0;
     document.addEventListener('touchstart', function () { lastTouchAt = Date.now(); }, { passive: true, capture: true });
     document.addEventListener('mousedown', function () { lastTouchAt = Date.now(); }, true);
-    document.addEventListener('click', function (e) { if (e.isTrusted && Date.now() - lastTouch < 900) { e.stopPropagation(); e.preventDefault(); } }, true);
+    document.addEventListener('click', function (e) { if (e.isTrusted && handled) { handled = false; e.stopPropagation(); e.preventDefault(); } }, true);
     document.addEventListener('touchend', function (e) {
-      lastTouch = Date.now();
       var t = e.changedTouches[0], el = e.target;
       if (fired) { e.preventDefault(); fired = false; return; }
       var tol = el.closest && el.closest('#tiles') ? 14 : 30;
@@ -298,9 +300,6 @@
     partyOut: ['Party\'s over. Back to business.', 'Party mode off. That was a good one.'],
     hype: ['Make some noise!', 'Let\'s go!', 'Turn it up!', 'This truck is officially a club!', 'I can feel the bass in my circuits!', 'Hands up in the truck!'],
     shout: ['Shout out to everybody in the truck tonight!', 'Big shout out to the driver. Legend!', 'Shout out to whoever picked this song. Absolute fire!'],
-    briefIn: '{g}, Nathan. Here is your briefing.',
-    briefOut: 'That\'s your briefing. Drive safe.',
-    show: 'Ladies and gentlemen. Feast your eyes. This is not just a truck. This is Nexus.',
     night: 'Night drive engaged. Easing everything down.',
     bye: 'Powering down. See you next ride, Nathan.'
   };
@@ -323,7 +322,7 @@
       list.push([t, 0, 0]);
     });
     var bye = voiceLine('bye'); setPref('bye', bye + '\u00010\u00010'); list.push([bye, 0, 0]);
-    ['holo', 'partyIn', 'partyOut', 'hype', 'shout', 'show'].forEach(function (k) {
+    ['holo', 'partyIn', 'partyOut', 'hype', 'shout'].forEach(function (k) {
       var v = NEXUS_LINES[k];
       (Array.isArray(v) ? v : [v]).forEach(function (t) { if (t) list.push([t, 0, 0]); });
     });
@@ -600,7 +599,7 @@
   var COMMANDS = [
     [/\b(youtube|smart ?tube)\b/, 'youtube'], [/\b(spotify|music)\b/, 'music'], [/\bstremio|stream ?io\b/, 'stremio'], [/\b(maps?|navigation|navigate)\b/, 'maps'],
     [/\b(messages?|texts?)\b/, 'messages'], [/\bparty\b/, 'party'], [/\btrivia\b/, 'trivia'],
-    [/\b(brief|briefing)\b/, 'briefing'], [/\bnight (drive|mode)\b/, 'night'],
+    [/\bnight (drive|mode)\b/, 'night'],
     [/\b(all apps|app drawer)\b/, 'apps'], [/\bsettings\b/, 'settings']
   ];
   function matchCommand(t) {
@@ -635,7 +634,6 @@
   function handleSpeech(raw) {
     var t = raw.toLowerCase().replace(/^(hey |ok |okay )?nexus[, ]*/, '').trim();
     if (/^(stop|cancel|never ?mind|shut up|quiet)$/.test(t)) { stopTalking(); caption('STANDING BY'); return Promise.resolve(); }
-    if (/brief me/.test(t)) { act('briefing'); return Promise.resolve(); }
     if (/^(forget everything|clear (your )?memory|wipe (your )?memory)/.test(t)) { setPref('memory', '[]'); caption('MEMORY CLEARED'); return say('Done. I\'ve wiped everything I remembered about you.'); }
     var rm = /^remember (that )?(.{4,140})$/.exec(t); if (rm) { remember(rm[2]); caption('GOT IT · I\'LL REMEMBER THAT'); return say('Got it. I\'ll remember that.'); }
     for (var mi = 0; mi < MUSIC_CMDS.length; mi++) {
@@ -709,13 +707,11 @@
       case 'phones': openPhones(); break;
       case 'clock': openExperience('clockface'); break;
       case 'lyrics': openExperience('lyrics'); break;
-      case 'show': truckShow(); break;
       default: if (name && name.indexOf('vis:') === 0) { fromVisuals = false; openExperience(name.slice(4)); } break;
       case 'visuals': openVisuals(); break;
       case 'night': toggleNight(); break;
       case 'trivia': openTrivia(); break;
       case 'story': openStory(); break;
-      case 'briefing': openBriefing(); break;
       case 'intruder': runIntruder(); break;
       case 'apps': openApps(); break;
       case 'settings': openSettings(); break;
@@ -849,78 +845,6 @@
     lastDJ = Date.now(); djSongs = 0;
     unprompted('You are the DJ. This song just came on: "' + title + '". Introduce it like a radio DJ would, in character, over the start of the track.', 60);
   }
-  // ================= TRUCK SHOW MODE: one tap to show the truck off =================
-  // TRUCK SHOW: a quick ~12 second light show built just for showing off the truck. Tap to end early.
-  function truckShow() {
-    closePanel(); stopPlaythrough(); if (window.XP && XP.active) XP.close();
-    try { if (A && A.isMusicActive && !A.isMusicActive()) A.media('play'); } catch (e) {}
-    var o = document.createElement('div'); o.id = 'tshow'; var c = document.createElement('canvas'); o.appendChild(c); document.body.appendChild(o);
-    var g = c.getContext('2d'), W = c.width = Math.round(innerWidth * .8), H = c.height = Math.round(innerHeight * .8), U = Math.min(W, H);
-    var t0 = performance.now(), DUR = 12500, done = false, sparks = [], beats = {};
-    var col = '#7fe6ff';
-    function end() { if (done) return; done = true; o.style.opacity = 0; setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 600); }
-    o.addEventListener('click', end); o.addEventListener('touchstart', end, { passive: true });
-    function once(k, fn) { if (!beats[k]) { beats[k] = 1; try { fn(); } catch (e) {} } }
-    function burst(n, x, y, sp) { for (var i = 0; i < n; i++) { var a = Math.random() * 6.283, v = (.3 + Math.random()) * sp; sparks.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - sp * .3, l: 1, h: Math.random() < .5 ? 45 : 200 + Math.random() * 60 }); } }
-    function ease(x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); }
-    function slam(txt, size, y, k, grad) {
-      if (k <= 0) return; var sc = 1 + (1 - ease(k)) * 2.2;
-      g.save(); g.translate(W / 2, y); g.scale(sc, sc); g.globalAlpha = Math.min(1, k * 2.5);
-      g.font = '900 ' + size + 'px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      var gr = g.createLinearGradient(0, -size / 2, 0, size / 2);
-      if (grad) { gr.addColorStop(0, '#ffffff'); gr.addColorStop(.45, '#cfd8e6'); gr.addColorStop(.5, '#6b7686'); gr.addColorStop(1, '#f4f7fb'); } else { gr.addColorStop(0, '#fff'); gr.addColorStop(1, '#fff'); }
-      g.shadowColor = col; g.shadowBlur = U * .05; g.fillStyle = gr; g.fillText(txt, 0, 0); g.restore();
-    }
-    sayLine(voiceLine('show'), true);
-    (function f(now) {
-      if (done) return;
-      var ms = now - t0, t = ms / 1000; if (ms > DUR) { end(); return; }
-      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-      // haze + two sweeping spotlights from the floor
-      g.globalCompositeOperation = 'lighter';
-      for (var s2 = 0; s2 < 2; s2++) {
-        var ang = -Math.PI / 2 + (s2 ? 1 : -1) * (.55 - .4 * Math.sin(t * (t > 6 ? 2.4 : 1.1) + s2)), x0 = W * (s2 ? .85 : .15), len = Math.hypot(W, H);
-        var a2 = Math.min(1, t / 1.2) * .16, wdt = .09;
-        var lg = g.createLinearGradient(x0, H, x0 + Math.cos(ang) * len, H + Math.sin(ang) * len); lg.addColorStop(0, 'rgba(200,225,255,' + a2 + ')'); lg.addColorStop(.6, 'rgba(200,225,255,' + (a2 * .35) + ')'); lg.addColorStop(1, 'rgba(200,225,255,0)');
-        for (var sb = 0; sb < 3; sb++) {
-          g.fillStyle = lg; g.beginPath(); g.moveTo(x0, H); g.lineTo(x0 + Math.cos(ang - wdt) * len, H + Math.sin(ang - wdt) * len); g.lineTo(x0 + Math.cos(ang + wdt) * len, H + Math.sin(ang + wdt) * len); g.closePath(); g.fill(); wdt *= .55; }
-      }
-      // laser fan once the big word lands
-      if (t > 6.6 && t < 11.5) { g.lineWidth = Math.max(1, U * .004);
-        for (var l = 0; l < 14; l++) { var la = -Math.PI / 2 + (l - 6.5) * .12 + Math.sin(t * 3 + l) * .08; g.strokeStyle = 'hsla(' + ((l * 25 + t * 120) % 360) + ',100%,60%,.55)';
-          g.beginPath(); g.moveTo(W / 2, H * 1.02); g.lineTo(W / 2 + Math.cos(la) * H * 1.6, H * 1.02 + Math.sin(la) * H * 1.6); g.stroke(); } }
-      g.globalCompositeOperation = 'source-over';
-      // 1) LADIES AND GENTLEMEN (typed)
-      if (t > .6 && t < 4.2) { var txt = 'LADIES AND GENTLEMEN', n = Math.min(txt.length, Math.floor((t - .6) * 14));
-        g.globalAlpha = t > 3.8 ? (4.2 - t) / .4 : 1; g.font = '600 ' + Math.round(U * .065) + 'px monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
-        g.fillStyle = '#d8e6ff'; g.fillText(txt.slice(0, n) + (n < txt.length && Math.floor(t * 6) % 2 ? '▌' : ''), W / 2, H / 2); g.globalAlpha = 1;
-        if (n > 0 && n < txt.length && Math.floor((t - .6) * 14) !== beats.ty) { beats.ty = Math.floor((t - .6) * 14); tone('square', 900, 0, .025, .015); } }
-      // 2) FEAST YOUR EYES (slam)
-      if (t > 4.2 && t < 6.7) { once('fe', function () { tone('sine', 70, 0, .7, .2, 35); tone('sawtooth', 160, 0, .3, .05, 60); burst(70, W / 2, H / 2, U * .012); });
-        slam('FEAST YOUR EYES', Math.round(U * .14), H / 2, (t - 4.2) / .35); }
-      // 3) THIS TRUCK IS ... AWESOME
-      if (t > 6.7) { once('aw', function () { tone('sine', 55, 0, 1.2, .25, 30); tone('triangle', 880, 0, .5, .05, 1760); burst(160, W / 2, H * .55, U * .02); });
-        var k3 = t > 11.6 ? Math.max(0, 1 - (t - 11.6) / .6) : 1;
-        g.globalAlpha = k3; g.font = '700 ' + Math.round(U * .06) + 'px monospace'; g.textAlign = 'center'; g.fillStyle = col; g.fillText('THIS TRUCK IS', W / 2, H * .32);
-        slam('AWESOME', Math.round(U * .25), H * .55, Math.min(1, (t - 6.7) / .3) * k3, true);
-        // light sweep across the chrome word
-        var sx = W * (((t - 7) * .6) % 1.6 - .3), sg = g.createLinearGradient(sx - U * .15, 0, sx + U * .15, 0); sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(.5, 'rgba(255,255,255,.5)'); sg.addColorStop(1, 'rgba(255,255,255,0)');
-        g.globalCompositeOperation = 'lighter'; g.fillStyle = sg; g.fillRect(sx - U * .15, H * .55 - U * .13, U * .3, U * .26); g.globalCompositeOperation = 'source-over';
-        if (t > 8.2 && t < 10.8 && Math.floor(t * 2.5) !== beats.bt) { beats.bt = Math.floor(t * 2.5); burst(25, W * (.2 + Math.random() * .6), H * (.2 + Math.random() * .4), U * .012); tone('sine', 60, 0, .25, .12, 40); }
-        g.globalAlpha = 1;
-        if (t > 9.5) { g.globalAlpha = Math.min(1, (t - 9.5) / .6) * k3; g.font = '600 ' + Math.round(U * .04) + 'px monospace'; g.fillStyle = '#9fb3d9'; g.fillText('P O W E R E D   B Y   N E X U S', W / 2, H * .82); g.globalAlpha = 1; }
-      }
-      // flash on each hit
-      [4.2, 6.7].forEach(function (h) { var d = t - h; if (d > 0 && d < .25) { g.fillStyle = 'rgba(255,255,255,' + (.7 * (1 - d / .25)) + ')'; g.fillRect(0, 0, W, H); } });
-      // sparks with gravity
-      g.globalCompositeOperation = 'lighter';
-      sparks = sparks.filter(function (p) { p.x += p.vx; p.y += p.vy; p.vy += U * .0006; p.vx *= .985; p.l -= .016; return p.l > 0; });
-      sparks.forEach(function (p) { g.strokeStyle = 'hsla(' + p.h + ',100%,' + (60 + p.l * 30) + '%,' + p.l + ')'; g.lineWidth = Math.max(1, U * .004);
-        g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * 2.5, p.y - p.vy * 2.5); g.stroke(); });
-      g.globalCompositeOperation = 'source-over';
-      requestAnimationFrame(f);
-    })(t0);
-  }
   // ---- Home buttons: built from a catalog so Nathan can pick which ones show and in what order ----
   var CATALOG = [];   // [act, icon, label]
   Array.prototype.forEach.call(document.querySelectorAll('#tiles .tile'), function (el) {
@@ -932,7 +856,7 @@
     var oldT = (pref('homeTiles') || '').split(',').filter(Boolean);
     if (oldT.length) {
       oldT = oldT.map(function (k) { return k === 'livecam' ? 'phones' : k; });
-      ['phones', 'show', 'clock'].forEach(function (k) { if (oldT.indexOf(k) < 0) oldT.splice(Math.max(0, oldT.indexOf('settings')), 0, k); });
+      ['phones', 'clock'].forEach(function (k) { if (oldT.indexOf(k) < 0) oldT.splice(Math.max(0, oldT.indexOf('settings')), 0, k); });
       setPref('homeTiles', oldT.join(','));
     }
     setPref('homeVer', '3');
@@ -1502,71 +1426,6 @@
     });
   }
 
-  // ---- Daily briefing (weather + world and Canadian news + on this day) ----
-  var FEEDS = [
-    { name: 'World', src: 'BBC', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', take: 6 },
-    { name: 'Canada', src: 'CBC', url: 'https://www.cbc.ca/webfeed/rss/rss-canada', take: 4 },
-    { name: 'Business', src: 'BBC', url: 'https://feeds.bbci.co.uk/news/business/rss.xml', take: 3 }
-  ];
-  function loadFeed(f) {
-    return http('GET', f.url, null, { 'User-Agent': 'NexusTruckBox/1.0' }).then(function (r) {
-      if (r.status !== 200) return [];
-      var doc = new DOMParser().parseFromString(r.text, 'text/xml');
-      return Array.prototype.slice.call(doc.getElementsByTagName('item'), 0, f.take).map(function (it) {
-        var t = it.getElementsByTagName('title')[0], d = it.getElementsByTagName('description')[0];
-        return { section: f.name, src: f.src, title: t ? t.textContent.trim() : '',
-          desc: d ? d.textContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220) : '' };
-      }).filter(function (x) { return x.title; });
-    }).catch(function () { return []; });
-  }
-
-  // Headlines are fetched in the background ahead of time, so the briefing starts talking right away.
-  var NEWS = { items: [], at: 0, busy: null };
-  function refreshNews() {
-    if (NEWS.busy) return NEWS.busy;
-    NEWS.busy = Promise.all(FEEDS.map(loadFeed)).then(function (res) {
-      var all = [].concat.apply([], res); if (all.length) { NEWS.items = all; NEWS.at = Date.now(); }
-      NEWS.busy = null; return NEWS.items;
-    }, function () { NEWS.busy = null; return NEWS.items; });
-    return NEWS.busy;
-  }
-  setTimeout(refreshNews, 15000); setInterval(refreshNews, 20 * 60 * 1000);
-
-  function openBriefing() {
-    var dateLine = dateStr();
-    var w = weatherNow;
-    var wx = w ? ('Weather in ' + w.city + ': ' + w.temp + ' degrees and ' + w.desc.toLowerCase() + ', feeling like ' + w.feels +
-      '. High of ' + w.hi + ', low of ' + w.lo + '.') : '';
-    openPanel('DAILY BRIEFING', '<p class="green">' + esc(dateLine.toUpperCase()) + '</p>' + (wx ? '<p>' + esc(wx) + '</p>' : '') +
-      '<div id="brBody"><p class="muted">Pulling the latest headlines…</p></div><span class="btn" id="brStop">STOP READING</span>');
-    $('brStop').addEventListener('click', stopTalking);
-    stopTalking();
-    // 1) talks instantly: the Alter Ego's opener (recorded) …
-    var opener = sayLine(voiceLine('briefIn'), true);
-    // 2) … while the headlines are ready (or fetched fast) and the AI writes the rest in character, spoken as it streams in
-    var fresh = NEWS.items.length && Date.now() - NEWS.at < 30 * 60 * 1000;
-    var news = fresh ? Promise.resolve(NEWS.items) : Promise.race([refreshNews(), wait(6000).then(function () { return NEWS.items; })]);
-    news.then(function (items) {
-      items = items || [];
-      if ($('brBody')) $('brBody').innerHTML = items.length ? '<p class="muted" style="margin-top:2vmin">HEADLINES</p>' + items.map(function (n) {
-        return '<p class="muted" style="margin:.6vmin 0">' + esc(n.section.toUpperCase()) + ' · ' + esc(n.title) + ' <span style="opacity:.6">(' + n.src + ')</span></p>';
-      }).join('') : '<p class="muted">I couldn\'t reach the news right now.</p>';
-      var list = items.map(function (n, i) { return (i + 1) + '. [' + n.section + '] ' + n.title + (n.desc ? ' — ' + n.desc : ''); }).join('\n');
-      var sys = persona() + ' Right now you are reading Nathan a short spoken news briefing, fully in character. ' +
-        (wx ? 'Start with the weather: ' + wx + ' ' : '') +
-        'Then cover the most important world stories, then Canada, then one business item, using ONLY the headlines provided: do not invent facts, and keep the facts themselves accurate and neutral even though your delivery is in character. ' +
-        'About 150 words, short spoken sentences, no markdown, no lists. Do not greet him again and do not sign off; that is already done.';
-      if (!items.length && !wx) return opener.then(function () { return sayLine(voiceLine('briefOut')); });
-      return opener.then(function () {
-        return streamAnswer([{ role: 'user', parts: [{ text: items.length ? 'Headlines:\n' + list : 'No headlines available. Just give the weather.' }] }], sys,
-          { maxTokens: 700, temperature: .5 });
-      }).then(function () { return sayLine(voiceLine('briefOut')); }, function () {
-        var simple = (wx ? wx + ' ' : '') + (items.length ? 'Top headlines. ' + items.slice(0, 6).map(function (n) { return n.title + '.'; }).join(' ') : '');
-        return say(simple).then(function () { return sayLine(voiceLine('briefOut')); });
-      });
-    });
-  }
-
   // ---- All apps
   function openApps() {
     openPanel('ALL APPS', '<div class="muted">Loading apps…</div>');
@@ -1594,7 +1453,7 @@
       '<div class="field"><label>HOME SCREEN BUTTONS</label><div class="hint">Pick which buttons are on the home screen and put them in any order. You can add any visual as its own button.</div><span class="btn go" id="sHome">CUSTOMIZE BUTTONS</span></div>' +
       '<div class="field"><label>GOOGLE AI KEY (FREE)</label>' +
       '<input type="password" id="sKey" placeholder="Paste your Gemini API key" value="' + esc(pref('gemini_key')) + '">' +
-      '<div class="hint">Get a free key at aistudio.google.com → Get API key. This powers chat, trivia, stories and briefings.</div>' +
+      '<div class="hint">Get a free key at aistudio.google.com → Get API key. This powers chat, trivia and stories.</div>' +
       '<span class="btn go" id="sKeySave">SAVE KEY</span><span class="btn" id="sKeyTest">TEST AI</span><div id="sKeyMsg" class="hint">' + (lastAiError ? 'Last AI problem: ' + esc(lastAiError) : (window.NEXUS_DEFAULT_KEY ? 'A built-in key is installed. A key saved here overrides it.' : '')) + '</div></div>' +
 
       '<div class="field"><label>BACKUP CITY (USED IF GPS IS OFF)</label>' +

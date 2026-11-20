@@ -463,8 +463,6 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #launching.on { display: flex; }
 #launching .spin { width: 9vmin; height: 9vmin; border-radius: 50%; border: .8vmin solid rgba(159,208,255,.2); border-top-color: var(--nx-cyan); animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-#tshow { position: fixed; inset: 0; z-index: 190; background: #000; transition: opacity .6s; }
-#tshow canvas { width: 100%; height: 100%; display: block; }
 
 
 /* ---------- Design system: secondary screens ---------- */

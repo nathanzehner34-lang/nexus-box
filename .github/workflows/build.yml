@@ -75,6 +75,7 @@ jobs:
           node --check tools/voice-test/visuals-five-render.test.js
           node --check tools/voice-test/visuals-eight-render.test.js
           node tools/voice-test/live-environments.test.js
+          node tools/voice-test/cleanup-performance.test.js
 
       - name: Build APK
         run: |

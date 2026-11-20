@@ -33,7 +33,7 @@ for (const comp of ['.tile:active', '.tile.active::before', '.btn.go', '.btn.off
   assert(css.includes(comp), comp + ' component state is styled');
 assert(app.includes('function switchHtml(') && app.includes('role="switch"') && app.includes("return switchHtml('data-toggle=\"' + o[0] + '\"'"), 'settings toggles render as real switches');
 assert(app.includes('function rangeHtml(') && app.includes("output[for=\"' + el.id + '\"]"), 'sliders show their live value');
-assert((html.match(/<svg viewBox="0 0 24 24">/g) || []).length >= 18, 'home tiles use the consistent line icon set');
+assert((html.match(/<svg viewBox="0 0 24 24">/g) || []).length >= 16, 'home tiles use the consistent line icon set');
 
 // ---- 2. real WebGL renders of the five worlds ----
 const common = JSON.parse(env.match(/var COMMON = ("(?:[^"\\]|\\.)*");/)[1]);

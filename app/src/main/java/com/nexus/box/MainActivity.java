@@ -157,8 +157,9 @@ public class MainActivity extends Activity {
         startTts();
         pool.execute(this::labels);
         // passengers' phones connect to the box (song requests, photos, shout-outs, remote)
-        // wake Spotify up quietly in the background so tapping it opens fast
-        ui.postDelayed(this::warmSpotify, 3000);
+        // wake Spotify up quietly in the background so tapping it opens fast (started sooner than before,
+        // since the very first thing many people do after the truck boots is open Spotify)
+        ui.postDelayed(this::warmSpotify, 1200);
         try {
             IntentFilter pf = new IntentFilter();
             pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -1396,6 +1397,21 @@ public class MainActivity extends Activity {
         public boolean launchApp(String namesCsv) {
             String[] hit = launchCache.get(namesCsv);
             if (hit != null) { try { startComponent(hit[0], hit[1]); return true; } catch (Exception e) { launchCache.remove(namesCsv); } }
+            // Spotify is usually the very first thing tapped, often before the background app-label
+            // scan below has finished populating its cache. Go straight to its own launcher intent
+            // (the normal, fast way to start another app by package) instead of waiting on that scan.
+            if (namesCsv.toLowerCase(Locale.ROOT).contains("spotify")) {
+                try {
+                    Intent spotifyIntent = getPackageManager().getLaunchIntentForPackage("com.spotify.music");
+                    ComponentName spotifyComponent = spotifyIntent != null ? spotifyIntent.getComponent() : null;
+                    if (spotifyComponent != null) {
+                        String pkg = spotifyComponent.getPackageName(), cls = spotifyComponent.getClassName();
+                        launchCache.put(namesCsv, new String[]{pkg, cls});
+                        startComponent(pkg, cls);
+                        return true;
+                    }
+                } catch (Exception ignored) {}
+            }
             List<String[]> list = labels();
             for (String raw : namesCsv.split(",")) {
                 String q = raw.trim().toLowerCase(Locale.ROOT);
