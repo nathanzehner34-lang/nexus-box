@@ -23,7 +23,7 @@ const shader = Function('return ' + shaderSrc)().join('\n');
 assert(html.indexOf('id="partyGL"') < html.indexOf('id="partyCanvas"'), 'GL scene sits behind the interactive orb canvas');
 assert(css.includes('#party[data-experience="flow"] .party-modes,#party[data-experience="flow"] .party-backdrops { display:none; }'), 'orb-only controls hide in Energy Flow');
 assert(party.includes("localStorage.setItem('nexus.party.experience'") && party.includes("localStorage.setItem('nexus.party.backdrop'"), 'choices persist');
-assert(party.includes('glDestroy();') && party.includes('gl.deleteProgram(glProg)'), 'GL resources are released on stop');
+assert(party.includes('glDestroy();') && party.includes('gl.deleteProgram('), 'GL resources are released on stop');
 assert(!/location\.reload|window\.location\s*=/.test(party), 'Party never reloads the app');
 assert(!/partyToggle'\)\.click|Android\.media(Play|Pause|Toggle)|Android\.mediaControl/.test(party), 'Party visuals never drive media transport');
 
@@ -96,7 +96,8 @@ try{
  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
  const l=gl.getAttribLocation(p,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
  const W=160,H=90,px=new Uint8Array(W*H*4);
- const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.2,mid:.2,high:.2,energy:.3,beat:0,orbR:.105,quality:0,bgA:0,bgB:0,bgMix:0,flow:0,surge:0,c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],tapP:[0,0,9]};
+ const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.2,mid:.2,high:.2,energy:.3,beat:0,orbR:.105,quality:0,bgA:0,bgB:0,bgMix:0,flow:0,surge:0,c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],tapP:[0,0,9],
+   build:0,bphase:.5,burst:0,bAge:9,bPow:0,recoil:0,f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75]};
  function render(over){const u=Object.assign({},base,over);for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null){if(k!=='surge')throw new Error('missing uniform '+k);continue;}
   if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
@@ -137,10 +138,11 @@ bgs.forEach(n => {
 Object.entries(S.pairs).forEach(([k, v]) => assert(v > 6, 'backgrounds are meaningfully different: ' + k + ' ' + v.toFixed(1)));
 S.crossfade.forEach((f, i) => assert(f.lum > 14 && f.black < .25, 'background crossfade step ' + i + ' has no black frame'));
 assert(S.orbLoud.lum > S.orbQuiet.lum + 1 && S.orbMusic > 2, 'hero orb reacts to bass, beat and highs');
-assert(S.flow.lum > 10 && S.flow.lit > .08, 'Energy Flow is lit with light streams');
+assert(S.flow.lum > 10 && S.flow.lit > .08, 'Energy Flow is lit with the living energy field');
 assert(S.flowQ1.lum > 10, 'Energy Flow renders at the 8 GB quality tier');
 assert(S.orbVsFlow > 10, 'Energy Flow is a different scene from the Orb Experience');
 assert(S.flowOrbIndependent < .01, 'Energy Flow contains no orb (orb size/position have no effect)');
+assert(S.flowLoud.lit > S.flowQuiet.lit * 1.3, 'the field expands with the music (' + S.flowQuiet.lit.toFixed(2) + ' -> ' + S.flowLoud.lit.toFixed(2) + ')');
 
 assert(S.flowLoud.lum > S.flowQuiet.lum + 2 && S.flowMusic > 4, 'Energy Flow is calmer when quiet and more dramatic when loud');
 assert(S.flowMotion > 3, 'Energy Flow moves continuously');

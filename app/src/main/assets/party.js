@@ -10,11 +10,12 @@
   if (!ctx) return;
 
   var modes = ['pulse', 'wave', 'vortex', 'chaos', 'ripple'];
+  // flow: the four Energy Flow gradient stops — turquoise, electric blue, ultraviolet, hot pink.
   var presets = {
-    orb: { accent: [39, 190, 255], colors: ['#28eaff', '#388bff', '#a568ff', '#ff53c8', '#ffe34f', '#e7fbff'] },
-    voltage: { accent: [35, 122, 255], colors: ['#12dcff', '#3978ff', '#e6f5ff', '#ff55d3', '#ffd64e', '#837aff'] },
-    aurora: { accent: [94, 99, 255], colors: ['#83e7ff', '#8398ff', '#b481ff', '#ff8bda', '#fff0a0', '#62d7ee'] },
-    neon: { accent: [235, 71, 221], colors: ['#10e8ff', '#168cff', '#a43cff', '#fa3fba', '#ffe33f', '#d6fbff'] }
+    orb: { accent: [39, 190, 255], colors: ['#28eaff', '#388bff', '#a568ff', '#ff53c8', '#ffe34f', '#e7fbff'], flow: ['#1ff0d8', '#2f7bff', '#9d4bff', '#ff4fc0'] },
+    voltage: { accent: [35, 122, 255], colors: ['#12dcff', '#3978ff', '#e6f5ff', '#ff55d3', '#ffd64e', '#837aff'], flow: ['#14e6ff', '#2a6bff', '#7a5cff', '#ff55d3'] },
+    aurora: { accent: [94, 99, 255], colors: ['#83e7ff', '#8398ff', '#b481ff', '#ff8bda', '#fff0a0', '#62d7ee'], flow: ['#6ef0e2', '#7f9bff', '#b481ff', '#ff8bda'] },
+    neon: { accent: [235, 71, 221], colors: ['#10e8ff', '#168cff', '#a43cff', '#fa3fba', '#ffe33f', '#d6fbff'], flow: ['#10e8ff', '#1a7cff', '#a43cff', '#fa3fba'] }
   };
   var mode = 'pulse', preset = 'orb', active = false, raf = 0, runId = 0, pollTimer = 0, lastFrame = 0;
   var highMemory = false, frameInterval = 32;
@@ -27,8 +28,21 @@
   var experiences = ['orb', 'flow'], experience = 'orb';
   var backdrops = ['classic', 'smoke', 'aurora', 'deep', 'iridescent'], backdrop = 'classic';
   var glCanvas = document.getElementById('partyGL'), gl = null, glProg = null, glBuf = null, glU = {}, glOk = false, glFailed = false;
+  // One compiled program per experience. A GPU still pays for the branch it does not take, so the
+  // Orb Experience gets a build with no Energy Flow in it and vice versa; the combined build is only
+  // used while the two are crossfading.
+  var glProgs = {}, glUs = {}, glVariant = '';
+  var GL_UNIFORMS = ['res', 'orbC', 'T', 'zph', 'bass', 'mid', 'high', 'energy', 'beat', 'orbR', 'quality',
+    'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tapP',
+    'build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'f1', 'f2', 'f3', 'f4'];
   var glScale = .42, glScaleMax = .42, glQuality = 0, glSlowFrames = 0, glFastFrames = 0, glFrames = 0;
   var sceneT = 0, flowPhase = 0, flowMix = 0, flowTarget = 0, bgFrom = 0, bgTo = 0, bgMix = 0, classicWeight = 1, surge = 0, tapAt = { x: 0, y: 0, age: 9 }, flowCanvasCleared = false;
+  // Music analysis for Energy Flow: fast/slow envelopes per band feed build-up and drop detection,
+  // and a beat clock keeps the field pulsing in time even when a kick is missed.
+  var bassFast = 0, bassSlow = .01, bassPeak = .02, energyFast = .08, energySlow = .08, highFast = 0, highSlow = 0;
+  var buildUp = 0, beatPhase = 1, beatPeriod = .5, beatConfidence = 0, lastBeatAt = 0, lastQuietAt = 0;
+  var burstPower = 0, burstAge = 9, burstEnv = 0, lastBurstAt = 0, lastDropAt = 0, burstCount = 0, fieldRecoil = 0;
+  var flowRgb = [];
   var PARTY_SHADER = [
     "#ifdef GL_FRAGMENT_PRECISION_HIGH",
     "precision highp float;",
@@ -37,7 +51,9 @@
     "#endif",
     "uniform vec2 res, orbC;",
     "uniform float T, zph, bass, mid, high, energy, beat, orbR, quality, bgA, bgB, bgMix, flow, surge;",
+    "uniform float build, bphase, burst, bAge, bPow, recoil;",
     "uniform vec3 c1, c2, c3, tapP;",
+    "uniform vec3 f1, f2, f3, f4;",
     "float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
     "vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}",
     "float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.,1.)),f.x),f.y);}",
@@ -142,58 +158,116 @@
     " }",
     " return vec4(col,a);",
     "}",
-    "// ---------- ENERGY FLOW ----------",
-    "vec3 ribbon(vec2 p,float t,float fj,vec3 ca,vec3 cb){",
-    " vec2 h2=hash2(vec2(fj,4.2));",
-    " float ph=t*(.045+h2.x*.035)+fj*2.3;",
-    " float side=mod(fj,2.)<.5?-1.:1.;",
-    " vec2 C=vec2(side*(.95+.3*h2.y)+.15*sin(ph),-.55+.35*cos(ph*.8+fj));",
-    " float R=.95+.3*h2.y+.06*sin(t*.23+fj)+bass*.07;",
-    " vec2 dc=p-C;float rr=length(dc),an=atan(dc.y,dc.x);",
-    " float W=(.09+.06*h2.x)*(1.+bass*.55+beat*.25);",
-    " float wav=.05*sin(an*3.+t*.35+fj)*(1.+mid*1.2)+.025*sin(an*7.-t*.6+fj*2.)*(.5+mid);",
-    " float sN=(rr-R-wav)/W;",
-    " if(abs(sN)>1.8)return vec3(0.);",
-    " float twist=sin(an*(2.2+h2.x*2.)+t*.5+mid*.9+fj*3.);",
-    " float width=.35+.65*abs(twist);",
-    " float s=sN/width;",
-    " float bundle=smoothstep(1.25,.15,abs(s));",
-    " float strands=pow(.5+.5*cos(s*(11.+fj*2.)+t*.7+an*3.),6.);",
-    " float sheen=pow(max(0.,1.-abs(s-twist*.5)),5.)*abs(twist);",
-    " float edges=exp(-pow((abs(s)-1.)*5.,2.));",
-    " float fade=smoothstep(-.35,.45,sin(an*side*1.3+ph*1.7+fj));",
-    " vec3 rc=mix(ca,cb,.5+.5*sin(an*2.1+t*.13+fj*1.3));",
-    " vec3 o=rc*bundle*(.1+strands*.38)+mix(rc,vec3(1.),.35)*sheen*(.45+high*.5)+mix(rc,vec3(1.),.5)*edges*bundle*(.18+high*.35);",
-    " return o*fade*(.7+energy*.5+surge*.35);",
+    "// ---------- ENERGY FLOW: LIVING ENERGY FIELD ----------",
+    "// Angle-periodic value noise: x wraps every P cells, so filaments drawn in log-polar space",
+    "// close seamlessly around the field instead of tearing along the atan() seam.",
+    "float noiseP(vec2 p,float P){",
+    " vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);",
+    " float x0=mod(i.x,P),x1=mod(i.x+1.,P);",
+    " return mix(mix(hash1(vec2(x0,i.y)),hash1(vec2(x1,i.y)),f.x),mix(hash1(vec2(x0,i.y+1.)),hash1(vec2(x1,i.y+1.)),f.x),f.y);",
+    "}",
+    "float fbmP(vec2 p,float P,float oct){float v=0.,a=.5;for(int i=0;i<6;i++){if(float(i)>=oct)break;v+=a*noiseP(p,P);p*=2.;P*=2.;p.y+=17.3;a*=.5;}return v;}",
+    "// Ultraviolet, electric blue, turquoise and hot pink, as one wrapping gradient.",
+    "vec3 flowPal(float x){",
+    " x=fract(x)*4.;float i=floor(x),f=x-i;f=f*f*(3.-2.*f);",
+    " vec3 a=i<.5?f1:i<1.5?f2:i<2.5?f3:f4;",
+    " vec3 b=i<.5?f2:i<1.5?f3:i<2.5?f4:f1;",
+    " return mix(a,b,f);",
+    "}",
+    "vec3 livingField(vec2 p,float t,float R){",
+    " float rr=length(p),a=atan(p.y,p.x),lr=log(rr+.045);",
+    " float au=a/6.28319,inner=smoothstep(.0,.085,rr);",
+    " // One slow warp field runs through every layer, so the plumes read as a single living body.",
+    " vec2 wq=vec2(fbm(p*1.05+vec2(t*.05,-t*.02),3.),fbm(p*1.05+vec2(5.2,3.1)+vec2(-t*.04,t*.027),3.))-.5;",
+    " vec3 col=mix(f3,f2,wq.y+.5)*smoothstep(.12,.45,wq.x+.5)*.03*smoothstep(1.5,.15,rr);",
+    " for(int i=0;i<3;i++){float fi=float(i);if(fi>=2.+quality)break;",
+    "  float dir=mod(fi,2.)<.5?1.:-1.;",
+    "  float NA=9.+fi*6.;",
+    "  // Filaments stream outward and shear with radius: midrange drives how hard they twist.",
+    "  float lz=lr*(2.4+fi*.6)-t*(.1+fi*.05)-zph*(.022+fi*.008);",
+    "  float tw=lr*dir*(.22+mid*1.9+surge*.45)+t*(.05+fi*.02)*dir;",
+    "  vec2 lp=vec2(au*NA+tw*NA*.16+wq.x*1.5,lz+wq.y*1.25);",
+    "  float n=fbmP(lp,NA,OCT);",
+    "  float fil=pow(1.-abs(n*2.-1.),4.5+fi*1.8+high*5.);",
+    "  // The outer edge follows the noise contour, so the fringe is lacy instead of a circle.",
+    "  float edge=R*(1.+1.35*(n-.48)+.75*wq.x)*(1.-fi*.08);",
+    "  float body=smoothstep(edge*1.1,edge*.1,rr);",
+    "  float tail=exp(-max(rr-edge,0.)/max(R*.5,.03));",
+    "  float dens=(body*(.035+fil*1.7)+tail*fil*.5)*inner;",
+    "  float hue=(n-.5)*.8+rr*1.05+t*.005+fi*.14+mid*.1+build*.08;",
+    "  vec3 lc=flowPal(hue);",
+    "  if(i==0){",
+    "   // One offset sample side-lights the ridges, which is what gives the plumes real relief.",
+    "   float nb=fbmP(lp+vec2(.05,.05),NA,OCT);",
+    "   float lit=clamp((nb-n)*22.,-1.,1.);",
+    "   lc=mix(lc,vec3(1.),max(lit,0.)*.32);",
+    "   col+=mix(lc,vec3(1.),.3)*max(-lit,0.)*(body+tail)*fil*.4;",
+    "  }",
+    "  col+=lc*dens*(1.2-fi*.28)*(.6+energy*.5)/(1.+energy*.45);",
+    " }",
+    " return col;",
+    "}",
+    "// ---------- SUPERNOVA BURST ----------",
+    "vec3 supernova(vec2 p,float ag,float pw){",
+    " float r=length(p),a=atan(p.y,p.x)+3.14159;",
+    " vec3 o=vec3(0.);",
+    " float fade=exp(-ag*1.25);",
+    " o+=mix(f2,vec3(1.),.7)*exp(-pow((r-ag*1.8)/(.045+ag*.12),2.))*pw*fade*.85;",
+    " o+=vec3(1.)*exp(-r*r*(150.+ag*900.))*pw*exp(-ag*7.)*1.3;",
+    " // Rays: most short, a few reaching right across the field, so the burst never looks drawn.",
+    " float N=48.,ab=a/6.28319*N,id=floor(ab),f=fract(ab)-.5;",
+    " vec2 h=hash2(vec2(id,9.3));",
+    " f+=(h.y-.5)*.55;",
+    " float len=(.16+h.x*h.x*2.2)*pw*(1.-exp(-ag*2.3))*1.4;",
+    " float taper=smoothstep(len,len*.03,r)*smoothstep(.0,.05,r);",
+    " float core=exp(-f*f*(320.+h.y*600.)),halo=exp(-f*f*(30.+h.x*55.));",
+    " float st=step(.38,h.x)*taper*(.3+h.y*1.2);",
+    " o+=mix(flowPal(h.y*.9+.08),vec3(1.),.3)*halo*st*pw*fade*.7;",
+    " o+=mix(flowPal(h.y*.9+.08),vec3(1.),.8)*core*st*pw*fade*1.5;",
+    " // Thousands of luminous particles thrown outward, decelerating as the blast spends itself.",
+    " float travel=(1.-exp(-ag*1.45))/1.45;",
+    " for(int i=0;i<3;i++){float fi=float(i);",
+    "  float Np=420.+fi*360.;",
+    "  float pb=a/6.28319*Np,pid=floor(pb),pf=fract(pb)-.5;",
+    "  vec2 ph=hash2(vec2(pid,fi*17.+2.7));",
+    "  float v=(1.5+ph.x*3.6)*(.6+pw*.6);",
+    "  float rp=.05+ph.y*.09+v*travel;",
+    "  float dr=r-rp,da=pf*6.28319/Np*r;",
+    "  float g=exp(-dr*dr*1500.-da*da*12000.);",
+    "  o+=mix(flowPal(ph.x*.9+fi*.2),vec3(1.),.5)*g*pw*fade*2.2;",
+    " }",
+    " return o;",
     "}",
     "vec3 flowScene(vec2 p,float t){",
     " vec2 tp=tapP.xy;float tAge=tapP.z,tStr=exp(-tAge*1.4)*step(tAge,4.);",
     " vec2 dTap=p-tp;float rTap=length(dTap);",
     " p+=dTap/max(rTap,.001)*exp(-pow((rTap-tAge*.45)/.12,2.))*.05*tStr;",
-    " vec2 vp=vec2(.12*sin(t*.045),.06*cos(t*.06));",
-    " vec2 d=p-vp;float r=length(d),a=atan(d.y,d.x);",
-    " vec3 col=vec3(.004,.003,.014);",
-    " float neb=fbm(p*1.6+vec2(t*.02,-t*.015),4.);",
-    " col+=mix(c1,c3,neb)*smoothstep(.45,.9,neb)*.12;",
-    " float z=.3/(r+.04)+zph;",
-    " for(int i=0;i<3;i++){float fi=float(i);if(fi>=2.+quality)break;",
-    "  float tw=a+z*(.55+fi*.2)+fi*1.7+sin(z*.6+fi)*(.25+mid*.35);",
-    "  float k=(9.+fi*7.)/6.2832;",
-    "  float lane=tw*k,id=floor(lane),lf=fract(lane);",
-    "  float h=hash1(vec2(id,fi*3.));",
-    "  float seg=fract(z*(.18+h*.3)+h*7.);",
-    "  float thick=7.+r*14.;",
-    "  float line=exp(-pow((lf-.5)*thick,2.))*smoothstep(0.,.35,seg)*smoothstep(1.,.5,seg)*step(.35,h);",
-    "  vec3 lc=mix(mix(c1,c2,h),c3,smoothstep(.45,1.,fract(h*3.7)));",
-    "  col+=lc*line*smoothstep(.04,.35,r)*smoothstep(1.6,.4,r)*(.42+energy*.45+beat*.35+surge*.45)*(1.1-fi*.25);",
-    " }",
-    " col+=mix(c3,c1,.5)*exp(-r*2.6)*(.05+bass*.08);",
-    " for(int j=0;j<5;j++){float fj=float(j);if(fj>=3.+quality*2.)break;",
-    "  col+=ribbon(p,t,fj,mod(fj,2.)<.5?c1:c3,mod(fj,2.)<.5?c3*.9+c1*.2:mix(c3,vec3(1.,.55,.3),.35));}",
-    " vec2 sp=vec2(a*3.,z*1.4);vec2 sid=floor(sp*vec2(4.,1.));vec2 sh=hash2(sid);",
-    " vec2 sf=fract(sp*vec2(4.,1.))-.5-(sh-.5)*.6;",
-    " col+=mix(c2,vec3(1.),.6)*step(.92-high*.08,sh.x)*exp(-length(sf*vec2(1.,.4))*28.)*smoothstep(.06,.4,r)*(.5+high);",
-    " col*=1.+tStr*exp(-rTap*3.)*.7;\n col+=mix(c3,vec3(1.),.5)*tStr*exp(-pow((rTap-tAge*.45)/.07,2.))*.45;",
+    " p-=vec2(.09*sin(t*.045),.05*cos(t*.06));",
+    " // The blast wave pushes the whole formation outward, then it settles back.",
+    " float shock=bPow*exp(-pow((length(p)-bAge*1.75)/(.16+bAge*.4),2.))*step(bAge,3.);",
+    " p*=max(.3,1.-shock*.36);",
+    " // The blast throws the field open, then it draws back in and blooms again as the shock dies.",
+    " float R=max(.08,.22+bass*.26+energy*.1+build*.12+beat*.05+surge*.05-recoil*.14);",
+    " float rr=length(p),a=atan(p.y,p.x);",
+    " vec3 col=vec3(.003,.002,.011);",
+    " col+=livingField(p,t,R)*(1.-burst*.72);",
+    " float coreP=.3+bass*.5+beat*.4+burst*.55;",
+    " col+=mix(f1,vec3(1.),.45)*exp(-rr*rr*(66.-bass*24.))*coreP;",
+    " col+=mix(f4,f3,.45)*exp(-rr*(6.-bass*1.8))*(.05+energy*.1+build*.1);",
+    " // One expanding pulse per detected beat, broken up by angle so it never reads as a drawn circle.",
+    " float ringN=.55+.45*noiseP(vec2(a/6.28319*7.,t*.3),7.);",
+    " float ring=exp(-pow((rr-bphase*(.8+bass*.4)*ringN)/(.1+bass*.07),2.))*(1.-bphase)*(.35+bass*.8+beat*.5);",
+    " col*=1.+ring*.75;",
+    " col+=flowPal(.15+bphase*.3)*ring*.1;",
+    " // High frequencies: fine sparks riding the lit plasma.",
+    " vec2 sg=vec2(a/6.28319*120.,log(rr+.045)*7.5-t*1.1);",
+    " vec2 sid=floor(sg),sh=hash2(sid);",
+    " vec2 sf=fract(sg)-.5-(sh-.5)*.7,sd=sf*vec2(2.55,1.);",
+    " float spk=step(.985-high*.13,sh.x)*exp(-dot(sd,sd)*30.)*(.2+sh.y*.9);",
+    " col+=mix(flowPal(sh.y*.6+.05),vec3(1.),.55)*spk*(.06+high*1.5)*smoothstep(.02,.25,dot(col,vec3(.3,.5,.2)));",
+    " if(burst>.001)col+=supernova(p,bAge,bPow);",
+    " col*=1.+tStr*exp(-rTap*3.)*.7;",
+    " col+=mix(f3,vec3(1.),.5)*tStr*exp(-pow((rTap-tAge*.45)/.07,2.))*.45;",
     " return col;",
     "}",
     "void main(){",
@@ -201,17 +275,21 @@
     " OCT=4.+quality;",
     " float t=T;",
     " vec3 col=vec3(0.);",
+    "#ifndef NO_ORB",
     " if(flow<.999){",
     "  vec3 bg=background(bgA,uv,t);",
     "  if(bgMix>.001)bg=mix(bg,background(bgB,uv,t),bgMix);",
     "  vec4 o=heroOrb(uv,t);",
     "  col=bg*(1.-o.a*.92)+o.rgb;",
     " }",
+    "#endif",
+    "#ifndef NO_FLOW",
     " if(flow>.001){",
     "  vec3 f=flowScene(uv,t);",
     "  float n=fbm(uv*1.8+t*.05,3.);",
     "  col=flow>=.999?f:mix(col,f,smoothstep(n-.15,n+.15,flow*1.3-.15));",
     " }",
+    "#endif",
     " float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.2),0.);",
     " col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);",
     " col=pow(clamp(col,0.,1.),vec3(.92));",
@@ -226,7 +304,7 @@
   function accent(alpha) { var c = presets[preset].accent; return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + alpha + ')'; }
   function setPreset(name) {
     if (!presets[name]) return;
-    preset = name; sprites = {}; presetRgb = presets[name].colors.map(hexRgb);
+    preset = name; sprites = {}; presetRgb = presets[name].colors.map(hexRgb); flowRgb = presets[name].flow.map(hexRgb);
     root.setAttribute('data-preset', name);
     Array.prototype.forEach.call(document.querySelectorAll('.party-preset'), function (el) {
       el.classList.toggle('active', el.getAttribute('data-preset') === name);
@@ -258,22 +336,56 @@
     if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { var log = gl.getShaderInfoLog(sh); gl.deleteShader(sh); throw new Error(log || 'shader'); }
     return sh;
   }
+  function glBuild(variant) {
+    if (!gl || glProgs[variant] !== undefined) return glProgs[variant] || null;
+    var head = variant === 'orb' ? '#define NO_FLOW\n' : variant === 'flow' ? '#define NO_ORB\n' : '';
+    try {
+      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, head + PARTY_SHADER);
+      var prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+      gl.deleteShader(vs); gl.deleteShader(fs);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
+      var u = {};
+      GL_UNIFORMS.forEach(function (n) { u[n] = gl.getUniformLocation(prog, n); });
+      glProgs[variant] = prog; glUs[variant] = u;
+    } catch (e) {
+      glProgs[variant] = null;
+      try { console.warn('Party GL ' + variant + ' build: ' + e.message); } catch (err) {}
+    }
+    return glProgs[variant];
+  }
+  function glUse(variant) {
+    var prog = glBuild(variant);
+    if (!prog && variant !== 'both') { variant = 'both'; prog = glBuild(variant); }
+    if (!prog) return false;
+    if (prog !== glProg) {
+      glProg = prog; glU = glUs[variant]; glVariant = variant;
+      gl.useProgram(prog); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
+      var loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    }
+    return true;
+  }
+  // Compile the other builds shortly after Party opens, so switching experience never stalls a frame.
+  function glWarm() {
+    var order = ['orb', 'flow', 'both'], i = 0;
+    (function next() {
+      if (!glOk || !gl || !active) return;
+      while (i < order.length && glProgs[order[i]] !== undefined) i++;
+      if (i >= order.length) return;
+      glBuild(order[i++]);
+      setTimeout(next, 280);
+    })();
+  }
   function glInit() {
     if (glOk || glFailed || !glCanvas) return glOk;
     try {
       gl = glCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: highMemory ? 'high-performance' : 'default' }) ||
         glCanvas.getContext('experimental-webgl', { alpha: false, antialias: false, depth: false });
       if (!gl) throw new Error('no webgl');
-      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, PARTY_SHADER);
-      glProg = gl.createProgram(); gl.attachShader(glProg, vs); gl.attachShader(glProg, fs); gl.linkProgram(glProg);
-      gl.deleteShader(vs); gl.deleteShader(fs);
-      if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(glProg) || 'link');
-      gl.useProgram(glProg);
       glBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-      var loc = gl.getAttribLocation(glProg, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-      ['res', 'orbC', 'T', 'zph', 'bass', 'mid', 'high', 'energy', 'beat', 'orbR', 'quality', 'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tapP'].forEach(function (n) { glU[n] = gl.getUniformLocation(glProg, n); });
+      if (!glUse(experience === 'flow' ? 'flow' : 'orb')) throw new Error('shader');
       glOk = true; glFrames = 0; root.setAttribute('data-gl', 'on');
+      setTimeout(glWarm, 900);
     } catch (e) {
       glFailed = true; glOk = false; glDestroy(); root.setAttribute('data-gl', 'off');
       if (experience === 'flow') { experience = 'orb'; flowTarget = 0; flowMix = 0; }
@@ -285,9 +397,12 @@
   }
   function glDestroy() {
     if (gl) {
-      try { if (glProg) gl.deleteProgram(glProg); if (glBuf) gl.deleteBuffer(glBuf); } catch (e) {}
+      try {
+        for (var k in glProgs) if (glProgs[k]) gl.deleteProgram(glProgs[k]);
+        if (glBuf) gl.deleteBuffer(glBuf);
+      } catch (e) {}
     }
-    gl = null; glProg = null; glBuf = null; glU = {}; glOk = false;
+    gl = null; glProg = null; glBuf = null; glU = {}; glProgs = {}; glUs = {}; glVariant = ''; glOk = false;
     if (glCanvas && !glFailed) { glCanvas.width = 1; glCanvas.height = 1; }
   }
   function glResize() {
@@ -296,11 +411,52 @@
     if (glCanvas.width !== gw || glCanvas.height !== gh) { glCanvas.width = gw; glCanvas.height = gh; }
   }
   function tint(rgb, k) { return [rgb[0] / 255 * k, rgb[1] / 255 * k, rgb[2] / 255 * k]; }
+  // ---- Energy Flow: music analysis and the Supernova Burst event ----
+  // A burst is a real event rather than a per-beat animation: a modest one on a strong bass hit,
+  // a spectacular one when a build-up resolves, when the mix erupts out of a breakdown, or when
+  // the kick clears its own recent peak. The rate limits are what keep the big ones feeling earned.
+  function triggerBurst(power) {
+    burstPower = Math.min(1.7, power); burstAge = 0; burstEnv = 0; burstCount++;
+    lastBurstAt = performance.now();
+    fieldRecoil = Math.min(.9, fieldRecoil + power * .4);
+    surge = Math.min(1.6, surge + power * .3);
+  }
+  function detectBurst(now) {
+    if (experience !== 'flow' || !glOk) return;
+    var punch = bassFast - bassSlow;
+    if (!(punch > Math.max(.02, bassSlow * 1.05) && bassFast > .032 && musicLevel > .12)) return;
+    if (now - lastBurstAt < 820) return;
+    var erupts = now - lastQuietAt < 900 && punch > .045;
+    var clears = bassFast > bassPeak * .97 && punch > Math.max(.045, bassSlow * 2.1);
+    var major = buildUp > .55 || erupts || clears;
+    if (major && now - lastDropAt > 2600) {
+      triggerBurst(1.05 + Math.min(.6, punch * 5 + buildUp * .5)); lastDropAt = now; buildUp *= .2;
+    } else if (!major) {
+      triggerBurst(.45 + Math.min(.35, punch * 4));
+    }
+  }
+  function analyseMusic(s, now) {
+    if (energyFast < .06) lastQuietAt = now;
+    // Build-up: the short window pulling away from the long one, with rising highs (risers, rolls).
+    var rise = (energyFast - energySlow) / Math.max(.045, energySlow);
+    var hiRise = (highFast - highSlow) / Math.max(.03, highSlow);
+    var climbing = clamp(rise * .7 + hiRise * .5, 0, 1.4);
+    if (climbing > .3 && musicLevel > .12) buildUp = Math.min(1, buildUp + s * climbing * .75);
+    else buildUp = Math.max(0, buildUp - s * .5);
+    // Beat clock: free-runs on the learned period so pulses stay in time through a missed kick.
+    if (beatPeriod > .05) beatPhase = Math.min(1, beatPhase + s / beatPeriod);
+    if (beatConfidence > .45 && beatPhase >= 1 && now - lastBeatAt > beatPeriod * 1100) { beatPhase = 0; lastBeatAt = now; }
+    burstAge = Math.min(9, burstAge + s);
+    burstEnv = burstPower > 0 ? clamp(Math.min(1, burstAge * 22) * Math.exp(-burstAge * 1.3) * burstPower, 0, 1) : 0;
+    if (burstPower > 0 && burstEnv < .002 && burstAge > .4) burstPower = 0;
+    fieldRecoil = Math.max(0, fieldRecoil - s * fieldRecoil * 2.4 - s * .08);
+  }
   function glDraw(now, dt) {
     if (!glOk || !gl) return false;
     if (gl.isContextLost && gl.isContextLost()) { glDestroy(); glFailed = false; return false; }
     var s = dt / 1000, eNorm = clamp((musicLevel - .08) / 1.1, 0, 1), bN = clamp(bassLevel / 1.2, 0, 1), mN = clamp(midLevel / 1.1, 0, 1), hN = clamp(highLevel / 1.1, 0, 1), beatN = clamp(beatPulse / 1.2, 0, 1);
     var calm = .55 + eNorm * .75;
+    analyseMusic(s, now);
     sceneT = (sceneT + s * calm) % 3600;
     flowPhase = (flowPhase + s * (.3 + eNorm * .65 + beatN * .5 + surge * 1.2)) % 1000;
     flowMix += (flowTarget - flowMix) * Math.min(1, s * 1.6); if (Math.abs(flowTarget - flowMix) < .002) flowMix = flowTarget;
@@ -308,7 +464,8 @@
     surge = Math.max(0, surge - s * .9); tapAt.age = Math.min(9, tapAt.age + s);
     glResize();
     var pal = presetRgb, U = Math.min(w, h), t = now * .001, cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
-    gl.viewport(0, 0, glCanvas.width, glCanvas.height); gl.useProgram(glProg);
+    if (!glUse(flowMix <= .001 ? 'orb' : flowMix >= .999 ? 'flow' : 'both')) return false;
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
     gl.uniform2f(glU.res, glCanvas.width, glCanvas.height);
     gl.uniform2f(glU.orbC, (cx - w * .5) / h, -(cy - h * .5) / h);
     gl.uniform1f(glU.orbR, U / h * (.105 + eNorm * .012));
@@ -317,11 +474,18 @@
     gl.uniform1f(glU.quality, glQuality);
     gl.uniform1f(glU.bgA, bgFrom); gl.uniform1f(glU.bgB, bgTo); gl.uniform1f(glU.bgMix, bgMix * bgMix * (3 - 2 * bgMix));
     gl.uniform1f(glU.flow, flowMix * flowMix * (3 - 2 * flowMix)); gl.uniform1f(glU.surge, surge);
+    gl.uniform1f(glU.build, buildUp); gl.uniform1f(glU.bphase, beatPhase);
+    gl.uniform1f(glU.burst, burstEnv); gl.uniform1f(glU.bAge, burstAge); gl.uniform1f(glU.bPow, burstPower);
+    gl.uniform1f(glU.recoil, fieldRecoil);
     var c1 = tint(pal[0] || [40, 234, 255], 1), c2 = tint(pal[5] || [231, 251, 255], .95), c3 = tint(pal[2] || [165, 104, 255], 1);
     var flowAccent = tint(pal[3] || [255, 83, 200], 1);
     gl.uniform3f(glU.c1, c1[0], c1[1], c1[2]); gl.uniform3f(glU.c2, c2[0], c2[1], c2[2]);
     gl.uniform3f(glU.c3, c3[0] * .55 + flowAccent[0] * .45, c3[1] * .55 + flowAccent[1] * .45, c3[2] * .55 + flowAccent[2] * .45);
     gl.uniform3f(glU.tapP, (tapAt.x - w * .5) / h, -(tapAt.y - h * .5) / h, tapAt.age);
+    for (var fi = 0; fi < 4; fi++) {
+      var fc = tint(flowRgb[fi] || presets[preset].accent, 1);
+      gl.uniform3f(glU['f' + (fi + 1)], fc[0], fc[1], fc[2]);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     glFrames++;
     // Adaptive resolution: lower the GL render scale when frames run long, recover when there is headroom.
@@ -454,6 +618,8 @@
     } catch (e) {}
   }
   function bassCannon() {
+    // In Energy Flow the cannon is the manual Supernova Burst.
+    if (experience === 'flow' && glOk) triggerBurst(1.4);
     ripple(w * .5, h * .48, 1.5);
     for (var i = 0; i < orbs.length; i++) {
       var o = orbs[i], dx = o.x - w * .5, dy = o.y - h * .48, d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -835,9 +1001,32 @@
       if (!active) return;
       var bass = +low || 0, now = performance.now();
       inputEnergy = clamp((+all || 0) * 11, .08, 1.25); inputBass = clamp(bass * 11, 0, 1.5);
-      inputMid = clamp((+mid || 0) * 15, 0, 1.35); inputHigh = clamp((+high || 0) * 24, 0, 1.35); lastAudioSample = now;
+      inputMid = clamp((+mid || 0) * 15, 0, 1.35); inputHigh = clamp((+high || 0) * 24, 0, 1.35);
+      // Per-band fast and slow envelopes, timed off the real sample gap so the analysis holds
+      // whatever rate the Android meter delivers.
+      var gapS = clamp((now - lastAudioSample) / 1000, .012, .25);
+      if (!lastAudioSample) gapS = .04;
+      lastAudioSample = now;
+      var all0 = +all || 0, high0 = +high || 0;
+      bassFast += (bass - bassFast) * Math.min(1, gapS / .055);
+      bassSlow += (bass - bassSlow) * Math.min(1, gapS / .9);
+      bassPeak = Math.max(bassPeak * (1 - gapS / 6), bassFast);
+      energyFast += (all0 - energyFast) * Math.min(1, gapS / .3);
+      energySlow += (all0 - energySlow) * Math.min(1, gapS / 4.5);
+      highFast += (high0 - highFast) * Math.min(1, gapS / .35);
+      highSlow += (high0 - highSlow) * Math.min(1, gapS / 4.5);
       if (bass > Math.max(.018, bassEnvelope * 1.3) && bass > .024 && now - lastBassKick > 165) {
         beatPulse = Math.min(1.5, beatPulse + clamp((bass - bassEnvelope) * 28 + .32, .35, 1.05)); lastBassKick = now;
+        // Learn the groove, tolerating a missed kick or a detected subdivision.
+        var gap = (now - lastBeatAt) / 1000;
+        if (gap > .22 && gap < 1.6) {
+          var ratio = gap / beatPeriod;
+          if (ratio > 1.6 && ratio < 2.4) gap *= .5; else if (ratio > .42 && ratio < .62) gap *= 2;
+          if (Math.abs(gap - beatPeriod) < beatPeriod * .35) { beatPeriod += (gap - beatPeriod) * .3; beatConfidence = Math.min(1, beatConfidence + .25); }
+          else { beatConfidence = Math.max(0, beatConfidence - .2); if (beatConfidence < .2) beatPeriod = clamp(gap, .3, 1.2); }
+        }
+        lastBeatAt = now; beatPhase = 0;
+        detectBurst(now);
         if (mode === 'ripple') ripple(w * .5, h * .5, .7 + beatPulse * .55);
         if (mode === 'chaos') for (var bi = 0; bi < orbs.length; bi++) { orbs[bi].vx += (orbs[bi].x - w * .5) * .00055 * beatPulse; orbs[bi].vy += (orbs[bi].y - h * .5) * .00055 * beatPulse; }
       }
@@ -862,6 +1051,9 @@
     active = true; runId++; lastFrame = 0;
     resize();
     bgFrom = bgTo; bgMix = 0; flowMix = flowTarget; tapAt.age = 9;
+    buildUp = 0; beatPhase = 1; beatConfidence = 0; burstPower = 0; burstEnv = 0; burstAge = 9; fieldRecoil = 0;
+    bassFast = 0; bassSlow = .01; bassPeak = .02; energyFast = energySlow = .08; highFast = highSlow = 0;
+    lastAudioSample = 0; lastBeatAt = lastBurstAt = lastDropAt = lastQuietAt = performance.now();
     classicWeight = backdrop === 'classic' && experience === 'orb' ? 1 : 0;
     glInit();
     var token = runId;
@@ -896,5 +1088,7 @@
   soundButton.querySelector('span').textContent = soundOn ? 'SOUND FX ON' : 'SOUND FX OFF';
   setMode('pulse');
   window.NexusParty = { setExperience: setExperience, setBackdrop: setBackdrop,
-    state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active }; } };
+    state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active, variant: glVariant,
+      build: buildUp, beatPhase: beatPhase, beatPeriod: beatPeriod, beatConfidence: beatConfidence, burst: burstEnv, burstPower: burstPower, burstAge: burstAge, burstCount: burstCount, recoil: fieldRecoil,
+      bassFast: bassFast, bassSlow: bassSlow, energyFast: energyFast, energySlow: energySlow }; } };
 })();
