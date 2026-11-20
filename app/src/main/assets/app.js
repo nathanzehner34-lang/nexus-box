@@ -1469,7 +1469,7 @@
       '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
       '<span class="btn go" id="sNotif">ALLOW NEXUS TO SEE WHAT\'S PLAYING</span>' +
       '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. If your box says it\'s unavailable, do this instead: open Spotify → Settings (gear) → scroll to "Device broadcast status" → turn it ON. Nexus will then see your songs.</div></div>' +
-      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Deep Flow, Liquid Chrome, Iridescence, Cosmic or Aurora, and adjust motion, brightness, quality and music response.</div>' +
+      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Liquid Nebula, Floating Energy, Cosmic Aurora, Neural Flow or Liquid Chrome, and adjust motion, brightness, quality and music response.</div>' +
       '<span class="btn go" id="sEnv">OPEN ENVIRONMENTS</span></div>' +
       '<div class="field"><label>SYSTEM</label>' +
       '<span class="btn" id="sReplay">REPLAY STARTUP</span><span class="btn" id="sAndroid">ANDROID SETTINGS</span>' +
