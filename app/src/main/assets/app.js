@@ -704,7 +704,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
-      case 'synth': case 'zoom': case 'holo': case 'aura': case 'liquiddreams': openExperience(name); break;
+      case 'holo': case 'liquiddreams': openExperience(name); break;
       case 'env': openEnvironments(); break;
       case 'phones': openPhones(); break;
       case 'clock': openExperience('clockface'); break;
@@ -1673,17 +1673,13 @@
     getCoords: function () { return getCoords(); }, pref: pref, http: http, askAI: askAI, pick: pick, wait: wait, esc: esc,
     weather: function () {  return weatherNow; }, place: function () { return placeNow; }, A: A, $: $
   };
+  // The Visuals collection: five procedural, music-reactive experiences (rendered in experiences.js).
   var VISUALS = [
-    ['aliens', '👽', 'TRIPPY ALIENS'], ['dragon', '🐉', 'GALAXY DRAGON'], ['waterclub', '🪩', 'UNDERWATER CLUB'], ['tornado', '🌪', 'FIRE TORNADO'],
-    ['outrun', '🏎', 'OUTRUN HIGHWAY'], ['bluefire', '🔥', 'BLUE FIRE'],
-    ['vapor', '🌸', 'VAPORWAVE'], ['kaleido', '🌀', 'KALEIDOSCOPE'], ['ring', '🔊', 'SOUND RING'],
-    ['shatter', '💥', 'SHATTER'], ['hyper', '🚀', 'HYPERSPACE'], ['water', '🪼', 'UNDERWATER'], ['friend', '👤', 'HOLO HEAD'],
-    ['eye', '👁', 'CYBER EYE'], ['fractal', '♾', 'FRACTAL DIVE'], ['wormhole', '🕳', 'WORMHOLE'], ['mirror', '🖤', 'BLACK MIRROR'], ['planet', '🌍', 'PLANET BUILDER'], ['skull', '💀', 'NEON SKULL'],
-    ['worlds', '🏔', 'ALIEN WORLDS'], ['gold', '🥇', 'LIQUID METAL'], ['neural', '🧠', 'NEURAL NETWORK'], ['auroratunnel', '🌌', 'AURORA TUNNEL'], ['ink', '🎨', 'INK IN WATER'],
-    ['datastorm', '💻', 'DATA STORM'], ['blackhole', '⚫', 'BLACK HOLE'], ['portrait', '✨', 'PARTICLE PORTRAIT'], ['lava', '🫧', 'LAVA LAMP'],
-    ['synth', '🌅', 'SYNTHWAVE'], ['zoom', '🪐', 'COSMIC ZOOM'], ['aura', '🌈', 'SONG AURA'],
-    ['skeletondance', '💀', 'DANCING SKELETON'], ['neonfluid', '🫧', 'NEON FLUID'], ['macrocrystalgrowth', '💎', 'MACRO CRYSTAL GROWTH'],
-    ['deepsea', '🪼', 'BIOLUMINESCENT DEEP SEA'], ['prismrefraction', '🌈', 'PRISMATIC LIGHT REFRACTION'], ['quantumparticles', '✧', 'QUANTUM PARTICLE FIELDS']
+    ['firetornado', '🌪', 'FIRE TORNADO', 'Molten vortex · embers · heat haze'],
+    ['bluefire', '🔥', 'BLUE FIRE', 'Rising plasma flames · energy arcs'],
+    ['hollowhead', '👤', 'HOLLOW HEAD', 'Living holographic grid head'],
+    ['cybereye', '👁', 'CYBER EYE', 'Mechanical iris · aperture · scanning'],
+    ['wormhole', '🕳', 'WORMHOLE', 'Dimensional tunnel through deep space']
   ];
   // ---- Shared control markup (design system components) ----
   function switchHtml(attrs, label, on) {
@@ -1748,20 +1744,24 @@
   var fromVisuals = false, visScroll = 0;
   function backToVisuals() { if (!fromVisuals) return false; fromVisuals = false; setTimeout(function () { openVisuals(); $('panelBody').scrollTop = visScroll; }, 30); return true; }
   function openVisuals() {
-    var favs = favList(), secs = +(pref('playSecs') || 45);
-    function cell(v) {
-      var on = favs.indexOf(v[0]) >= 0, canFav = true;
-      return '<div class="app vcell" data-vis="' + v[0] + '"><span style="font-size:7vmin;line-height:1.2">' + v[1] + '</span><span>' + v[2] + '</span>' +
-        (canFav ? '<span class="fav' + (on ? ' on' : '') + '" data-fav="' + v[0] + '">' + (on ? '★' : '☆') + '</span>' : '') + '</div>';
-    }
+    // Previews are real frames of each experience, rendered once by the Visuals engine.
+    loadExperiences(function () { if (window.XP && XP.previews) XP.previews(showVisuals); else showVisuals({}); });
+  }
+  function showVisuals(previews) {
+    var favs = favList(), secs = +(pref('playSecs') || 45), last = pref('lastVis') || '';
     var favRows = VISUALS.filter(function (v) { return favs.indexOf(v[0]) >= 0; });
-    var html = '<div class="playbar"><span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' +
+    var html = '<div class="vis-grid">' + VISUALS.map(function (v, i) {
+        var on = favs.indexOf(v[0]) >= 0, img = previews && previews[v[0]];
+        return '<button type="button" class="vis-card vis-' + v[0] + (v[0] === last ? ' selected' : '') + '" data-vis="' + v[0] + '" aria-label="' + esc(v[2]) + '">' +
+          '<span class="vis-shot">' + (img ? '<img alt="" src="' + img + '">' : '') + '</span>' +
+          '<span class="env-meta"><span class="env-num">0' + (i + 1) + '</span><b>' + esc(v[2].charAt(0) + v[2].slice(1).toLowerCase().replace(/ (\w)/g, function (m, c) { return ' ' + c.toUpperCase(); })) + '</b><small>' + esc(v[3]) + '</small></span>' +
+          '<span class="fav' + (on ? ' on' : '') + '" data-fav="' + v[0] + '" role="button" aria-label="Favourite">' + (on ? '★' : '☆') + '</span></button>';
+      }).join('') + '</div>' +
+      '<div class="playbar"><span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' +
       '<span class="btn' + (favRows.length ? ' go' : ' off') + '" id="vPlayFav">★ PLAY FAVORITES</span>' +
       '<span class="hint" style="margin:0 1vmin">SWITCH EVERY</span>' +
       [[5, '5s'], [10, '10s'], [30, '30s'], [60, '1 MIN'], [120, '2 MIN']].map(function (o) { return '<span class="btn sm' + (secs === o[0] ? ' go' : '') + '" data-secs="' + o[0] + '">' + o[1] + '</span>'; }).join('') + '</div>' +
-      (favRows.length ? '<div class="hint vsec">★ FAVORITES</div><div class="agrid">' + favRows.map(cell).join('') + '</div><div class="hint vsec">ALL VISUALS</div>' :
-        '<div class="hint vsec">Tap ☆ on any visual to make it a favorite.</div>') +
-      '<div class="agrid">' + VISUALS.map(cell).join('') + '</div>';
+      '<div class="hint">Tap a visual to start it. While it plays, tap the screen to switch visuals or exit. Music keeps playing.</div>';
     var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
     openPanel('VISUALS', html);
     $('panelBody').scrollTop = keep;
@@ -1769,16 +1769,16 @@
       el.addEventListener('click', function (e) {
         e.stopPropagation(); var k = el.getAttribute('data-fav'), f = favList(), i = f.indexOf(k);
         if (i >= 0) f.splice(i, 1); else f.push(k);
-        setPref('favVis', f.join(',')); openVisuals();
+        setPref('favVis', f.join(',')); showVisuals(previews);
       });
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-secs]'), function (el) {
-      el.addEventListener('click', function () { setPref('playSecs', el.getAttribute('data-secs')); openVisuals(); });
+      el.addEventListener('click', function () { setPref('playSecs', el.getAttribute('data-secs')); showVisuals(previews); });
     });
     $('vPlayAll').addEventListener('click', function () { visScroll = 0; closePanel(); fromVisuals = true; startPlaythrough(PLAYABLE(), 'PLAY ALL'); });
     $('vPlayFav').addEventListener('click', function () { var f = favList().filter(function (k) { return PLAYABLE().indexOf(k) >= 0; }); if (!f.length) return; visScroll = 0; closePanel(); fromVisuals = true; startPlaythrough(f, 'FAVORITES'); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-vis]'), function (el) {
-      el.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-fav]')) return; var n = el.getAttribute('data-vis'); visScroll = $('panelBody').scrollTop; closePanel(); fromVisuals = true; openExperience(n); });
+      el.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-fav]')) return; var n = el.getAttribute('data-vis'); setPref('lastVis', n); visScroll = $('panelBody').scrollTop; closePanel(); fromVisuals = true; openExperience(n); });
     });
   }
   var play = null;
@@ -1813,14 +1813,18 @@
 
   var xpLoaded = false;
   Nexus.openExperience = function (n) { openExperience(n); };
-  function openExperience(name) {
-    if (P.on) exitParty(true);
-    function go() { if (window.XP) XP.open(name); }
-    if (xpLoaded) return go();
+  var xpWaiting = [];
+  function loadExperiences(done) {
+    if (xpLoaded) return done();
+    xpWaiting.push(done); if (xpWaiting.length > 1) return;
     var sc = document.createElement('script');
     sc.src = 'experiences.js';
-    sc.onload = function () { xpLoaded = true; go(); };
+    sc.onload = function () { xpLoaded = true; var q = xpWaiting; xpWaiting = []; q.forEach(function (f) { f(); }); };
     document.body.appendChild(sc);
+  }
+  function openExperience(name) {
+    if (P.on) exitParty(true);
+    loadExperiences(function () { if (window.XP) XP.open(name); });
   }
 
   // ------------------------------------------------------------------

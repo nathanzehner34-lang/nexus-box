@@ -105,7 +105,7 @@ const scenario = `
  r.saved=JSON.parse(localStorage.getItem('p_envSettings'));
  r.switchOn=document.querySelector('[data-envsw=reducedMotion]').getAttribute('aria-checked');
  document.getElementById('panelClose').click();await wait(3500);r.programsAfterClose=E.status().programs;
- Nexus.openExperience('aura');await wait(700);r.underVisual=E.status().running;
+ Nexus.openExperience('wormhole');await wait(700);r.underVisual=E.status().running;
  XP.close();await wait(700);r.afterVisual=E.status().running;
  document.querySelector('[data-act=party]').click();await wait(700);r.underParty=E.status().running;
  document.querySelector('[data-act=party]')&&window.Nexus.home();await wait(700);r.afterParty=E.status().running;

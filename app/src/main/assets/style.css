@@ -589,3 +589,27 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #xp.liquid-dreams .ld-toast b{display:block;font-weight:200;font-size:clamp(26px,6vmin,58px);letter-spacing:.08em;color:#fff}
 #xp.liquid-dreams .ld-toast small{display:block;margin-top:1vmin;font-size:clamp(10px,1.5vmin,13px);letter-spacing:.32em;text-transform:uppercase;color:rgba(230,236,250,.7)}
 @media(max-width:760px){#xp.liquid-dreams .ld-dock button span:not(.ld-k){display:none}#xp.liquid-dreams .ld-next,#xp.liquid-dreams .ld-shift{min-width:0}}
+
+/* ---------- VISUALS · five experiences ---------- */
+.vis-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--nx-gap); margin-bottom: 2.4vmin; }
+@media (max-aspect-ratio: 4/3) { .vis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.vis-card { position: relative; display: flex; flex-direction: column; padding: 0; border-radius: var(--nx-r); overflow: hidden; border: 1px solid var(--nx-line); background: rgba(0,0,0,.4); text-align: left; color: inherit; font: inherit;
+  transition: transform .18s ease, border-color .25s ease, box-shadow .25s ease; }
+.vis-card:active { transform: scale(.975); }
+.vis-shot { display: block; width: 100%; aspect-ratio: 16 / 9; background: #05060c; overflow: hidden; }
+.vis-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.vis-card.selected { border-color: rgba(116,232,255,.7); box-shadow: 0 0 0 1px rgba(116,232,255,.45) inset, 0 0 3vmin rgba(116,232,255,.18); }
+.vis-firetornado .env-num { color: #ffab5c; } .vis-bluefire .env-num { color: #6fd2ff; } .vis-hollowhead .env-num { color: #c98bff; }
+.vis-cybereye .env-num { color: #5fe3ff; } .vis-wormhole .env-num { color: #ff7fe0; }
+.vis-card .fav { top: .5vmin; right: .6vmin; text-shadow: 0 0 1vmin rgba(0,0,0,.8); }
+#vxSnap { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0; }
+#xp.vx-active #xpTop, #xp.vx-active #xpMid:empty, #xp.vx-active #xpBottom:empty { display: none; }
+#vxBar { position: absolute; left: 50%; bottom: 3.2vh; z-index: 6; display: flex; align-items: center; gap: .5vw; padding: .7vh .7vw; transform: translate(-50%, 1.5vh);
+  border: 1px solid rgba(170,206,240,.18); border-radius: 99px; background: rgba(5,8,16,.78); box-shadow: 0 1vh 3vh rgba(0,0,0,.45);
+  opacity: 0; pointer-events: none; transition: opacity .35s ease, transform .35s ease; backdrop-filter: blur(6px); }
+#vxBar.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+#vxBar button { display: flex; align-items: center; gap: .5vw; min-height: 44px; padding: 0 1.1vw; border: 1px solid transparent; border-radius: 99px; background: transparent;
+  color: #a9c2d8; font: 700 clamp(11px, 1.45vmin, 16px) var(--nx-font, sans-serif); letter-spacing: .08em; white-space: nowrap; transition: background .25s, color .25s, border-color .25s, box-shadow .25s; }
+#vxBar button span { font-size: .8em; opacity: .55; letter-spacing: .2em; }
+#vxBar button.active { color: #fff; border-color: rgba(116,232,255,.75); background: rgba(80,190,255,.18); box-shadow: 0 0 1.6vmin rgba(116,232,255,.35); }
+#vxBar .vx-exit { margin-left: .4vw; color: #ffd6e8; border-color: rgba(255,140,200,.4); }
