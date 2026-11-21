@@ -498,11 +498,26 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { var log = gl.getShaderInfoLog(sh); gl.deleteShader(sh); throw new Error(log || 'shader'); }
     return sh;
   }
+  // A build key is a variant, optionally followed by '@' and the one or two backgrounds it needs
+  // ('orb@2', 'orb@0,3'). Each build only contains the backgrounds on screen, instead of all five.
+  var BG_FNS = ['bgClassic', 'bgSmoke', 'bgAurora', 'bgDeep', 'bgIrid'];
+  var BG_LINE = 'vec3 background(float id,vec2 p,float t){if(id<.5)return bgClassic(p,t);if(id<1.5)return bgSmoke(p,t);if(id<2.5)return bgAurora(p,t);if(id<3.5)return bgDeep(p,t);return bgIrid(p,t);}';
+  function partySource(key) {
+    var parts = key.split('@'), variant = parts[0], src = PARTY_SHADER;
+    if (parts[1] !== undefined) {
+      var ids = parts[1].split(',').map(Number), a = ids[0], b = ids.length > 1 ? ids[1] : a;
+      src = src.replace(BG_LINE, 'vec3 background(float id,vec2 p,float t){' + (a === b ? '' : 'if(abs(id-' + a + '.)<.5)return ' + BG_FNS[a] + '(p,t);') + 'return ' + BG_FNS[b] + '(p,t);}');
+    }
+    return (variant === 'orb' ? '#define NO_FLOW\n' : variant === 'flow' ? '#define NO_ORB\n' : '') + src;
+  }
+  function bgKey(variant) {
+    if (variant === 'flow' || variant === 'ink') return variant;
+    return variant + '@' + (bgFrom === bgTo ? bgTo : Math.min(bgFrom, bgTo) + ',' + Math.max(bgFrom, bgTo));
+  }
   function glBuild(variant) {
     if (!gl || glProgs[variant] !== undefined) return glProgs[variant] || null;
-    var head = variant === 'orb' ? '#define NO_FLOW\n' : variant === 'flow' ? '#define NO_ORB\n' : '';
     try {
-      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, variant === 'ink' ? INK_SHADER : head + PARTY_SHADER);
+      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, variant === 'ink' ? INK_SHADER : partySource(variant));
       var prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
       gl.deleteShader(vs); gl.deleteShader(fs);
       if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
@@ -516,12 +531,13 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     return glProgs[variant];
   }
   function glUse(variant) {
-    var prog = glBuild(variant);
+    var key = bgKey(variant), prog = glBuild(key);
+    if (!prog && key !== variant) { key = variant; prog = glBuild(key); }
     if (!prog && variant === 'ink') return false;
-    if (!prog && variant !== 'both') { variant = 'both'; prog = glBuild(variant); }
+    if (!prog && variant !== 'both') { variant = key = 'both'; prog = glBuild(key); }
     if (!prog) return false;
     if (prog !== glProg) {
-      glProg = prog; glU = glUs[variant]; glVariant = variant;
+      glProg = prog; glU = glUs[key]; glVariant = variant;
       gl.useProgram(prog); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
       var loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     }
@@ -529,7 +545,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   }
   // Compile the other builds shortly after Party opens, so switching experience never stalls a frame.
   function glWarm() {
-    var order = ['orb', 'flow', 'both', 'ink'], i = 0;
+    var order = [bgKey('orb'), 'flow', bgKey('both'), 'ink'], i = 0;
     (function next() {
       if (!glOk || !gl || !active) return;
       while (i < order.length && glProgs[order[i]] !== undefined) i++;
@@ -856,6 +872,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (idx < 0 || (glFailed && name !== 'classic')) return;
     backdrop = name;
     if (idx !== bgTo) { if (bgMix > 0 && bgMix < 1) bgFrom = bgTo; bgTo = idx; bgMix = 0; if (!active) bgFrom = idx; }
+    if (glOk && gl && active && experience !== 'ink') { glBuild(bgKey(flowMix >= .999 ? 'flow' : flowMix <= .001 ? 'orb' : 'both')); setTimeout(function () { if (glOk && gl && active) { var f = bgFrom; bgFrom = bgTo; glBuild(bgKey('orb')); bgFrom = f; } }, 2200); }
     syncExperienceUi();
     try { localStorage.setItem('nexus.party.backdrop', name); } catch (e) {}
   }

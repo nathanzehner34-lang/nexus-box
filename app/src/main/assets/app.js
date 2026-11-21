@@ -1650,6 +1650,7 @@
     var snap = $('xpSnap'); if (!snap) { snap = document.createElement('canvas'); snap.id = 'xpSnap'; $('xp').appendChild(snap); }
     snap.style.transition = 'none'; snap.style.opacity = 1;
     snap.width = Math.max(1, src.width); snap.height = Math.max(1, src.height);
+    try { if (window.XP && XP.redraw) XP.redraw(); } catch (e) {}
     try { snap.getContext('2d').drawImage(src, 0, 0); } catch (e) {}
     void snap.offsetWidth;
     requestAnimationFrame(function () { requestAnimationFrame(function () { snap.style.transition = 'opacity .7s ease'; snap.style.opacity = 0; }); });
@@ -1695,8 +1696,10 @@
       searching: 'Finding the latest stable Nexus release…',
       downloading: 'Downloading the verified Nexus APK…',
       ready: 'APK verified. Press INSTALL on the screen that opened.',
-      current: 'The newest Nexus release is already installed.', failed: 'No verified update could be downloaded. Check the connection and try again.' }[st] || st;
+      installing: 'Download checked. Opening the install screen…',
+      current: 'The newest Nexus release is already installed.', failed: 'The update did not finish. Check the connection and try again.' }[st] || st;
     if (st === 'progress' && isFinite(progress)) m = 'Downloading verified update… ' + Math.max(0, Math.min(100, Math.round(progress))) + '%';
+    if (st === 'failed' && typeof progress === 'string' && progress) m = 'Update did not finish: ' + progress;
     caption(st === 'downloading' || st === 'progress' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
     var el = $('sUpdateMsg'); if (el) el.textContent = m;
   };

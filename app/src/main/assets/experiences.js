@@ -13,7 +13,7 @@
   var QMIN = HIGH_MEMORY_DEVICE ? 0.42 : 0.34, QMAX = HIGH_MEMORY_DEVICE ? 0.9 : 0.8;
   var S = Math.min(QMAX, Math.max(QMIN, parseFloat(N.pref ? N.pref('xpq') : '') || (HIGH_MEMORY_DEVICE ? 0.68 : 0.48)));
   var W = 0, H = 0;
-  var running = null, raf = 0, timers = [], last = 0, xpDom = [];
+  var running = null, raf = 0, timers = [], last = 0, xpDom = [], curDraw = null;
   var perf = { n: 0, slow: 0, since: 0 }, pendingSize = false;
   function saveQ() { try { if (A) A.setPref('xpq', String(S)); else localStorage.setItem('p_xpq', String(S)); } catch (e) {} }
   function tuneQuality(now, gap, took) {
@@ -119,7 +119,7 @@
   }
 
   // ---- Graphics-chip (WebGL) visuals: the sharpest, smoothest look for the least effort ----
-  var glc = null, gl = null, GLX = 1.25, glBuf = null, glProgs = {};
+  var glc = null, gl = null, GLX = 1.25, glBuf = null, glProgs = {}, glPending = {};
   var atmosphereCanvas = null, atmosphereCtx = null, atmosphereParticles = [], atmosphereProfile = null, atmosphereLast = 0;
   // Atmosphere layer for the utility experiences (Hologram, Clock, Lyrics, Webcams use the neon family).
   var ATMOSPHERE_PROFILES = {
@@ -224,21 +224,12 @@
     'float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f);' +
     ' return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }\n';
   function glStart(name, frag) {
-    ensureGl();
-    if (!gl) return null;
-    var prog = glProgs[name];
-    if (!prog) {
-      function sh(type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) { console.log(gl.getShaderInfoLog(o)); return null; } return o; }
-      var vs = sh(gl.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }'), fs = sh(gl.FRAGMENT_SHADER, GL_HEAD + frag);
-      if (!vs || !fs) return null;
-      prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
-      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-      prog.loc = {}; glProgs[name] = prog;
-    }
-    gl.useProgram(prog);
-    var pl = gl.getAttribLocation(prog, 'p'); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf); gl.enableVertexAttribArray(pl); gl.vertexAttribPointer(pl, 2, gl.FLOAT, false, 0, 0);
+    var api = glUse(name, frag); if (!api) return null;
     glc.style.display = 'block'; cv.style.visibility = 'hidden';
     size();
+    return api;
+  }
+  function glApi(prog) {
     function U(n) { if (!(n in prog.loc)) prog.loc[n] = gl.getUniformLocation(prog, n); return prog.loc[n]; }
     return {
       f: function (n, v) { gl.uniform1f(U(n), v); },
@@ -256,13 +247,58 @@
       }
     };
   }
+  // Starts linking a program without waiting for it (the GPU compiles it in the background).
+  function glPrepare(name, frag) {
+    if (!ensureGl() || glProgs[name] || glPending[name]) return;
+    try {
+      var vs = gl.createShader(gl.VERTEX_SHADER), fs = gl.createShader(gl.FRAGMENT_SHADER), p = gl.createProgram();
+      gl.shaderSource(vs, 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }'); gl.compileShader(vs);
+      gl.shaderSource(fs, GL_HEAD + frag); gl.compileShader(fs);
+      gl.attachShader(p, vs); gl.attachShader(p, fs); gl.linkProgram(p);
+      glPending[name] = p;
+    } catch (e) {}
+  }
+  // True when a prepared program can be used without making the screen wait.
+  function glReady(name) {
+    if (glProgs[name]) return true;
+    var p = glPending[name]; if (!p) return false;
+    var ext = gl.getExtension('KHR_parallel_shader_compile');
+    return !ext || !!gl.getProgramParameter(p, ext.COMPLETION_STATUS_KHR);
+  }
+  function glProgram(name, frag) {
+    var prog = glProgs[name];
+    if (!prog && glPending[name]) {
+      var pp = glPending[name]; delete glPending[name];
+      if (gl.getProgramParameter(pp, gl.LINK_STATUS)) { prog = pp; prog.loc = {}; glProgs[name] = prog; }
+      else { try { gl.deleteProgram(pp); } catch (e) {} }
+    }
+    if (!prog) {
+      function sh(type, src) { var o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) { console.log(gl.getShaderInfoLog(o)); return null; } return o; }
+      var vs = sh(gl.VERTEX_SHADER, 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }'), fs = sh(gl.FRAGMENT_SHADER, GL_HEAD + frag);
+      if (!vs || !fs) return null;
+      prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+      prog.loc = {}; glProgs[name] = prog;
+    }
+    return prog;
+  }
+  // Switches to a program (compiling it now only if it was never prepared). No resize, no restyle.
+  function glUse(name, frag) {
+    if (!ensureGl()) return null;
+    var prog = glProgram(name, frag); if (!prog) return null;
+    gl.useProgram(prog);
+    var pl = gl.getAttribLocation(prog, 'p'); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf); gl.enableVertexAttribArray(pl); gl.vertexAttribPointer(pl, 2, gl.FLOAT, false, 0, 0);
+    return prog.api || (prog.api = glApi(prog));
+  }
   // Creates the shared WebGL canvas and context once (without showing it).
   function ensureGl() {
     if (!glc) {
       glc = document.createElement('canvas');
       glc.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:none';
       cv.parentNode.insertBefore(glc, cv.nextSibling);
-      try { gl = glc.getContext('webgl', { antialias: false, alpha: false, depth: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' }) || glc.getContext('experimental-webgl'); } catch (e) { gl = null; }
+      // preserveDrawingBuffer stays off: on the box's tile-based GPU keeping it on costs a full-screen
+      // copy every frame. Snapshots (crossfades) redraw the current frame first, then copy it (glRedraw).
+      try { gl = glc.getContext('webgl', { antialias: false, alpha: false, depth: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' }) || glc.getContext('experimental-webgl'); } catch (e) { gl = null; }
       if (gl) {
         glBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -270,12 +306,15 @@
     }
     return gl;
   }
+  // Re-renders the current frame into the drawing buffer so it can be copied in this same task.
+  function glRedraw() { try { if (running && curDraw && glc && glc.style.display !== 'none') curDraw(last); } catch (e) {} }
   function glStop() { if (glc) glc.style.display = 'none'; cv.style.visibility = ''; }
   function later(fn, ms) { var t = setTimeout(fn, ms); timers.push(t); return t; }
   function every(fn, ms) { var t = setInterval(fn, ms); timers.push(t); return t; }
   function text(id, v) { $(id).innerHTML = v || ''; }
   function loop(draw, fps, minFps) {
     var gap = 1000 / (fps || 30);
+    curDraw = draw;
     function f(now) {
       if (!running) return;
       raf = requestAnimationFrame(f);
@@ -493,6 +532,17 @@ void main(){
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }
 `;
+  // One small program per experience: the box's GPU only runs the code of the experience on screen
+  // (a single program holding all six ran every experience's code for every pixel, 3 to 15x slower).
+  // During a change the new experience is drawn over the old one through the same liquid noise front.
+  var LD_FNS = ['deepFlowLD', 'iridescenceLD', 'etherLD', 'chromeLD', 'cosmicLD', 'organicLD'];
+  function ldEnvShader(i) {
+    return LIQUID_DREAMS_SHADER
+      .replace(/vec3 envLD\(float id,vec2 p,float t\)\{[^\n]*\}/, 'vec3 envLD(float id,vec2 p,float t){return ' + LD_FNS[i] + '(p,t);}')
+      .replace(' if(envMix>.001){vec3 other=envLD(envB,p,t);float n=fbmLD(uv*1.6+vec2(7.1,3.3)+t*.02,3.);col=mix(col,other,smoothstep(n-.14,n+.14,envMix*1.3-.15));}',
+        ' float ldA=1.;if(envMix>.001){float n=fbmLD(uv*1.6+vec2(7.1,3.3)+t*.02,3.);ldA=smoothstep(n-.14,n+.14,envMix*1.3-.15);}')
+      .replace('gl_FragColor=vec4(clamp(col,0.,1.),1.);', 'gl_FragColor=vec4(clamp(col,0.,1.),ldA);');
+  }
 
   // LIQUID DREAMS — six composed GPU experiences with rich palettes, independent Experience and
   // Color Shift cycling, Colour Wave (tap) and Gravity Point (press and hold) touch interaction.
@@ -787,7 +837,7 @@ void main(){
     ui.addEventListener('click', handleClick); ui.addEventListener('change', handleChange); ui.addEventListener('input', handleInput);
     layer.addEventListener('pointerdown', touchDown); layer.addEventListener('pointermove', touchMove); layer.addEventListener('pointerup', touchUp); layer.addEventListener('pointercancel', touchCancel);
 
-    var ldGpu = null, ldGpuTried = false, ldGpuActive = false, oldGLX = GLX, firstFrame = false, frames = 0;
+    var ldGpu = null, ldGpuTried = false, ldGpuActive = false, oldGLX = GLX, firstFrame = false, frames = 0, ldWait = 0, ldForce = false;
     GLX = HIGH_MEMORY_DEVICE ? 1.1 : .72;
     XP.cleanupCurrent = function () {
       alive = false; ui.removeEventListener('click', handleClick); ui.removeEventListener('change', handleChange); ui.removeEventListener('input', handleInput);
@@ -818,13 +868,16 @@ void main(){
       moodPalette = activePaletteKey();
       return LD_PALETTES[moodPalette];
     }
+    function ldUse(i) { return glUse('ld-env-' + i, ldEnvShader(i)); }
     function activateDreamShader() {
       if (!ldGpuTried) {
         ldGpuTried = true;
         if (glc) { glc.style.opacity = '0'; glc.style.transition = 'opacity .7s ease'; }
-        ldGpu = glStart('liquid-dreams-environments', LIQUID_DREAMS_SHADER); ldGpuActive = !!ldGpu;
+        ldGpu = glStart('ld-env-' + envTo, ldEnvShader(envTo)); ldGpuActive = !!ldGpu;
         if (glc) { glc.style.opacity = '0'; glc.style.transition = 'opacity .7s ease'; }
-      } else if (ldGpu && !ldGpuActive) { ldGpu = glStart('liquid-dreams-environments', LIQUID_DREAMS_SHADER); ldGpuActive = !!ldGpu; }
+        // the other experiences compile in the background, one at a time, so later changes never stall
+        if (ldGpu) LD_FNS.forEach(function (f, i) { if (i !== envTo) later(function () { if (alive) glPrepare('ld-env-' + i, ldEnvShader(i)); }, 700 + 500 * i); });
+      } else if (ldGpu && !ldGpuActive) { ldGpu = glStart('ld-env-' + envTo, ldEnvShader(envTo)); ldGpuActive = !!ldGpu; }
       return ldGpu;
     }
     function drawFallback(t, bassL, highL, bright) {
@@ -896,18 +949,27 @@ void main(){
       if (!HIGH_MEMORY_DEVICE) { complexity = Math.min(.7, complexity); detail = Math.min(.9, detail); }
       var dream = activateDreamShader();
       if (dream) {
-        var mixEased = envMix * envMix * (3 - 2 * envMix), aspect = W / H;
-        dream.f('envA', envFrom); dream.f('envB', envTo); dream.f('envMix', envFrom === envTo ? 0 : mixEased);
-        dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL); dream.f('energyL', energyL);
-        dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35 + beatHit * .25 * (low ? .4 : 1))); dream.f('detailAmt', detail); dream.f('complexity', complexity);
-        dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
-        var old = wave ? wave.from : palette;
-        dream.v3('palN0', palette[0]); dream.v3('palN1', palette[1]); dream.v3('palN2', palette[2]); dream.v3('palN3', palette[3]);
-        dream.v3('palO0', old[0]); dream.v3('palO1', old[1]); dream.v3('palO2', old[2]); dream.v3('palO3', old[3]);
-        dream.f('spectral', spectralNow); dream.f('spectralO', wave ? wave.fromS : spectralNow);
-        dream.v4a('colorWave', wave ? [wave.x, wave.y, wave.r, 1] : [0, 0, 0, 0]); dream.f('colorPhase', colorPhase); dream.f('touchHue', touchHueShift);
-        dream.v2('gravPos', (grav.x - .5) * aspect, .5 - grav.y); dream.f('gravStr', grav.s); dream.f('gravSpin', grav.spin);
-        dream.draw(now, null, 0);
+        var mixEased = envMix * envMix * (3 - 2 * envMix), aspect = W / H, changing = envFrom !== envTo;
+        // wait for the incoming experience's program before starting its dissolve (no stall mid-change)
+        if (changing && !glReady('ld-env-' + envTo) && envMix < .02 && !ldForce) { envMix = 0; mixEased = 0; ldWait += dt; if (ldWait > 2500) ldForce = true; }
+        var passes = changing && mixEased > 0 ? [envFrom, envTo] : [changing ? envFrom : envTo];
+        for (var pass = 0; pass < passes.length; pass++) {
+          dream = ldUse(passes[pass]); if (!dream) break;
+          if (pass === 1) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+          dream.f('envA', passes[pass]); dream.f('envB', passes[pass]); dream.f('envMix', pass === 1 ? mixEased : 0);
+          dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL); dream.f('energyL', energyL);
+          dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35 + beatHit * .25 * (low ? .4 : 1))); dream.f('detailAmt', detail); dream.f('complexity', complexity);
+          dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
+          var old = wave ? wave.from : palette;
+          dream.v3('palN0', palette[0]); dream.v3('palN1', palette[1]); dream.v3('palN2', palette[2]); dream.v3('palN3', palette[3]);
+          dream.v3('palO0', old[0]); dream.v3('palO1', old[1]); dream.v3('palO2', old[2]); dream.v3('palO3', old[3]);
+          dream.f('spectral', spectralNow); dream.f('spectralO', wave ? wave.fromS : spectralNow);
+          dream.v4a('colorWave', wave ? [wave.x, wave.y, wave.r, 1] : [0, 0, 0, 0]); dream.f('colorPhase', colorPhase); dream.f('touchHue', touchHueShift);
+          dream.v2('gravPos', (grav.x - .5) * aspect, .5 - grav.y); dream.f('gravStr', grav.s); dream.f('gravSpin', grav.spin);
+          dream.draw(now, null, 0);
+          if (pass === 1) gl.disable(gl.BLEND);
+        }
+        if (!changing) { ldWait = 0; ldForce = false; }
         frames++;
         if (!firstFrame) { firstFrame = true; requestAnimationFrame(function () { if (glc && alive) glc.style.opacity = '1'; }); }
       } else drawFallback(flow, bassL, highL, state.brightness);
@@ -2494,7 +2556,7 @@ void main(){
             aL = [1.6 + .9 * pump * e, .2, .4]; aR = [1.6 - .9 * pump * e, .2, .4]; nod = -.25 * kick * A.bass;
             stepL = stepR = .02;
           } else if (i === 2) { // the Mantis: robotic popping between angular poses each beat
-            var k = Math.floor(phase) % 4, poses = [[1.6, .0, 1.5, .4, .4, .2], [.6, .9, 1.4, 2.5, -.3, .1], [2.6, -.2, .2, 1.6, .2, 1.5], [1.2, .8, .9, 1.2, .8, .9]];
+            var k = ((Math.floor(phase) % 4) + 4) % 4 || 0, poses = [[1.6, .0, 1.5, .4, .4, .2], [.6, .9, 1.4, 2.5, -.3, .1], [2.6, -.2, .2, 1.6, .2, 1.5], [1.2, .8, .9, 1.2, .8, .9]];
             var pz = poses[k], ease = Math.min(1, b * 6), pp = poses[(k + 3) % 4];
             aL = [pp[0] + (pz[0] - pp[0]) * ease, pp[1] + (pz[1] - pp[1]) * ease, pp[2] + (pz[2] - pp[2]) * ease];
             aR = [pp[3] + (pz[3] - pp[3]) * ease, pp[4] + (pz[4] - pp[4]) * ease, pp[5] + (pz[5] - pp[5]) * ease];
@@ -2696,6 +2758,7 @@ void main(){
     if (vxSnapCv.parentNode !== layer) layer.appendChild(vxSnapCv);
     vxSnapCv.style.transition = 'none'; vxSnapCv.style.opacity = '1';
     vxSnapCv.width = glc.width; vxSnapCv.height = glc.height;
+    glRedraw();
     try { vxSnapCv.getContext('2d').drawImage(glc, 0, 0); } catch (e) {}
     void vxSnapCv.offsetWidth;
     requestAnimationFrame(function () { requestAnimationFrame(function () { vxSnapCv.style.transition = 'opacity .75s ease'; vxSnapCv.style.opacity = '0'; }); });
@@ -2736,7 +2799,8 @@ void main(){
     XP.vxDebug = function () { return { current: vxCur, frames: vxState ? vxState.frames : 0, glx: GLX, w: glc.width, h: glc.height, programs: Object.keys(vxProg).length, mesh: !!vxMesh, audio: { bass: A2.bass, mid: A2.mid, high: A2.high, beat: A2.beat, drama: A2.drama }, u: vxState && vxState.u }; };
     vxState = { frames: 0, u: null };
     function frame(now) {
-      var dt = lastT ? Math.min(66, now - lastT) : 33; lastT = now; t += dt / 1000;
+      // the first frame uses performance.now() and later ones the frame clock, which can read slightly earlier: never step backwards
+      var dt = lastT ? Math.max(0, Math.min(66, now - lastT)) : 33; lastT = Math.max(lastT, now); t += dt / 1000;
       // adaptive resolution: hold frame pacing on the 2 GB box, keep full detail on the 8 GB box
       if (dt > 48) { vxSlow++; vxFast = 0; } else { vxFast++; vxSlow = Math.max(0, vxSlow - 1); }
       if (vxSlow > 45 && vxScale > VX_GLX_MIN) { vxScale = Math.max(VX_GLX_MIN, vxScale - .1); GLX = vxScale; size(); vxSlow = 0; }
@@ -2819,7 +2883,9 @@ void main(){
  float t = time, tr = travel;
  vec3 ro = vec3(0.);
  vec3 rd = normalize(vec3(uv.x*1.12, uv.y*1.12 + .085, -1.));
- vec3 col = ndSky(rd, t);
+ // how much of this pixel is ground; the sky is only drawn where some of it can be seen
+ float groundMix = 1. - smoothstep(-.02, -.0015, rd.y);
+ vec3 col = groundMix < 1. ? ndSky(rd, t) : vec3(0.);
  float camH = 2.35;
  if(rd.y < -.0015){
   // Hills are measured relative to the road under the camera, so the camera always rides the
@@ -2831,7 +2897,9 @@ void main(){
   float zd = -g.z, wz = tr + zd, fade = exp(-zd*.0042);
   float xr = g.x - curveAt(wz)*min(1., zd*.0026);
   float edge = abs(xr), HALF = 11.0;
-  vec3 ground = ndGround(xr, wz, fade);
+  // the terrain is only drawn where the road does not fully cover it
+  float roadMix = 1. - smoothstep(HALF+.2, HALF+1.6, edge);
+  vec3 ground = roadMix < 1. ? ndGround(xr, wz, fade) : vec3(0.);
   if(edge < HALF+1.6){
    float grain = noise(vec2(xr*2.4, wz*2.4))*.5 + noise(vec2(xr*9., wz*9.))*.25;
    vec3 road = vec3(.034,.035,.052) + grain*.022;
@@ -2861,10 +2929,10 @@ void main(){
    road += mix(cB, neon, .4)*exp(-abs(edge-HALF)*.38)*.11*smoothstep(HALF,0.,edge)*(1. + mus*.8);
    road += mix(neon, cD, .5)*exp(-abs(edge-HALF)*.9)*.16*(1.-fade)*(.8+kick*react*.9);
    road = ndRoadFx(road, xr, wz, edge, fade);
-   ground = mix(ground, road, smoothstep(HALF+1.6, HALF+.2, edge));
+   ground = mix(ground, road, roadMix);
   }
   ground = mix(ndHaze(rd, t), ground, fade);
-  col = mix(col, ground, smoothstep(-.0015,-.02, rd.y));
+  col = mix(col, ground, groundMix);
  }
  col *= 1. + kick*react*.10;
  float lum = dot(col, vec3(.299,.587,.114));
@@ -3434,6 +3502,7 @@ vec3 ndSky(vec3 rd, float t){
   }
 
   var XP = window.XP = {
+    redraw: glRedraw,
     active: false,
     current: null,
     cleanupCurrent: null,

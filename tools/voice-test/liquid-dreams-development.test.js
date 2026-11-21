@@ -55,7 +55,9 @@ assert(css.includes('.ld-dock{') && css.includes('.ld-ui.ld-idle .ld-dock{opacit
 assert(css.includes('.ld-track:empty{display:none}') && css.includes('backdrop-filter:blur(24px)'), 'dark glass panel and discreet track display');
 assert(app.includes('>DOWNLOAD UPDATE</span>') && app.includes("st === 'progress'"), 'settings exposes the one-press downloader and real progress text');
 assert(java.includes('NEXUS_LATEST_RELEASE_API') && java.includes('NEXUS_LATEST_APK_URL') && java.includes('NEXUS_APK_NAME'), 'native updater resolves the exact stable Releases APK used by the truck');
-assert(java.includes('COLUMN_BYTES_DOWNLOADED_SO_FAR') && java.includes('COLUMN_TOTAL_SIZE_BYTES'), 'native updater reports actual DownloadManager progress');
+assert(java.includes("Nexus._update('progress',") && java.includes('got * 100 / total'), 'native updater reports actual download progress');
+assert(java.includes('getPackageInstaller()') && java.includes('STATUS_PENDING_USER_ACTION') && !java.includes('getUriForDownloadedFile'), 'native updater installs through an Android installer session, not a Downloads URI');
+assert(java.includes('updateFailed(') && app.includes("'Update did not finish: '"), 'a failed update shows the real reason on screen');
 assert(java.includes('getPackageArchiveInfo') && java.includes('downloadedVersion < currentVersion'), 'native updater rejects incomplete or non-upgrading APKs');
 assert(java.includes('spotifyWarm.isConnected()'), 'Spotify warm-up reuses an active media connection instead of disconnecting and reconnecting');
 assert(java.includes('certificateDigests(downloaded).equals(certificateDigests(installed))'), 'native updater checks package signing identity before installer launch');

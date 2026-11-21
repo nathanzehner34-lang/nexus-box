@@ -362,39 +362,51 @@ public class MainActivity extends Activity {
     private static final String NEXUS_LATEST_RELEASE_API = "https://api.github.com/repos/nathanzehner34-lang/nexus-box/releases/tags/latest";
     private static final String NEXUS_LATEST_APK_URL = "https://github.com/nathanzehner34-lang/nexus-box/releases/download/latest/nexus.apk";
     private static final String NEXUS_APK_NAME = "nexus.apk";
-    private long updateId = -1;
-    private int updateExpectedVersion = -1;
+    private static final String UPDATE_STATUS_ACTION = "com.nexus.box.UPDATE_STATUS";
+    private volatile boolean updateBusy = false;
     private BroadcastReceiver updateReceiver;
-    private final Runnable updateProgress = new Runnable() {
-        @Override public void run() {
-            if (updateId < 0) return;
-            boolean active = false;
-            android.database.Cursor cur = null;
+
+    private void updateFailed(String why) {
+        updateBusy = false;
+        js("Nexus._update && Nexus._update('failed'," + JSONObject.quote(why == null ? "" : why) + ")");
+    }
+
+    private long installedVersion() throws Exception {
+        android.content.pm.PackageInfo me = getPackageManager().getPackageInfo(getPackageName(), 0);
+        return Build.VERSION.SDK_INT >= 28 ? me.getLongVersionCode() : me.versionCode;
+    }
+
+    private JSONObject fetchLatestRelease() throws Exception {
+        Exception last = null;
+        // The build deletes and re-creates the release, so a lookup during that moment is retried.
+        for (int attempt = 0; attempt < 3; attempt++) {
+            HttpURLConnection connection = null;
             try {
-                android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                cur = dm.query(new android.app.DownloadManager.Query().setFilterById(updateId));
-                if (cur != null && cur.moveToFirst()) {
-                    int statusCol = cur.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS);
-                    int status = statusCol >= 0 ? cur.getInt(statusCol) : android.app.DownloadManager.STATUS_FAILED;
-                    if (status == android.app.DownloadManager.STATUS_RUNNING || status == android.app.DownloadManager.STATUS_PENDING) {
-                        active = true;
-                        int gotCol = cur.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR);
-                        int totalCol = cur.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES);
-                        long got = gotCol >= 0 ? cur.getLong(gotCol) : 0L;
-                        long total = totalCol >= 0 ? cur.getLong(totalCol) : -1L;
-                        if (total > 0L) js("Nexus._update && Nexus._update('progress'," + Math.min(100, (got * 100L) / total) + ")");
-                    } else if (status == android.app.DownloadManager.STATUS_FAILED) {
-                        updateId = -1;
-                        js("Nexus._update && Nexus._update('failed')");
-                    }
+                connection = (HttpURLConnection) new URL(NEXUS_LATEST_RELEASE_API).openConnection();
+                connection.setConnectTimeout(12000);
+                connection.setReadTimeout(15000);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                connection.setRequestProperty("User-Agent", "Nexus-Box-Android-Updater");
+                int code = connection.getResponseCode();
+                if (code == 403 || code == 429) throw new Exception("GitHub is busy (limit reached). Try again in an hour.");
+                if (code < 200 || code >= 300) throw new Exception("Could not reach the Nexus release (code " + code + ").");
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (InputStream in = connection.getInputStream()) {
+                    byte[] buf = new byte[8192]; int n;
+                    while ((n = in.read(buf)) != -1) bytes.write(buf, 0, n);
                 }
-            } catch (Exception ignored) {
+                return new JSONObject(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
+            } catch (java.io.IOException e) {
+                last = new Exception("No internet connection to GitHub.");
+            } catch (Exception e) {
+                last = e;
             } finally {
-                if (cur != null) cur.close();
+                if (connection != null) connection.disconnect();
             }
-            if (active) ui.postDelayed(this, 500);
+            try { Thread.sleep(4000); } catch (InterruptedException ignored) {}
         }
-    };
+        throw last;
+    }
 
     private void startUpdate() {
         if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
@@ -404,81 +416,71 @@ public class MainActivity extends Activity {
             js("Nexus._update && Nexus._update('allow')");
             return;
         }
+        if (updateBusy) return;
+        updateBusy = true;
         js("Nexus._update && Nexus._update('searching')");
         pool.execute(() -> {
-            HttpURLConnection connection = null;
             try {
-                connection = (HttpURLConnection) new URL(NEXUS_LATEST_RELEASE_API).openConnection();
-                connection.setConnectTimeout(9000);
-                connection.setReadTimeout(12000);
-                connection.setRequestProperty("Accept", "application/vnd.github+json");
-                connection.setRequestProperty("User-Agent", "Nexus-Box-Android-Updater");
-                if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new Exception("Release lookup failed");
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                try (InputStream in = connection.getInputStream()) {
-                    byte[] buf = new byte[8192]; int n;
-                    while ((n = in.read(buf)) != -1) bytes.write(buf, 0, n);
-                }
-                JSONObject release = new JSONObject(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
-                if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true) || !"latest".equals(release.optString("tag_name", ""))) throw new Exception("Stable Nexus release unavailable");
-                String title = release.optString("name", "");
-                java.util.regex.Matcher versionMatch = java.util.regex.Pattern.compile("(?i)build\\s+(\\d+)").matcher(title);
-                if (!versionMatch.find()) throw new Exception("Nexus release version missing");
-                final int selectedVersion = Integer.parseInt(versionMatch.group(1));
+                JSONObject release = fetchLatestRelease();
+                if (release.optBoolean("draft", true) || release.optBoolean("prerelease", true) || !"latest".equals(release.optString("tag_name", ""))) throw new Exception("No finished Nexus release yet. Try again in a few minutes.");
+                java.util.regex.Matcher versionMatch = java.util.regex.Pattern.compile("(?i)build\\s+(\\d+)").matcher(release.optString("name", ""));
+                if (!versionMatch.find()) throw new Exception("The release has no build number.");
+                long releaseVersion = Long.parseLong(versionMatch.group(1));
+                if (releaseVersion <= installedVersion()) { updateBusy = false; js("Nexus._update && Nexus._update('current')"); return; }
                 JSONArray assets = release.optJSONArray("assets");
-                String selectedUrl = null;
+                boolean found = false; long size = -1;
                 if (assets != null) for (int a = 0; a < assets.length(); a++) {
                     JSONObject asset = assets.optJSONObject(a);
-                    if (asset == null || !NEXUS_APK_NAME.equals(asset.optString("name"))) continue;
-                    String url = asset.optString("browser_download_url", "");
-                    if (NEXUS_LATEST_APK_URL.equals(url)) selectedUrl = url;
-                    break;
+                    if (asset != null && NEXUS_APK_NAME.equals(asset.optString("name")) && NEXUS_LATEST_APK_URL.equals(asset.optString("browser_download_url", ""))) { found = true; size = asset.optLong("size", -1); break; }
                 }
-                if (selectedUrl == null) throw new Exception("Stable Nexus APK asset missing");
-                final String verifiedUrl = selectedUrl;
-                ui.post(() -> enqueueNexusUpdate(verifiedUrl, selectedVersion));
+                if (!found) throw new Exception("The release has no nexus.apk file yet. Try again in a few minutes.");
+                File apk = downloadNexusApk(size);
+                verifyNexusApk(apk);
+                ui.post(() -> installNexusApk(apk));
             } catch (Exception e) {
-                js("Nexus._update && Nexus._update('failed')");
-            } finally {
-                if (connection != null) connection.disconnect();
+                updateFailed(e.getMessage());
             }
         });
     }
 
-    private void enqueueNexusUpdate(String url, int version) {
+    // Downloads straight into Nexus's private storage (no Android Download app involved), with live progress.
+    private File downloadNexusApk(long expectedSize) throws Exception {
+        File dir = new File(getFilesDir(), "updates");
+        if (!dir.exists() && !dir.mkdirs()) throw new Exception("No room to save the update.");
+        File part = new File(dir, NEXUS_APK_NAME + ".part");
+        File apk = new File(dir, NEXUS_APK_NAME);
+        if (part.exists()) part.delete();
+        if (apk.exists()) apk.delete();
+        HttpURLConnection c = null;
         try {
-            android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            if (updateId >= 0) dm.remove(updateId);
-            ui.removeCallbacks(updateProgress);
-            File dir = new File(getExternalFilesDir(null), "updates");
-            if (!dir.exists() && !dir.mkdirs()) throw new Exception("Cannot create update directory");
-            File apk = new File(dir, NEXUS_APK_NAME);
-            if (apk.exists() && !apk.delete()) throw new Exception("Cannot clear previous update");
-            android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(android.net.Uri.parse(url));
-            request.setDestinationUri(android.net.Uri.fromFile(apk));
-            request.setTitle("Nexus update");
-            request.setDescription("Build " + version + " · verifying before install");
-            request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setAllowedOverMetered(true);
-            request.setAllowedOverRoaming(false);
-            if (updateReceiver == null) {
-                updateReceiver = new BroadcastReceiver() {
-                    @Override public void onReceive(Context context, Intent intent) {
-                        long id = intent.getLongExtra(android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                        if (id == updateId) installDownloadedNexusUpdate(id);
-                    }
-                };
-                IntentFilter filter = new IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE);
-                if (Build.VERSION.SDK_INT >= 33) registerReceiver(updateReceiver, filter, Context.RECEIVER_EXPORTED);
-                else registerReceiver(updateReceiver, filter);
-            }
-            updateExpectedVersion = version;
-            updateId = dm.enqueue(request);
+            c = (HttpURLConnection) new URL(NEXUS_LATEST_APK_URL).openConnection();
+            c.setInstanceFollowRedirects(true);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
+            c.setRequestProperty("User-Agent", "Nexus-Box-Android-Updater");
+            int code = c.getResponseCode();
+            if (code < 200 || code >= 300) throw new Exception("Download refused by GitHub (code " + code + ").");
+            long total = c.getContentLength() > 0 ? c.getContentLength() : expectedSize;
             js("Nexus._update && Nexus._update('downloading')");
-            ui.post(updateProgress);
-        } catch (Exception e) {
-            updateId = -1;
-            js("Nexus._update && Nexus._update('failed')");
+            long got = 0; int lastPct = -1;
+            try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(part)) {
+                byte[] buf = new byte[32768]; int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n); got += n;
+                    if (total > 0) {
+                        int pct = (int) Math.min(100, got * 100 / total);
+                        if (pct != lastPct) { lastPct = pct; js("Nexus._update && Nexus._update('progress'," + pct + ")"); }
+                    }
+                }
+                out.getFD().sync();
+            }
+            if (expectedSize > 0 && got != expectedSize) throw new Exception("The download was cut off. Try again.");
+            if (!part.renameTo(apk)) throw new Exception("Could not save the update.");
+            return apk;
+        } catch (java.io.IOException e) {
+            throw new Exception("The internet dropped during the download. Try again.");
+        } finally {
+            if (c != null) c.disconnect();
         }
     }
 
@@ -486,7 +488,7 @@ public class MainActivity extends Activity {
         android.content.pm.Signature[] signatures;
         if (Build.VERSION.SDK_INT >= 28 && info.signingInfo != null) signatures = info.signingInfo.getApkContentsSigners();
         else signatures = info.signatures;
-        if (signatures == null || signatures.length == 0) throw new Exception("APK has no signing certificate");
+        if (signatures == null || signatures.length == 0) throw new Exception("The update has no signature.");
         java.util.List<String> result = new ArrayList<>();
         java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
         for (android.content.pm.Signature signature : signatures) {
@@ -499,42 +501,66 @@ public class MainActivity extends Activity {
         return result;
     }
 
-    private void installDownloadedNexusUpdate(long id) {
-        android.database.Cursor cur = null;
+    private void verifyNexusApk(File apk) throws Exception {
+        if (!apk.isFile() || apk.length() < 256 * 1024) throw new Exception("The download is incomplete. Try again.");
+        int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+        android.content.pm.PackageInfo downloaded = getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
+        android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), flags);
+        if (downloaded == null) throw new Exception("The downloaded file is damaged. Try again.");
+        if (!getPackageName().equals(downloaded.packageName)) throw new Exception("The download is not Nexus.");
+        long downloadedVersion = Build.VERSION.SDK_INT >= 28 ? downloaded.getLongVersionCode() : downloaded.versionCode;
+        long currentVersion = Build.VERSION.SDK_INT >= 28 ? installed.getLongVersionCode() : installed.versionCode;
+        if (downloadedVersion < currentVersion) throw new Exception("The download is older than this Nexus.");
+        if (!certificateDigests(downloaded).equals(certificateDigests(installed))) throw new Exception("This box has a Nexus with a different signature. Install nexus.apk once from the GitHub page in the browser.");
+    }
+
+    // Installs through Android's own package installer session: Android shows its INSTALL/UPDATE screen.
+    private void installNexusApk(File apk) {
         try {
-            android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            cur = dm.query(new android.app.DownloadManager.Query().setFilterById(id));
-            if (cur == null || !cur.moveToFirst()) throw new Exception("Download record missing");
-            int statusCol = cur.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS);
-            if (statusCol < 0 || cur.getInt(statusCol) != android.app.DownloadManager.STATUS_SUCCESSFUL) throw new Exception("Download incomplete");
-            File apk = new File(new File(getExternalFilesDir(null), "updates"), NEXUS_APK_NAME);
-            // A complete Nexus APK is well over 256 KB; the version and signature checks below verify the rest.
-            if (!apk.isFile() || apk.length() < 256 * 1024) throw new Exception("APK is incomplete");
-            int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
-            android.content.pm.PackageInfo downloaded = getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
-            android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), flags);
-            if (downloaded == null || !getPackageName().equals(downloaded.packageName)) throw new Exception("Wrong application package");
-            long downloadedVersion = Build.VERSION.SDK_INT >= 28 ? downloaded.getLongVersionCode() : downloaded.versionCode;
-            long currentVersion = Build.VERSION.SDK_INT >= 28 ? installed.getLongVersionCode() : installed.versionCode;
-            if (downloadedVersion != updateExpectedVersion || downloadedVersion < currentVersion) throw new Exception("APK version is older than this installation");
-            if (!certificateDigests(downloaded).equals(certificateDigests(installed))) throw new Exception("APK signing identity does not match this installation");
-            if (downloadedVersion == currentVersion) {
-                js("Nexus._update && Nexus._update('current')");
-                return;
+            if (updateReceiver == null) {
+                updateReceiver = new BroadcastReceiver() {
+                    @Override public void onReceive(Context context, Intent intent) {
+                        int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, android.content.pm.PackageInstaller.STATUS_FAILURE);
+                        if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+                            if (confirm != null) {
+                                confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                try { startActivity(confirm); js("Nexus._update && Nexus._update('ready')"); }
+                                catch (Exception e) { updateFailed("Android could not open the install screen."); }
+                            }
+                        } else if (status == android.content.pm.PackageInstaller.STATUS_SUCCESS) {
+                            updateBusy = false;
+                        } else if (status == android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED) {
+                            updateFailed("The install was cancelled. Tap DOWNLOAD UPDATE to try again.");
+                        } else {
+                            String msg = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE);
+                            updateFailed("Android refused the install" + (msg != null && !msg.isEmpty() ? ": " + msg : "."));
+                        }
+                    }
+                };
+                IntentFilter filter = new IntentFilter(UPDATE_STATUS_ACTION);
+                if (Build.VERSION.SDK_INT >= 33) registerReceiver(updateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                else registerReceiver(updateReceiver, filter);
             }
-            android.net.Uri uri = dm.getUriForDownloadedFile(id);
-            if (uri == null) throw new Exception("Verified APK URI unavailable");
-            Intent install = new Intent(Intent.ACTION_VIEW);
-            install.setDataAndType(uri, "application/vnd.android.package-archive");
-            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(install);
-            js("Nexus._update && Nexus._update('ready')");
+            android.content.pm.PackageInstaller installer = getPackageManager().getPackageInstaller();
+            android.content.pm.PackageInstaller.SessionParams params = new android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            params.setAppPackageName(getPackageName());
+            params.setSize(apk.length());
+            int sessionId = installer.createSession(params);
+            android.content.pm.PackageInstaller.Session session = installer.openSession(sessionId);
+            try (InputStream in = new java.io.FileInputStream(apk); java.io.OutputStream out = session.openWrite(NEXUS_APK_NAME, 0, apk.length())) {
+                byte[] buf = new byte[65536]; int n;
+                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                session.fsync(out);
+            }
+            Intent status = new Intent(UPDATE_STATUS_ACTION).setPackage(getPackageName());
+            int piFlags = android.app.PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? android.app.PendingIntent.FLAG_MUTABLE : 0);
+            android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(this, sessionId, status, piFlags);
+            session.commit(pi.getIntentSender());
+            session.close();
+            js("Nexus._update && Nexus._update('installing')");
         } catch (Exception e) {
-            js("Nexus._update && Nexus._update('failed')");
-        } finally {
-            if (cur != null) cur.close();
-            ui.removeCallbacks(updateProgress);
-            updateId = -1;
+            updateFailed("Android could not start the install.");
         }
     }
 
@@ -781,7 +807,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         hideExitBubble();
-        ui.removeCallbacks(updateProgress);
         try { if (updateReceiver != null) unregisterReceiver(updateReceiver); } catch (Exception ignored) {}
         if (tts != null) tts.shutdown();
         stopMeter();
