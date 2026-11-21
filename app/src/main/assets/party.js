@@ -43,7 +43,7 @@
   var buildUp = 0, beatPhase = 1, beatPeriod = .5, beatConfidence = 0, lastBeatAt = 0, lastQuietAt = 0;
   var burstPower = 0, burstAge = 9, burstEnv = 0, lastBurstAt = 0, lastDropAt = 0, burstCount = 0, fieldRecoil = 0;
   var flowRgb = [], musicHue = 0, colorDrive = 0;
-  // ---- Ink Machine: its own shader program, gesture state and music events ----
+  // ---- Ink Machine: a tunnel of living neon membranes; its own shader program, gesture state and music events ----
   // Kept apart from the Orb/Energy Flow program so neither of those changes in any way.
   var INK_UNIFORMS = ['res', 'T', 'bass', 'mid', 'high', 'energy', 'beat', 'blast', 'blastAge', 'build', 'quality', 'prism', 'swirl', 'fadeIn',
     'k1', 'k2', 'k3', 'k4', 'k5', 'bursts', 'drags', 'twist', 'splash', 'splashAge', 'inj'];
@@ -321,6 +321,9 @@ precision highp float;
 #else
 precision mediump float;
 #endif
+// INK MACHINE: a journey through a tunnel of living neon membranes. Six translucent flower-like
+// structures, each with its own symmetry, spin and ribbed skin, fly out of a glowing core toward
+// the viewer and pass by; sparks stream past; beats send rings of light down the tunnel.
 uniform vec2 res;
 uniform float T, bass, mid, high, energy, beat, blast, blastAge, build, quality, prism, swirl, fadeIn;
 uniform vec3 k1, k2, k3, k4, k5;
@@ -332,10 +335,8 @@ uniform float splashAge;
 uniform vec4 inj[2];      // x, y, amount, palette position
 float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.,1.)),f.x),f.y);}
-float fbm(vec2 p,float oct){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<5;i++){if(float(i)>=oct)break;v+=a*noise(p);p=m*p+vec2(3.1,1.7);a*=.5;}return v;}
 mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
-// Four palette colours blended into marbled bands (the fifth is the highlight tint);
-// Prismatic adds iridescent film colour on top.
+// Four palette colours blended in bands (the fifth is the highlight tint); Prismatic adds film colour.
 vec3 inkPal(float x){
  x=fract(x)*4.;
  float i=floor(x), f=smoothstep(.2,.8,fract(x));
@@ -345,166 +346,116 @@ vec3 inkPal(float x){
  if(prism>.5){vec3 r=.5+.5*cos(6.28318*(x*.25+vec3(0.,.33,.67)));c=mix(c,r*r*1.3+.04,.7);}
  return c;
 }
-// A glossy droplet: returns shaded colour in rgb and coverage in a.
-vec4 drop(vec2 p,vec2 c,float r,vec3 col){
- vec2 d=(p-c)/max(r,1e-4);float l2=dot(d,d);
- if(l2>1.)return vec4(0.);
- vec3 n=vec3(d,sqrt(1.-l2));
- float dif=max(dot(n,normalize(vec3(-.45,.55,.7))),0.);
- float sp=pow(max(n.z*.6+dot(n.xy,vec2(-.45,.55))*.55,0.),24.);
- return vec4(col*(.25+.85*dif)+vec3(1.)*sp*1.2+col*pow(1.-n.z,2.)*.4,1.-smoothstep(.75,1.,l2));
-}
 void main(){
  vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;
- float t=T, OCT=4.+quality;
+ float t=T;
  vec2 p=uv;
- // ---------- touch: each gesture moves where the liquid is sampled from ----------
- float hueKick=0., dragF=0.;
+ // ---------- touch: each gesture bends the view of the tunnel ----------
+ float hueKick=0., touchGlow=0.;
  for(int i=0;i<3;i++){vec4 b=bursts[i];if(b.w<=0.)continue;
   vec2 d=p-b.xy;float r=length(d)+1e-4;
-  float env=b.w*exp(-b.z*1.9)*(1.-exp(-b.z*14.));
-  // an irregular splash front rather than a round dent
-  float lobe=.45+.9*noise(d/r*2.3+b.xy*7.+b.w*3.);
-  p-=d/r*env*.075*lobe*exp(-r*r*16.);
-  hueKick+=env*exp(-r*r*20.)*1.4;
+  float env=b.w*exp(-b.z*1.6);
+  // a ring wave spreads from the finger, bending everything it passes through
+  float front=b.z*.75, wave=exp(-pow((r-front)*34.,2.));
+  p+=d/r*wave*env*.035;
+  touchGlow+=wave*env;
+  hueKick+=env*exp(-r*r*12.);
  }
- if(twist.z>.001){vec2 d=p-twist.xy;
-  // the vortex reaches further as the hold goes on; its edge is ragged so it never reads as a disc
-  float rad2=(.018+.05*twist.z)*(.7+.6*noise(d*6.+twist.w*.3));
-  float f=exp(-dot(d,d)/rad2);
-  p=twist.xy+rot(twist.w*f)*d*(1.-.18*twist.z*f);
-  hueKick+=twist.z*f*.25;}
+ if(twist.z>.001){vec2 d=p-twist.xy;float f=exp(-dot(d,d)/(.02+.06*twist.z));p=twist.xy+rot(twist.w*f)*d;hueKick+=twist.z*f*.3;}
  for(int i=0;i<4;i++){vec4 g=drags[i];float sp=length(g.zw);if(sp<.001)continue;
-  vec2 d=p-g.xy;
-  // stretch along the stroke: an elongated falloff so the pull reads as a tendril, not a dent
-  vec2 dir=g.zw/sp;float a=dot(d,dir),q=dot(d,vec2(-dir.y,dir.x));
-  float f=exp(-(a*a*10.+q*q*55.));
-  p-=g.zw*f*.10;
-  dragF+=min(sp,2.)*f*.55;
+  vec2 d=p-g.xy;vec2 dir=g.zw/sp;float a=dot(d,dir),q=dot(d,vec2(-dir.y,dir.x));
+  float f=exp(-(a*a*8.+q*q*40.));
+  p-=g.zw*f*.09;touchGlow+=min(sp,2.)*f*.08;
  }
- float sEnv=0.;
- if(splashAge<4.){vec2 sd=splash.zw;float sp=length(sd);
-  if(sp>.001){vec2 d=p-splash.xy;sEnv=exp(-splashAge*1.5)*(1.-exp(-splashAge*18.));
-   p-=sd*exp(-dot(d,d)*7.)*sEnv*.17;dragF+=sEnv*exp(-dot(d-sd*.12,d-sd*.12)*14.)*.5;}}
- // ---------- music: the mass breathes with the bass and twists with the mids ----------
- vec2 c0=vec2(.035*sin(t*.071),-.015+.025*cos(t*.053));
- vec2 q=p-c0;
- float r0=length(q);
- q=rot(swirl*exp(-r0*2.4))*q;
- float expand=1.+bass*.14+beat*.06+energy*.05+blast*.22;
- q/=expand;
- vec3 bg=vec3(.002,.002,.006)+mix(k2,k1,.5)*.03*exp(-length(uv-c0)*2.4)*(.6+energy*.8);
- vec3 col=bg;
- float rq=length(q);
- if(rq<.95||dragF>.02){
-  vec2 s=q*1.8;float tt=t*.055;
-  vec2 w1=vec2(fbm(s+vec2(tt,0.),2.),fbm(s+vec2(5.2,-tt*.8),2.));
-  vec2 w2=vec2(fbm(s*1.3+w1*2.1+vec2(1.7,9.2)+tt*.7,3.),fbm(s*1.3+w1*2.1+vec2(8.3,2.8)-tt*.5,3.));
-  float pressure=.85+bass*.55+blast*.45;
-  vec2 qw=q+(w2-.44)*.30*pressure*(1.+mid*.4);       // the mids fold it harder
-  vec2 ns=s*1.1+w2*2.6;
-  // three octaves carry the shape (and its slope, below); the fine fourth only adds surface grain
-  float n=fbm(ns,3.)+(noise(ns*4.4+vec2(9.1,2.3))-.5)*.06*quality;
-  // tendrils: the outline is pushed out along directions where a slow noise field runs high
-  vec2 qa=qw*vec2(.74,1.08);                      // a wide formation, like ink spreading sideways
-  float rr=length(qa)+1e-4;
-  float arms=fbm(qa/rr*1.7+vec2(tt*1.3,3.1)+w1*.8,2.);
-  float reach=.34*(.72+1.05*pow(arms,1.4)*(1.+blast*.55+build*.3));
-  float F=(reach-rr)/reach*1.12+(n-.46)*1.2+dragF;
-  if(F>-.42){                                     // nothing but black beyond the veils
-  // treble: fine surface ripples
-  float rip=high*(.5+.5*sin(n*70.+t*7.))*.06;
-  float e=.012;
-  float nx=fbm(ns+vec2(e,0.),3.), ny=fbm(ns+vec2(0.,e),3.);
-  vec2 g=vec2(nx-n,ny-n)/e*1.6-qa/rr/reach*.5;
-  g+=high*vec2(cos(n*70.+t*7.),sin(n*63.-t*6.))*1.15;
-  float m=fbm(s*2.4+w2*3.4+vec2(n*2.4),2.+quality);
-  // stacked, folded sheets: each sheet carries its own colour, lit along its upper lip and
-  // shadowed where it curls under the next one
-  float layer=n*5.+m*1.6+w1.x*.7;
-  float sheet=floor(layer), sf=fract(layer);
-  float idx=layer*.16+m*.9+w1.y*.7+hueKick*.55+t*.006;
-  vec3 base=inkPal(idx);
-  float lip=exp(-sf*16.);
-  float under=smoothstep(.62,1.,sf);
-  // colour injected by a finger: a second palette tone spreading in marbled veins
-  for(int i=0;i<2;i++){vec4 j=inj[i];if(j.z<=.001)continue;
-   vec2 d=uv-j.xy;float rad=.05+j.z*.16;
-   float w=exp(-dot(d,d)/(rad*rad))*(.55+.9*m)*min(1.,j.z*1.6);
-   float veins=smoothstep(.35,.75,fract(m*4.+n*3.));
-   // the injected tone sits across the palette from what is already there, so it always shows
-   vec3 ic=inkPal(idx+j.w+veins*.1+m*.15)*1.25+mix(k5,vec3(1.),.5)*veins*.12;
-   base=mix(base,ic,clamp(w,0.,1.));
-  }
-  g+=vec2(cos(layer*6.28318),sin(layer*6.28318))*(lip*1.4-under*.9);
-  vec3 N=normalize(vec3(-g*.55,1.));
-  vec3 L=normalize(vec3(-.45,.55,.7));
-  float dif=max(dot(N,L),0.);
-  vec3 R=reflect(-L,N);
-  float spec=pow(max(R.z,0.),38.);
-  float spec2=pow(max(R.z,0.),7.);
-  float fres=pow(1.-N.z,2.2);
-  float ao=mix(.5,1.,smoothstep(.18,.78,n))*(1.-under*.38);
-  float body=smoothstep(.0,.55,F);
-  vec3 liquid=base*(.10+.95*dif)*ao
-   +base*.22*body                                   // light carried through the thick middle
-   +mix(vec3(1.),k5,.35)*spec*(.9+high*.7+rip*4.)
-   +mix(base,vec3(1.),.35)*spec2*.22
-   +mix(base,vec3(1.),.25)*fres*.45
-   +mix(base,vec3(1.),.45)*lip*(.55+high*.4);
-  liquid*=1.+beat*.18+blast*.35;
-  float solid=smoothstep(0.,.07,F);
-  // translucent veils and fine filaments at the edges, like ink spreading through water
-  float veil=smoothstep(-.42,0.,F)*(1.-solid);
-  float fil=pow(1.-abs(sin((n*7.+m*5.+w1.y*3.)*3.14159)),10.);
-  float wisp=smoothstep(.3,.75,m*.7+n*.6);
-  vec3 veilCol=base*(.35+.9*fil)+mix(base,vec3(1.),.4)*fil*.35;
-  col=mix(col,veilCol,veil*veil*(.22+.55*fil)*wisp);
-  col=mix(col,liquid,solid);
-  }
+ if(splashAge<3.&&length(splash.zw)>.001){vec2 d=p-splash.xy;float env=exp(-splashAge*1.4)*(1.-exp(-splashAge*16.));
+  p-=splash.zw*exp(-dot(d,d)*4.)*env*.15;touchGlow+=env*exp(-dot(d,d)*30.)*.4;}
+ // ---------- the camera sways gently; the mids add a slow roll ----------
+ p-=vec2(.035*sin(t*.11),.022*cos(t*.083));
+ p=rot(.06*sin(t*.07)+swirl*.12)*p;
+ float r0=length(p);
+ // ---------- deep background: space, a far nebula and the glowing core of the tunnel ----------
+ vec3 col=mix(vec3(.004,.002,.014),vec3(.018,.008,.045),exp(-r0*1.4));
+ vec2 nd=p/(r0+1e-4);
+ float neb=noise(nd*1.7+vec2(t*.02,0.)+r0*1.5)*.6+(quality>.5?noise(nd*3.4-vec2(0.,t*.03)+r0*3.)*.4:.2);
+ col+=mix(k3,k1,neb)*smoothstep(.45,.9,neb)*.10*smoothstep(.15,.9,r0)*(.7+energy*.6);
+float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
+ col+=mix(k5,vec3(1.),.4)*core*(.8+energy*.5);
+ // rings of light racing down the tunnel on the beat and on drops
+ float ringR=fract(t*.35)*1.6;
+ col+=mix(k1,k2,.5)*exp(-pow((r0-ringR)*10.,2.))*beat*.35;
+ if(blastAge<2.5)col+=mix(k2,vec3(1.),.4)*(exp(-pow((r0-blastAge*1.1)*18.,2.))*1.1+exp(-pow((r0-blastAge*1.1)*6.,2.))*.035)*blast;
+ // colour injections: weigh them once here rather than once per membrane
+ float iw0=inj[0].z>.001?exp(-dot(uv-inj[0].xy,uv-inj[0].xy)/(.02+inj[0].z*.08))*min(1.,inj[0].z*1.5):0.;
+ float iw1=inj[1].z>.001?exp(-dot(uv-inj[1].xy,uv-inj[1].xy)/(.02+inj[1].z*.08))*min(1.,inj[1].z*1.5):0.;
+ float iPos=iw0>=iw1?inj[0].w:inj[1].w, iW=max(iw0,iw1);
+ bool treble=high>.03;
+ // ---------- the membranes, far to near ----------
+ float travel=t*(.085+build*.03);
+ float NL=quality>.5?6.:5.;                       // the 2 GB box flies five membranes, larger boxes six
+ for(int i=0;i<6;i++){float fi=float(i);
+  if(fi>=NL)break;
+  float z=1.-fract(travel+fi/NL);                 // 1 = far, 0 = passing the viewer
+  float dist=.12+z*2.7;
+  float vis=(1.-smoothstep(.78,1.,z))*smoothstep(.10,.34,z);   // fade in far away, out before it fills the view
+  if(vis<.04)continue;
+  float id=floor(travel+fi/NL)*NL+fi;            // each new membrane gets its own design
+  float hid=hash1(vec2(id,1.7)), hid2=hash1(vec2(id,8.3));
+  vec2 lp=p*dist/.46;
+  lp=rot(hid*6.28+t*(.06+hid2*.08)*(hid>.5?1.:-1.)+swirl*.5*(1.-z))*lp;
+  // each membrane tilts as it turns, so it reads as a shape in space rather than a flat sticker
+  float tilt=.72+.28*cos(t*(.15+hid2*.1)+hid*6.28);
+  lp.y/=tilt;
+  float r=length(lp)+1e-4, a=atan(lp.y,lp.x);
+  float k=floor(4.+hid*5.);                      // 4 to 8 petals
+  float breath=1.+bass*.28+beat*.10+blast*.45;
+  float petal=.60+.20*sin(k*a+t*.35+hid*6.)+.07*sin(2.*k*a-t*.6)+.05*noise(lp/r*2.5+vec2(t*.1,id));
+  petal*=breath;
+  float edge=r-petal;
+  float inside=1.-smoothstep(-.015,.02,edge);
+  // ribbed, flowing skin: contour lines of a field that the mids twist and the music ripples
+  float flow=r*(2.6+hid2*1.6)+.30*sin(k*a+r*5.-t*.7+mid*2.5)+.12*sin(3.*k*a-t*.4)-t*.25;
+  float rib=pow(1.-abs(fract(flow)-.5)*2.,5.+(1.-quality)*2.);
+  float veins=pow(max(0.,sin(k*a*.5+hid*9.+sin(r*6.-t*.5)*.6)),18.)*smoothstep(.15,.5,r);
+  float rim=exp(-abs(edge)*(26.+z*20.))+exp(-abs(edge)*(6.+(1.-z)*10.))*.24*z;
+  // colour: each membrane takes its own place on the palette and shifts as it travels
+  // inner skin and rim sit on different parts of the palette, so every membrane is two-toned
+  vec3 cIn=inkPal(hid*.97+z*.22+t*.012);
+  vec3 cRim=inkPal(hid*.97+.5+t*.012);
+  cIn=mix(cIn,cRim,clamp(hueKick*.5,0.,.7));
+  if(iW>.002){cIn=mix(cIn,inkPal(hid*.9+iPos+.5),iW);cRim=mix(cRim,inkPal(iPos+.75),iW);}
+  vec3 cRib=mix(cIn,cRim,.55);
+  float sparkle=treble?high*pow(noise(lp*14.+t*3.),6.)*6.:0.;
+  vec3 lc=cIn*inside*(.08+veins*.55)+cRib*inside*rib*.55*(.6+mid*.7)
+         +mix(cRim,vec3(1.),.12+high*.2)*rim*(.85+high*.5+sparkle)
+         +cIn*exp(-r*4.)*inside*.22;
+  float depth=mix(1.15,.35,z);                   // near membranes are brighter, far ones sink into haze
+  lc*=.72+.38*max(0.,cos(a-2.2+hid))+(1.-tilt)*.3*sin(a);   // lit from one side, darker on the far side
+  // translucent: what lies behind shows through the skin, dimmed a little
+  col=col*(1.-inside*vis*.32)+lc*vis*depth*(1.+energy*.35+beat*.2);
  }
- // ---------- droplets ----------
- // music explosions throw a ring of droplets that fly out, slow and fade
- if(blastAge<3.){
-  float ang=atan(q.y,q.x);float cells=26.;
-  float ci=floor((ang/6.28318+.5)*cells);float h=hash1(vec2(ci,7.)),h2=hash1(vec2(ci,3.3));
-  float a=(ci+.25+h*.5)/cells*6.28318-3.14159;
-  float dist=(.3+.08*h2)*expand+(1.-exp(-blastAge*2.4))*(.22+.45*h);
-  vec2 dp=c0+vec2(cos(a),sin(a))*dist;
-  float sz=(.006+.012*h2)*(1.-smoothstep(1.4,3.,blastAge));
-  vec4 D=drop(uv,dp,sz*step(.35,h2),inkPal(h*3.+t*.01));
-  col=mix(col,D.rgb,D.a*step(.04,blast+.04*step(blastAge,2.5)));
+ // ---------- sparks streaming outward past the viewer; the treble makes them glitter ----------
+ float pa=atan(p.y,p.x)/6.28318+.5;
+ for(int s=0;s<2;s++){float fs=float(s);
+  float cells=34.+fs*22.;
+  float a=pa;
+  float ci=floor(a*cells);
+  float h=hash1(vec2(ci,fs*7.+3.)), h2=hash1(vec2(ci,fs*7.+9.));
+  float ph=fract(t*(.18+h*.22)*(1.+bass*.8+blast*1.5)+h2);
+  float rr=ph*ph*1.5;
+  float ca=(ci+.5)/cells*6.28318-3.14159;
+  vec2 sp=vec2(cos(ca),sin(ca))*rr;
+  vec2 d=p-sp;vec2 dir=vec2(cos(ca),sin(ca));
+  float along=dot(d,dir), side=dot(d,vec2(-dir.y,dir.x));
+  float len=.03+ph*.13*(1.+bass*.8);
+  float sk=exp(-side*side*60000.)*smoothstep(-len,0.,along)*(1.-smoothstep(0.,.004,along))*(1.-step(.5,abs(fract(a*cells)-.5)*2.));
+  col+=mix(inkPal(h*2.),vec3(1.),.4)*sk*step(.45,h2)*smoothstep(.0,.2,ph)*(.6+high*1.2+energy*.4);
  }
- for(int i=0;i<3;i++){vec4 b=bursts[i];if(b.w<=0.||b.z>2.5)continue;
-  vec2 d=uv-b.xy;float ang=atan(d.y,d.x);float cells=11.;
-  float ci=floor((ang/6.28318+.5)*cells);float h=hash1(vec2(ci,float(i)*7.+floor(b.w*13.)));
-  float a=(ci+.3+h*.4)/cells*6.28318-3.14159;
-  float dist=(1.-exp(-b.z*3.))*(.07+.15*h)*b.w;
-  vec4 D=drop(uv,b.xy+vec2(cos(a),sin(a))*dist,(.005+.007*h)*(1.-smoothstep(1.2,2.5,b.z)),inkPal(h*2.+hueKick));
-  col=mix(col,D.rgb,D.a);
- }
- if(splashAge<3.&&length(splash.zw)>.001){
-  vec2 sd=normalize(splash.zw);float pw=min(length(splash.zw),2.5);
-  vec2 d=uv-splash.xy;float along=dot(d,sd),side=dot(d,vec2(-sd.y,sd.x));
-  float ang=atan(side,max(along,1e-3));float cells=9.;
-  float ci=floor((ang/1.6+.5)*cells);float h=hash1(vec2(ci,9.1)),h2=hash1(vec2(ci,2.7));
-  float a=((ci+.5)/cells-.5)*1.6;
-  float dist=(1.-exp(-splashAge*2.2))*(.12+.28*h)*pw;
-  vec2 dp=splash.xy+(sd*cos(a)+vec2(-sd.y,sd.x)*sin(a))*dist;
-  vec4 D=drop(uv,dp,(.006+.010*h2)*(1.-smoothstep(1.5,3.,splashAge)),inkPal(h*2.5+.3));
-  col=mix(col,D.rgb,D.a*step(.2,h2));
- }
- // a few droplets always suspended in the dark, drifting; the treble makes them glint
- {vec2 g=uv*vec2(4.,3.2)+vec2(t*.012,-t*.008);vec2 id=floor(g);float h=hash1(id+.7),h2=hash1(id+3.9);
-  vec2 dp=(id+.5+(vec2(h,h2)-.5)*.6)/vec2(4.,3.2)-vec2(t*.012,-t*.008)/vec2(4.,3.2);
-  float far=smoothstep(.35,.6,length(dp-c0));
-  vec4 D=drop(uv,dp,(.003+.005*h)*far*step(.55,h2),inkPal(h*4.));
-  col=mix(col,D.rgb*(1.+high*.8),D.a*.9);}
+ col+=inkPal(hueKick*.4+t*.02)*touchGlow*.35;
  col*=fadeIn;
- float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.18),0.);
+ float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.15),0.);
  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
  col=pow(clamp(col,0.,1.),vec3(.92));
- col*=.78+.22*(1.-smoothstep(.3,1.35,length(uv*vec2(.85,1.))));
+ col*=.8+.2*(1.-smoothstep(.4,1.4,length(uv*vec2(.85,1.))));
  col+=(hash1(gl_FragCoord.xy+fract(t*11.))-.5)/255.*2.;
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }
@@ -750,7 +701,9 @@ void main(){
   function inkStep(s, now, eNorm, mN) {
     if (experience !== 'ink' && inkMix <= 0) { setGlOpacity(1); return; }
     var was = inkMix;
-    inkMix = inkTarget > inkMix ? Math.min(1, inkMix + s / 1.1) : Math.max(0, inkMix - s / 1.1);
+    // ease toward the target and stop there (no overshoot, so a settled scene never flickers)
+    if (inkTarget > inkMix) inkMix = Math.min(inkTarget, inkMix + s / 1.1);
+    else if (inkTarget < inkMix) inkMix = Math.max(inkTarget, inkMix - s / 1.1);
     if (was < .5 && inkMix >= .5) inkFrames = 0;
     setGlOpacity(inkMix < .5 ? 1 - inkMix * 2 : 1);
     // quiet music drifts; building and loud music speed the liquid up

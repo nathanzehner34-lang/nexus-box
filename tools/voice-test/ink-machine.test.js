@@ -119,7 +119,11 @@ try{
    if(rr<.22){centre+=L;cN++;} if(Math.abs(dx)>.72||Math.abs(dy)>.44){edge+=L;eN++;}
    const mx=Math.max(px[i],px[i+1],px[i+2]),mn=Math.min(px[i],px[i+1],px[i+2]);if(L>40){sat+=mx?(mx-mn)/mx:0;satN++;r+=px[i];g+=px[i+1];bl+=px[i+2];}}
   for(let i=0;i<px.length;i+=97)bytes.push(px[i]);
-  const n=W*H;return {lum:lum/n,lit:lit/n,centre:centre/cN,edge:edge/eN,sat:sat/Math.max(1,satN),spec:spec/n,rgb:[r,g,bl].map(v=>v/Math.max(1,satN)),bytes};}
+  // detail: share of pixels with a sharp step to the next pixel (crisp edges and fine structure)
+  let det=0;for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const i=(y*W+x)*4,j=i+4,k=i+W*4;
+   const a=.299*px[i]+.587*px[i+1]+.114*px[i+2],b=.299*px[j]+.587*px[j+1]+.114*px[j+2],c=.299*px[k]+.587*px[k+1]+.114*px[k+2];
+   if(Math.abs(a-b)>14||Math.abs(a-c)>14)det++;}
+  const n=W*H;return {detail:det/n,lum:lum/n,lit:lit/n,centre:centre/cN,edge:edge/eN,sat:sat/Math.max(1,satN),spec:spec/n,rgb:[r,g,bl].map(v=>v/Math.max(1,satN)),bytes};}
  const diff=(a,b)=>a.bytes.reduce((s,v,i)=>s+Math.abs(v-b.bytes[i]),0)/a.bytes.length;
  const R={};
  R.hero=render({});
@@ -149,23 +153,24 @@ try{
 </script>`;
 const S = runPage('ink-shader', shaderPage, 90000);
 const D = S.d; if (process.env.INK_DEBUG) console.log(JSON.stringify(S));
-assert(S.hero.centre > S.hero.edge * 6 && S.hero.edge < 10, 'one liquid formation in the centre with deep black around it (' + S.hero.centre.toFixed(1) + ' vs edge ' + S.hero.edge.toFixed(1) + ')');
-assert(S.hero.lit > .12 && S.hero.lit < .65, 'the liquid fills the central portion, not the whole screen (' + (S.hero.lit * 100).toFixed(0) + '% lit)');
+assert(S.hero.centre > S.hero.edge * 6 && S.hero.edge < 12, 'a glowing tunnel core with deep space around it (' + S.hero.centre.toFixed(1) + ' vs edge ' + S.hero.edge.toFixed(1) + ')');
+assert(S.hero.lit > .12 && S.hero.lit < .65, 'the membranes fill the centre, not the whole screen (' + (S.hero.lit * 100).toFixed(0) + '% lit)');
+assert(S.hero.detail > .06, 'distinct structures with crisp glowing edges, not a soft blob (' + (S.hero.detail * 100).toFixed(1) + '% sharp-edge pixels)');
 assert(S.hero.sat > .45, 'rich, saturated colour (' + S.hero.sat.toFixed(2) + ')');
-assert(S.hero.spec > .0005, 'glossy highlights catch the light (' + (S.hero.spec * 100).toFixed(2) + '% of pixels)');
+assert(S.hero.spec > .0005, 'bright glowing rims catch the eye (' + (S.hero.spec * 100).toFixed(2) + '% of pixels)');
 assert(D.motion > 2 && D.far > 6, 'the liquid keeps moving and evolving (' + D.motion.toFixed(1) + ', ' + D.far.toFixed(1) + ')');
 assert(D.music > 6 && S.loud.lit > S.quiet.lit, 'loud music makes a bigger, livelier formation than quiet music (' + D.music.toFixed(1) + ')');
-assert(S.bassOnly.lit > S.hero.lit && D.bass > 2, 'bass expands the liquid (' + (S.hero.lit * 100).toFixed(1) + '% -> ' + (S.bassOnly.lit * 100).toFixed(1) + '%)');
+assert(S.bassOnly.lit > S.hero.lit && D.bass > 2, 'bass swells the membranes (' + (S.hero.lit * 100).toFixed(1) + '% -> ' + (S.bassOnly.lit * 100).toFixed(1) + '%)');
 assert(D.mid > 3, 'the mids twist and fold it (' + D.mid.toFixed(1) + ')');
 assert(D.high > 1 && S.highOnly.spec > S.hero.spec * 1.5, 'the treble adds ripples and glints (' + (S.hero.spec * 100).toFixed(2) + '% -> ' + (S.highOnly.spec * 100).toFixed(2) + '% highlights)');
-assert(S.blastPeak.lit > S.hero.lit * 1.3 && D.blast > 8, 'a drop explodes the liquid outward (' + (S.blastPeak.lit * 100).toFixed(0) + '% lit)');
-assert(S.blastLate.lit < S.blastPeak.lit && D.settle < D.blast, 'after the explosion the liquid pulls back together');
+assert(S.blastPeak.lit > S.hero.lit * 1.3 && D.blast > 8, 'a drop bursts down the tunnel (' + (S.blastPeak.lit * 100).toFixed(0) + '% lit)');
+assert(S.blastLate.lit < S.blastPeak.lit && D.settle < D.blast, 'after the burst the tunnel settles again');
 assert(S.blastPeak.lit < .9, 'even the biggest explosion leaves dark space around it');
 ['burst', 'twist', 'drag', 'splash', 'inject'].forEach(k => assert(D[k] > 1.2, 'the ' + k + ' gesture visibly changes the liquid (' + D[k].toFixed(1) + ')'));
 assert(D.palette > 10 && S.inferno.rgb[0] > S.inferno.rgb[2] * 1.5 && S.hero.rgb[2] > S.hero.rgb[0], 'Electric Ocean is blue, Inferno is red-orange');
 assert(D.prism > 5, 'Prismatic is its own iridescent palette');
 assert(S.black.lum < 1.5, 'it fades in from black');
-assert(S.q0.lit > .1 && S.q0.centre > S.q0.edge * 6, 'the 2 GB quality tier renders the same liquid');
+assert(S.q0.lit > .1 && S.q0.centre > S.q0.edge * 6, 'the 2 GB quality tier renders the same tunnel');
 
 // ---------- B. The real app ----------
 function appPage(setup, scenario) {
@@ -281,5 +286,5 @@ const scenario = player + `
   assert(app.flowOk && app.flowVariant === 'flow', 'Energy Flow still runs');
   assert(app.reopened.experience === 'ink' && app.reopened.ink.mix === 1, 'Party Mode reopens in Ink Machine ' + JSON.stringify({e: app.reopened.experience, mix: app.reopened.ink.mix, frames: app.reopened.ink.frames}));
   assert.strictEqual(app.mediaCalls, 0, 'nothing here touches music playback');
-  console.log('Ink Machine: liquid verified in pixels (centre mass on black, gloss, bass/mid/treble, explosions, five gestures, four palettes, tiers); in the real app the selector, palettes, all five gestures, music events and Orbs/Energy Flow around it work. Software-rendered pace here: ' + app.fps.toFixed(1) + ' fps.');
+  console.log('Ink Machine: neon membrane tunnel verified in pixels (core on deep space, crisp detail, rims, bass/mid/treble, explosions, five gestures, four palettes, tiers); in the real app the selector, palettes, all five gestures, music events and Orbs/Energy Flow around it work. Software-rendered pace here: ' + app.fps.toFixed(1) + ' fps.');
 })().catch(e => { console.error(e); process.exit(1); });
