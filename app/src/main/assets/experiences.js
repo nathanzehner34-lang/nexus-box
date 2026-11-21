@@ -2877,6 +2877,7 @@ float hillAt(float z){ return 7.*sin(z*.0013+2.2) + 3.5*sin(z*.0031+.6); }
   //   ndHaze  — the cheap colour the road fades into at the horizon
   //   ndGround— the terrain either side of the asphalt
   //   ndRoadFx— light the world adds on top of the asphalt (return the road unchanged for none)
+  //   optional: #define ND_OVERLAY and ndOverlay(col, rd, uv, t) for standing objects drawn last
   var ND_MAIN = `
 void main(){
  vec2 uv = (gl_FragCoord.xy - .5*res)/res.y;
@@ -2934,6 +2935,10 @@ void main(){
   ground = mix(ndHaze(rd, t), ground, fade);
   col = mix(col, ground, groundMix);
  }
+ #ifdef ND_OVERLAY
+ // worlds with things standing up off the ground (trees, plants) draw them over sky and terrain here
+ col = ndOverlay(col, rd, uv, t);
+ #endif
  col *= 1. + kick*react*.10;
  float lum = dot(col, vec3(.299,.587,.114));
  col = max(mix(vec3(lum), col, 1.14), 0.);
@@ -3371,9 +3376,254 @@ vec3 ndSky(vec3 rd, float t){
 }
 `;
 
+  // ---- World 3: ENCHANTED FOREST ----
+  var ND_ENCHANTED_FOREST = `
+#define ND_OVERLAY
+// ENCHANTED FOREST: giant ancient trees glowing from within line the highway, their canopies
+// meeting overhead in a glowing ceiling with a gap of starry sky down the middle.
+const float CAMH = 2.35, CANOPY = 27.;
+vec3 efEmerald(){ return mix(vec3(.10,.95,.55), cD, .25); }
+vec3 efCyan(){ return mix(vec3(.15,.95,1.), cA, .25); }
+vec3 efViolet(){ return mix(vec3(.55,.30,1.), cB, .35); }
+vec3 efPink(){ return mix(vec3(1.,.35,.80), cC, .3); }
+// colour drifts slowly between cyan and emerald, nudged along by the mids
+vec3 efGlow(float k){ float m = .5+.5*sin(k + time*.07 + mids*react*1.2); return mix(efCyan(), efEmerald(), m); }
+float efRoadX(float zd){ return curveAt(travel+zd)*min(1., zd*.0026); }
+float efGroundH(float zd, float h0){ return max(CAMH + (hillAt(travel+zd)-h0)*.26, CAMH*.45); }
+vec3 efFog(float t){ return mix(vec3(.02,.09,.13), vec3(.01,.05,.08), night) + efCyan()*.05; }
+vec3 ndHaze(vec3 rd, float t){ return efFog(t) + efCyan()*.06*(1.+energy*react*.4); }
+
+vec3 ndSky(vec3 rd, float t){
+ vec2 p = rd.xy/max(-rd.z,.05);
+ float up = clamp(p.y, 0., 1.5);
+ vec3 col = mix(vec3(.03,.10,.17), vec3(.006,.018,.05), smoothstep(0.,.6,up));
+ col = mix(col, col*.6, night*.6);
+ // a band of the galaxy rising up the middle of the gap between the canopies
+ float bx = p.x - .05 - up*.25;
+ float band = exp(-bx*bx*28.);
+ if(band > .02){
+  float n = fbm(vec2(p.x*5., p.y*4.) + 3., 3.);
+  col += mix(vec3(.35,.55,1.), efViolet(), .3) * band * smoothstep(.35,.8,n) * .38 * smoothstep(.05,.3,up);
+  col -= vec3(.02,.03,.04) * band * smoothstep(.55,.75, fbm(vec2(p.x*9., p.y*7.), 2.));
+ }
+ vec2 sc = p*vec2(150.,150.); vec2 si = floor(sc); float sh = hash(si);
+ float star = step(.965, sh) * exp(-dot(fract(sc)-.5, fract(sc)-.5)*30.);
+ col += vec3(.7,.85,1.) * star * (.5+.5*sin(t*2.+sh*40.)) * (.7 + highs*react*.6) * smoothstep(.02,.12,up);
+ // far forest: a dark misty tree line along the horizon, crowns rounded, never tall straight towers
+ if(p.y < .12){
+  float crown = .035 + .03*noise(vec2(p.x*9. + travel*.0003, 1.)) + .025*noise(vec2(p.x*26., 2.));
+  float line = 1. - smoothstep(crown - .01, crown + .01, p.y);
+  float trunks = smoothstep(.55, .8, noise(vec2(p.x*60., 3.)));
+  vec3 wall = mix(efFog(t)*.55, efFog(t)*.9 + efEmerald()*.04, trunks*.5);
+  col = mix(col, wall, line*.92);
+ }
+ // glowing mist hanging over the horizon down the road
+ col += efCyan() * exp(-abs(p.y)*14.) * exp(-p.x*p.x*5.) * (.30 + kick*react*.20);
+ col += efEmerald() * exp(-abs(p.y)*30.) * .10;
+ return col;
+}
+
+vec3 ndGround(float xr, float wz, float fade){
+ float side = sign(xr);
+ float n = fbm(vec2(xr*.05, wz*.03), 2.);
+ vec3 c = mix(vec3(.012,.035,.055), vec3(.025,.075,.09), n);
+ c = mix(c, efFog(time)*1.6, (1.-fade)*.7);
+ // the moss glows faintly beneath the canopy
+ c += efEmerald()*.025*smoothstep(.45,.8,n);
+ // roots of the nearest giant spread across the forest floor; light travels along them on the beat
+ float L = 17., S = 16.;
+ float cell = floor((wz - hash(vec2(side,3.))*S)/S + .5);
+ float tz = cell*S + hash(vec2(cell, side))*5.;
+ vec2 d = vec2(xr - side*(L + hash(vec2(cell, side+5.))*3.), wz - tz);
+ float r = length(d);
+ if(r < 26.){
+  float a = atan(d.y, d.x);
+  float twist = noise(vec2(r*.25, cell))*1.6;
+  float root = pow(abs(cos(a*3. + twist + cell)), 40.*(1.+r*.04)) * exp(-r*.09) * smoothstep(1.,3.,r);
+  float wave = .35 + .65*pow(.5+.5*sin(r*.55 - time*4. + cell), 6.) * (.4 + kick*react*1.6 + energy*react*.6);
+  c = mix(c, vec3(.005,.012,.015), root*.8);
+  c += efGlow(cell) * root * wave * .55 * fade;
+ }
+ // tiny bioluminescent specks scattered through the undergrowth
+ vec2 g = vec2(xr, wz)*vec2(1.6, .9); vec2 gi = floor(g); float gh = hash(gi + side);
+ float spk = step(.70, gh) * exp(-dot(fract(g)-.5, fract(g)-.5)*40.);
+ c += mix(efCyan(), vec3(.7,1.,1.), .4) * spk * (.6 + .4*sin(time*1.5 + gh*30.) + highs*react*.8) * (.3 + .7*fade) * 1.3;
+ return c;
+}
+
+vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
+ // the canopy's glow spills onto the smooth road and the shoulders glitter
+ vec3 add = efGlow(wz*.01) * .05 * (1.-fade*.3);
+ float sh = smoothstep(.0, 2.5, edge-11.);
+ vec2 g = vec2(xr*3., wz*1.2); float h = hash(floor(g));
+ add += efCyan() * step(.88, h) * exp(-dot(fract(g)-.5, fract(g)-.5)*30.) * exp(-abs(edge-11.6)*1.2) * fade * (.8 + highs*react);
+ return road*.72 + add;
+}
+
+// one giant tree: a twisting trunk with flared roots and branches reaching up into the canopy
+vec4 efTree(vec2 P, float side, float zd, float X, float id, float hr, float h0){
+ float gh = efGroundH(zd, h0);
+ vec2 w = vec2(P.x*zd - X, P.y*zd + gh);       // world units: across, height above the ground
+ float R = 1.3 + hr*1.1;
+ float ppw = zd*1.2/res.y;                      // world size of one pixel, for soft edges
+ if(w.y < -.3 || w.y > CANOPY || abs(w.x) > R*6. + 9.) return vec4(0.);
+ float v = w.y/CANOPY;
+ float cx = 1.6*sin(w.y*.11 + id*3.)*v + .6*sin(w.y*.37 + id)*v;
+ float rad = R*(1. - .45*v) + R*1.3*exp(-w.y*1.1);
+ float du = (w.x - cx)/rad;
+ float trunk = 1. - smoothstep(1. - ppw/rad, 1. + ppw/rad, abs(du));
+ // branches leave the trunk high up and curve outward and up into the leaves
+ float br = 0., brd = 9.;
+ if(w.y > CANOPY*.38) for(int i=0;i<3;i++){ float fi = float(i);
+  float hb = CANOPY*(.42 + fi*.15), dir = (i==1 ? side : -side);
+  float s = (w.x - cx)*dir;
+  if(s > 0. && s < 14.){
+   float bv = hb + s*(.55 + fi*.12) - .018*s*s + 1.2*sin(s*.4 + id + fi);
+   float th = R*.42*(1. - s/15.);
+   float dd = abs(w.y - bv)/th;
+   br = max(br, 1. - smoothstep(1. - ppw/th, 1. + ppw/th, dd));
+   brd = min(brd, dd);
+  }
+ }
+ float m = max(trunk, br);
+ if(m <= 0.) return vec4(0.);
+ // dark bark lit from within: glowing veins flow up the trunk and out along the branches with the music
+ float vein = pow(1. - abs(noise(vec2(du*2.6 + id, w.y*.16))*2. - 1.), 28.);
+ float flow = .45 + .55*pow(.5+.5*sin(w.y*.28 - time*2.4 + id*2.), 3.) * (.5 + kick*react*1.5 + energy*react*.5);
+ float rim = pow(clamp(abs(du), 0., 1.), 10.) * trunk;
+ vec3 bark = mix(vec3(.004,.008,.012), vec3(.012,.025,.03), .5+.5*sin(du*5. + w.y*.9 + sin(w.y*.37+id)*2.));
+ vec3 g = efGlow(id*1.7);
+ vec3 c = bark + g*vein*flow*.55*(.3 + .7*trunk) + g*rim*.10;
+ c += g * br * exp(-brd*2.5) * flow * .22;
+ // inner light rising from the roots
+ c += g * exp(-w.y*.5) * .10 * trunk * (1. + kick*react);
+ return vec4(c, m);
+}
+
+vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
+ vec2 P = rd.xy/(-rd.z);
+ float fogK = .0055, h0 = hillAt(travel);
+ // ---- the glowing canopy ceiling, seen from below ----
+ if(P.y > .004){
+  float zc = (CANOPY - efGroundH(60., h0))/P.y;
+  float X = P.x*zc - efRoadX(zc), wzc = travel + zc;
+  float gap = 7.5 + 2.5*sin(wzc*.013) + 2.*noise(vec2(wzc*.05, 1.));
+  // fine leaf detail fades with distance so the far canopy stays smooth instead of streaking
+  float lod = exp(-zc*.012);
+  float leafN = fbm(vec2(X*.07, wzc*.10), 2.)*.6 + mix(.5, noise(vec2(X*.5, wzc*.5)), lod)*.4;
+  float inside = smoothstep(gap - 1.5 - zc*.004, gap + 1.5 + zc*.004, abs(X) + (leafN-.5)*9.);
+  if(inside > 0.){
+   vec3 g = mix(efEmerald(), efGlow(X*.02 + wzc*.003), .45);
+   vec3 leaf = mix(vec3(.004,.022,.02), g*.55, smoothstep(.40,.80,leafN));
+   leaf += g*.35*pow(smoothstep(.55,.9,leafN), 2.);
+   vec2 cl = vec2(X*.22, wzc*.16); vec2 ci = floor(cl); vec2 co = fract(cl) - .5 - (vec2(hash(ci), hash(ci+5.)) - .5)*.5;
+   leaf += mix(g, efCyan(), hash(ci+9.)) * exp(-dot(co,co)*9.) * .22 * (.35 + .65*lod) * (.8 + .4*sin(time*.6 + hash(ci)*20.) + energy*react*.3);
+   // sparkling glow inside the leaves, brighter toward the soft gap edge
+   vec2 sp = vec2(X, wzc)*1.6; float sh = hash(floor(sp));
+   leaf += mix(g, vec3(.8,1.,1.), .3) * step(.93, sh) * smoothstep(.45,.8,leafN) * lod * exp(-dot(fract(sp)-.5,fract(sp)-.5)*28.) * (.6 + highs*react*.9) * .9;
+   leaf += mix(g, efCyan(), .4) * .30 * exp(-max(abs(X)-gap, 0.)*.18);
+   // great dark boughs threading through the leaves, their veins pulsing with the beat
+   float bough = 1. - abs(noise(vec2(X*.05 + 3., wzc*.018))*2. - 1.);
+   float bm = smoothstep(.90, .97, bough) * smoothstep(.35, .6, noise(vec2(X*.03, wzc*.01 + 5.)));
+   leaf = mix(leaf, vec3(.004,.01,.012), bm*.9);
+   // light pulses travelling along the boughs with the beat
+   leaf += g * bm * pow(.5+.5*sin(wzc*.08 - time*3.), 8.) * (.15 + kick*react*.8) * .5;
+   float f = exp(-zc*fogK);
+   leaf = mix(efFog(t)*1.2 + g*.06, leaf, f);
+   col = mix(col, leaf, inside * smoothstep(.004, .03, P.y));
+  }
+ }
+ // ---- giant trunks, farthest rows first so nearer ones cover them ----
+ float c0 = efRoadX(140.)/140.;
+ float side = P.x > c0 ? 1. : -1.;
+ for(int li=2; li>=0; li--){ float lf = float(li);
+  if(lf > 1. + q) continue;
+  float L = 17. + lf*9.5 + lf*lf*2.5, S = 16. + lf*3.;
+  float zd = (side*L + efRoadX(L/max(abs(P.x),.02)))/P.x;
+  zd = (side*L + efRoadX(zd))/P.x;
+  if(zd < 3. || zd > 620.) continue;
+  float off = hash(vec2(lf, side))*S;
+  float base = floor((travel + zd - off)/S);
+  for(int k=1;k>=0;k--){
+   float cell = base + float(k);
+   float hc = hash(vec2(cell, lf+side*7.));
+   float tz = cell*S + off + hc*S*.45;
+   float tzd = tz - travel;
+   if(tzd < 2.5) continue;
+   float id = cell*3.1 + lf*17. + side*5.;
+   float X = efRoadX(tzd) + side*(L + fract(hc*13.7)*3.5);
+   vec4 tr = efTree(P, side, tzd, X, id, fract(hc*31.3), h0);
+   if(tr.a > 0.){
+    float f = exp(-tzd*fogK);
+    vec3 c = mix(efFog(t)*1.1, tr.rgb, f);
+    col = mix(col, c, tr.a);
+   }
+  }
+ }
+ // ---- luminous mushrooms and glowing flower stalks along the shoulders ----
+ if(P.y < 0.){
+  float Lm = 13.6, Sm = 7.;
+  float zd = (side*Lm + efRoadX(Lm/max(abs(P.x),.02)))/P.x;
+  zd = (side*Lm + efRoadX(zd))/P.x;
+  if(zd > 3. && zd < 240.){
+   float base = floor((travel + zd)/Sm);
+   for(int k=1;k>=0;k--){
+    float cell = base + float(k);
+    float h = hash(vec2(cell, side*3.));
+    if(h < .35) continue;
+    float tzd = cell*Sm + fract(h*17.3)*3. - travel;
+    if(tzd < 2.5) continue;
+    float X = efRoadX(tzd) + side*(Lm + (h-.5)*2.5);
+    vec2 w = vec2(P.x*tzd - X, P.y*tzd + efGroundH(tzd, h0));
+    float ppw = tzd*1.2/res.y;
+    float sz = .6 + h*1.1;
+    vec3 mc = h > .8 ? efPink() : (h > .6 ? efViolet() : efCyan());
+    float beat = 1. + kick*react*2.2 + energy*react*.5;
+    float f = exp(-tzd*fogK);
+    if(h < .9){
+     // a mushroom: a short stem under a glowing dome cap
+     float stem = (1. - smoothstep(.09*sz, .09*sz + ppw, abs(w.x))) * step(0., w.y) * (1. - smoothstep(sz*.9, sz*.9+ppw, w.y));
+     vec2 cq = (w - vec2(0., sz*.9))/vec2(sz*.75, sz*.45);
+     float cr = length(cq);
+     float cap = (1. - smoothstep(1., 1. + ppw/(sz*.5), cr)) * step(-.05, cq.y);
+     float glow = exp(-max(cr - 1., 0.)*3.) * .25;
+     vec3 c = mc * (cap*(.55 + .45*(1.-cq.y)) + stem*.25) * beat;
+     col = mix(col, mix(efFog(t), c, f), max(cap, stem));
+     col += mc * glow * beat * f * .6;
+    } else {
+     // an exotic plant: a tall thin stalk with a bright pulsing bulb
+     float st = (1. - smoothstep(.04, .04 + ppw, abs(w.x - .15*sin(w.y*1.5 + time)))) * step(0., w.y) * (1. - smoothstep(sz*2.2, sz*2.2+ppw, w.y));
+     float bl = length(w - vec2(.15*sin(sz*3.3 + time), sz*2.3));
+     col = mix(col, mix(efFog(t), mc*.4, f), st);
+     col += mix(mc, vec3(1.), .3) * exp(-bl*bl*9./(sz*sz)) * beat * f;
+    }
+   }
+  }
+ }
+ // ---- thousands of tiny spores drifting toward and past the camera ----
+ for(int i=0;i<4;i++){ float fi = float(i);
+  if(fi > 2. + q) break;
+  float ph = fract(travel*.012 + fi/4.);
+  float dz = mix(60., 4., ph);
+  vec2 g = P*dz*vec2(1.1, 1.1) + vec2(fi*7.3, 0.) + vec2(sin(time*.3+fi)*.3, time*.08);
+  vec2 gi = floor(g), gf = fract(g) - .5;
+  float h = hash(gi + fi*13.);
+  if(h < .80) continue;
+  vec2 o = (vec2(fract(h*13.1), fract(h*29.7)) - .5)*.6;
+  float r = length(gf - o);
+  float size = (.018 + .022*h) * (1. + kick*react*.9);
+  float a = smoothstep(0., .15, ph) * (1. - smoothstep(.85, 1., ph));
+  float tw = .6 + .4*sin(time*(1.5+h*3.) + h*50.) + highs*react*.8;
+  col += mix(efCyan(), h > .93 ? efPink() : efEmerald(), fract(h*7.)) * exp(-r*r/(size*size)) * a * tw * .55;
+ }
+ return col;
+}
+`;
+
   var ND_WORLDS = [
     { id: 'rings', name: 'CELESTIAL RINGS', frag: ND_CELESTIAL_RINGS },
-    { id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY }
+    { id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY },
+    { id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST }
   ];
   var ND_PALETTES = [
     ['ultraviolet', 'ULTRAVIOLET', [.25, .72, 1], [.52, .35, 1], [1, .35, .85], [.25, .95, .82]],
