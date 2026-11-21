@@ -25,7 +25,7 @@
   var sprites = {}, presetRgb = [], lineDash = [3, 8], audio = null, soundOn = false, lastSong = '', lastTap = null, particleCursor = 0, trailCursor = 0;
   var modeStarted = 0;
   // Experiences: the upgraded Orb Experience (hero energy orb + selectable backgrounds) and Energy Flow (no orb).
-  var experiences = ['orb', 'flow'], experience = 'orb';
+  var experiences = ['orb', 'flow', 'ink'], experience = 'orb';
   var backdrops = ['classic', 'smoke', 'aurora', 'deep', 'iridescent'], backdrop = 'classic';
   var glCanvas = document.getElementById('partyGL'), gl = null, glProg = null, glBuf = null, glU = {}, glOk = false, glFailed = false;
   // One compiled program per experience. A GPU still pays for the branch it does not take, so the
@@ -43,6 +43,24 @@
   var buildUp = 0, beatPhase = 1, beatPeriod = .5, beatConfidence = 0, lastBeatAt = 0, lastQuietAt = 0;
   var burstPower = 0, burstAge = 9, burstEnv = 0, lastBurstAt = 0, lastDropAt = 0, burstCount = 0, fieldRecoil = 0;
   var flowRgb = [], musicHue = 0, colorDrive = 0;
+  // ---- Ink Machine: its own shader program, gesture state and music events ----
+  // Kept apart from the Orb/Energy Flow program so neither of those changes in any way.
+  var INK_UNIFORMS = ['res', 'T', 'bass', 'mid', 'high', 'energy', 'beat', 'blast', 'blastAge', 'build', 'quality', 'prism', 'swirl', 'fadeIn',
+    'k1', 'k2', 'k3', 'k4', 'k5', 'bursts', 'drags', 'twist', 'splash', 'splashAge', 'inj'];
+  // The four COLOUR buttons pick these palettes while Ink Machine is showing.
+  var INK_PALETTES = {
+    orb: { name: 'ELECTRIC OCEAN', prism: 0, cols: [[.04, .16, .95], [0, .85, 1], [.48, .12, 1], [.2, .5, 1], [.75, .92, 1]] },
+    voltage: { name: 'TOXIC FUSION', prism: 0, cols: [[.45, 1, .05], [.85, 1, .15], [1, .85, .05], [1, .42, 0], [1, 1, .8]] },
+    aurora: { name: 'PRISMATIC', prism: 1, cols: [[.9, .2, .6], [.2, .8, 1], [1, .85, .2], [.5, .3, 1], [1, 1, 1]] },
+    neon: { name: 'INFERNO', prism: 0, cols: [[.75, .02, .08], [1, .35, 0], [1, .75, .15], [.95, .12, .05], [1, .95, .85]] }
+  };
+  var inkMix = 0, inkTarget = 0, inkFailed = false, inkT = 0, inkSwirl = 0, inkPrism = 0, inkCols = null, inkFrames = 0, glOpacity = '';
+  var blastPow = 0, blastAge = 9, blastEnv = 0, lastInkBlast = 0, lastInkMajor = 0, inkBlastCount = 0;
+  var inkG = null, inkLastTap = null, inkInjPos = .5, inkGestures = { burst: 0, twist: 0, drag: 0, splash: 0, inject: 0 };
+  var inkBursts = [], inkDrags = [], inkInj = [], inkBurstNext = 0, inkDragNext = 0, inkInjNext = 0;
+  for (var ii = 0; ii < 4; ii++) { if (ii < 3) inkBursts.push({ x: 0, y: 0, age: 9, pow: 0 }); inkDrags.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0 }); if (ii < 2) inkInj.push({ x: 0, y: 0, amt: 0, pos: .5, grow: false }); }
+  var inkTwist = { x: 0, y: 0, str: 0, wind: 0, on: false }, inkSplash = { x: 0, y: 0, dx: 0, dy: 0, age: 9 };
+  var inkBuf = { bursts: new Float32Array(12), drags: new Float32Array(16), inj: new Float32Array(8) };
   var PARTY_SHADER = [
     "#ifdef GL_FRAGMENT_PRECISION_HIGH",
     "precision highp float;",
@@ -298,6 +316,199 @@
     " gl_FragColor=vec4(clamp(col,0.,1.),1.);",
     "}"
   ].join('\n');
+  var INK_SHADER = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec2 res;
+uniform float T, bass, mid, high, energy, beat, blast, blastAge, build, quality, prism, swirl, fadeIn;
+uniform vec3 k1, k2, k3, k4, k5;
+uniform vec4 bursts[3];   // x, y, age (s), power
+uniform vec4 drags[4];    // x, y, velocity x, velocity y (already scaled by remaining life)
+uniform vec4 twist;       // x, y, strength, wind (radians)
+uniform vec4 splash;      // x, y, direction x * power, direction y * power
+uniform float splashAge;
+uniform vec4 inj[2];      // x, y, amount, palette position
+float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.,1.)),f.x),f.y);}
+float fbm(vec2 p,float oct){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);for(int i=0;i<5;i++){if(float(i)>=oct)break;v+=a*noise(p);p=m*p+vec2(3.1,1.7);a*=.5;}return v;}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+// Four palette colours blended into marbled bands (the fifth is the highlight tint);
+// Prismatic adds iridescent film colour on top.
+vec3 inkPal(float x){
+ x=fract(x)*4.;
+ float i=floor(x), f=smoothstep(.2,.8,fract(x));
+ vec3 a=i<1.?k1:(i<2.?k2:(i<3.?k3:k4));
+ vec3 b=i<1.?k2:(i<2.?k3:(i<3.?k4:k1));
+ vec3 c=mix(a,b,f);
+ if(prism>.5){vec3 r=.5+.5*cos(6.28318*(x*.25+vec3(0.,.33,.67)));c=mix(c,r*r*1.3+.04,.7);}
+ return c;
+}
+// A glossy droplet: returns shaded colour in rgb and coverage in a.
+vec4 drop(vec2 p,vec2 c,float r,vec3 col){
+ vec2 d=(p-c)/max(r,1e-4);float l2=dot(d,d);
+ if(l2>1.)return vec4(0.);
+ vec3 n=vec3(d,sqrt(1.-l2));
+ float dif=max(dot(n,normalize(vec3(-.45,.55,.7))),0.);
+ float sp=pow(max(n.z*.6+dot(n.xy,vec2(-.45,.55))*.55,0.),24.);
+ return vec4(col*(.25+.85*dif)+vec3(1.)*sp*1.2+col*pow(1.-n.z,2.)*.4,1.-smoothstep(.75,1.,l2));
+}
+void main(){
+ vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;
+ float t=T, OCT=4.+quality;
+ vec2 p=uv;
+ // ---------- touch: each gesture moves where the liquid is sampled from ----------
+ float hueKick=0., dragF=0.;
+ for(int i=0;i<3;i++){vec4 b=bursts[i];if(b.w<=0.)continue;
+  vec2 d=p-b.xy;float r=length(d)+1e-4;
+  float env=b.w*exp(-b.z*1.9)*(1.-exp(-b.z*14.));
+  // an irregular splash front rather than a round dent
+  float lobe=.45+.9*noise(d/r*2.3+b.xy*7.+b.w*3.);
+  p-=d/r*env*.075*lobe*exp(-r*r*16.);
+  hueKick+=env*exp(-r*r*20.)*1.4;
+ }
+ if(twist.z>.001){vec2 d=p-twist.xy;
+  // the vortex reaches further as the hold goes on; its edge is ragged so it never reads as a disc
+  float rad2=(.018+.05*twist.z)*(.7+.6*noise(d*6.+twist.w*.3));
+  float f=exp(-dot(d,d)/rad2);
+  p=twist.xy+rot(twist.w*f)*d*(1.-.18*twist.z*f);
+  hueKick+=twist.z*f*.25;}
+ for(int i=0;i<4;i++){vec4 g=drags[i];float sp=length(g.zw);if(sp<.001)continue;
+  vec2 d=p-g.xy;
+  // stretch along the stroke: an elongated falloff so the pull reads as a tendril, not a dent
+  vec2 dir=g.zw/sp;float a=dot(d,dir),q=dot(d,vec2(-dir.y,dir.x));
+  float f=exp(-(a*a*10.+q*q*55.));
+  p-=g.zw*f*.10;
+  dragF+=min(sp,2.)*f*.55;
+ }
+ float sEnv=0.;
+ if(splashAge<4.){vec2 sd=splash.zw;float sp=length(sd);
+  if(sp>.001){vec2 d=p-splash.xy;sEnv=exp(-splashAge*1.5)*(1.-exp(-splashAge*18.));
+   p-=sd*exp(-dot(d,d)*7.)*sEnv*.17;dragF+=sEnv*exp(-dot(d-sd*.12,d-sd*.12)*14.)*.5;}}
+ // ---------- music: the mass breathes with the bass and twists with the mids ----------
+ vec2 c0=vec2(.035*sin(t*.071),-.015+.025*cos(t*.053));
+ vec2 q=p-c0;
+ float r0=length(q);
+ q=rot(swirl*exp(-r0*2.4))*q;
+ float expand=1.+bass*.14+beat*.06+energy*.05+blast*.22;
+ q/=expand;
+ vec3 bg=vec3(.002,.002,.006)+mix(k2,k1,.5)*.03*exp(-length(uv-c0)*2.4)*(.6+energy*.8);
+ vec3 col=bg;
+ float rq=length(q);
+ if(rq<.95||dragF>.02){
+  vec2 s=q*1.8;float tt=t*.055;
+  vec2 w1=vec2(fbm(s+vec2(tt,0.),2.),fbm(s+vec2(5.2,-tt*.8),2.));
+  vec2 w2=vec2(fbm(s*1.3+w1*2.1+vec2(1.7,9.2)+tt*.7,3.),fbm(s*1.3+w1*2.1+vec2(8.3,2.8)-tt*.5,3.));
+  float pressure=.85+bass*.55+blast*.45;
+  vec2 qw=q+(w2-.44)*.30*pressure*(1.+mid*.4);       // the mids fold it harder
+  vec2 ns=s*1.1+w2*2.6;
+  // three octaves carry the shape (and its slope, below); the fine fourth only adds surface grain
+  float n=fbm(ns,3.)+(noise(ns*4.4+vec2(9.1,2.3))-.5)*.06*quality;
+  // tendrils: the outline is pushed out along directions where a slow noise field runs high
+  vec2 qa=qw*vec2(.74,1.08);                      // a wide formation, like ink spreading sideways
+  float rr=length(qa)+1e-4;
+  float arms=fbm(qa/rr*1.7+vec2(tt*1.3,3.1)+w1*.8,2.);
+  float reach=.34*(.72+1.05*pow(arms,1.4)*(1.+blast*.55+build*.3));
+  float F=(reach-rr)/reach*1.12+(n-.46)*1.2+dragF;
+  if(F>-.42){                                     // nothing but black beyond the veils
+  // treble: fine surface ripples
+  float rip=high*(.5+.5*sin(n*70.+t*7.))*.06;
+  float e=.012;
+  float nx=fbm(ns+vec2(e,0.),3.), ny=fbm(ns+vec2(0.,e),3.);
+  vec2 g=vec2(nx-n,ny-n)/e*1.6-qa/rr/reach*.5;
+  g+=high*vec2(cos(n*70.+t*7.),sin(n*63.-t*6.))*1.15;
+  float m=fbm(s*2.4+w2*3.4+vec2(n*2.4),2.+quality);
+  // stacked, folded sheets: each sheet carries its own colour, lit along its upper lip and
+  // shadowed where it curls under the next one
+  float layer=n*5.+m*1.6+w1.x*.7;
+  float sheet=floor(layer), sf=fract(layer);
+  float idx=layer*.16+m*.9+w1.y*.7+hueKick*.55+t*.006;
+  vec3 base=inkPal(idx);
+  float lip=exp(-sf*16.);
+  float under=smoothstep(.62,1.,sf);
+  // colour injected by a finger: a second palette tone spreading in marbled veins
+  for(int i=0;i<2;i++){vec4 j=inj[i];if(j.z<=.001)continue;
+   vec2 d=uv-j.xy;float rad=.05+j.z*.16;
+   float w=exp(-dot(d,d)/(rad*rad))*(.55+.9*m)*min(1.,j.z*1.6);
+   float veins=smoothstep(.35,.75,fract(m*4.+n*3.));
+   // the injected tone sits across the palette from what is already there, so it always shows
+   vec3 ic=inkPal(idx+j.w+veins*.1+m*.15)*1.25+mix(k5,vec3(1.),.5)*veins*.12;
+   base=mix(base,ic,clamp(w,0.,1.));
+  }
+  g+=vec2(cos(layer*6.28318),sin(layer*6.28318))*(lip*1.4-under*.9);
+  vec3 N=normalize(vec3(-g*.55,1.));
+  vec3 L=normalize(vec3(-.45,.55,.7));
+  float dif=max(dot(N,L),0.);
+  vec3 R=reflect(-L,N);
+  float spec=pow(max(R.z,0.),38.);
+  float spec2=pow(max(R.z,0.),7.);
+  float fres=pow(1.-N.z,2.2);
+  float ao=mix(.5,1.,smoothstep(.18,.78,n))*(1.-under*.38);
+  float body=smoothstep(.0,.55,F);
+  vec3 liquid=base*(.10+.95*dif)*ao
+   +base*.22*body                                   // light carried through the thick middle
+   +mix(vec3(1.),k5,.35)*spec*(.9+high*.7+rip*4.)
+   +mix(base,vec3(1.),.35)*spec2*.22
+   +mix(base,vec3(1.),.25)*fres*.45
+   +mix(base,vec3(1.),.45)*lip*(.55+high*.4);
+  liquid*=1.+beat*.18+blast*.35;
+  float solid=smoothstep(0.,.07,F);
+  // translucent veils and fine filaments at the edges, like ink spreading through water
+  float veil=smoothstep(-.42,0.,F)*(1.-solid);
+  float fil=pow(1.-abs(sin((n*7.+m*5.+w1.y*3.)*3.14159)),10.);
+  float wisp=smoothstep(.3,.75,m*.7+n*.6);
+  vec3 veilCol=base*(.35+.9*fil)+mix(base,vec3(1.),.4)*fil*.35;
+  col=mix(col,veilCol,veil*veil*(.22+.55*fil)*wisp);
+  col=mix(col,liquid,solid);
+  }
+ }
+ // ---------- droplets ----------
+ // music explosions throw a ring of droplets that fly out, slow and fade
+ if(blastAge<3.){
+  float ang=atan(q.y,q.x);float cells=26.;
+  float ci=floor((ang/6.28318+.5)*cells);float h=hash1(vec2(ci,7.)),h2=hash1(vec2(ci,3.3));
+  float a=(ci+.25+h*.5)/cells*6.28318-3.14159;
+  float dist=(.3+.08*h2)*expand+(1.-exp(-blastAge*2.4))*(.22+.45*h);
+  vec2 dp=c0+vec2(cos(a),sin(a))*dist;
+  float sz=(.006+.012*h2)*(1.-smoothstep(1.4,3.,blastAge));
+  vec4 D=drop(uv,dp,sz*step(.35,h2),inkPal(h*3.+t*.01));
+  col=mix(col,D.rgb,D.a*step(.04,blast+.04*step(blastAge,2.5)));
+ }
+ for(int i=0;i<3;i++){vec4 b=bursts[i];if(b.w<=0.||b.z>2.5)continue;
+  vec2 d=uv-b.xy;float ang=atan(d.y,d.x);float cells=11.;
+  float ci=floor((ang/6.28318+.5)*cells);float h=hash1(vec2(ci,float(i)*7.+floor(b.w*13.)));
+  float a=(ci+.3+h*.4)/cells*6.28318-3.14159;
+  float dist=(1.-exp(-b.z*3.))*(.07+.15*h)*b.w;
+  vec4 D=drop(uv,b.xy+vec2(cos(a),sin(a))*dist,(.005+.007*h)*(1.-smoothstep(1.2,2.5,b.z)),inkPal(h*2.+hueKick));
+  col=mix(col,D.rgb,D.a);
+ }
+ if(splashAge<3.&&length(splash.zw)>.001){
+  vec2 sd=normalize(splash.zw);float pw=min(length(splash.zw),2.5);
+  vec2 d=uv-splash.xy;float along=dot(d,sd),side=dot(d,vec2(-sd.y,sd.x));
+  float ang=atan(side,max(along,1e-3));float cells=9.;
+  float ci=floor((ang/1.6+.5)*cells);float h=hash1(vec2(ci,9.1)),h2=hash1(vec2(ci,2.7));
+  float a=((ci+.5)/cells-.5)*1.6;
+  float dist=(1.-exp(-splashAge*2.2))*(.12+.28*h)*pw;
+  vec2 dp=splash.xy+(sd*cos(a)+vec2(-sd.y,sd.x)*sin(a))*dist;
+  vec4 D=drop(uv,dp,(.006+.010*h2)*(1.-smoothstep(1.5,3.,splashAge)),inkPal(h*2.5+.3));
+  col=mix(col,D.rgb,D.a*step(.2,h2));
+ }
+ // a few droplets always suspended in the dark, drifting; the treble makes them glint
+ {vec2 g=uv*vec2(4.,3.2)+vec2(t*.012,-t*.008);vec2 id=floor(g);float h=hash1(id+.7),h2=hash1(id+3.9);
+  vec2 dp=(id+.5+(vec2(h,h2)-.5)*.6)/vec2(4.,3.2)-vec2(t*.012,-t*.008)/vec2(4.,3.2);
+  float far=smoothstep(.35,.6,length(dp-c0));
+  vec4 D=drop(uv,dp,(.003+.005*h)*far*step(.55,h2),inkPal(h*4.));
+  col=mix(col,D.rgb*(1.+high*.8),D.a*.9);}
+ col*=fadeIn;
+ float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.18),0.);
+ col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
+ col=pow(clamp(col,0.,1.),vec3(.92));
+ col*=.78+.22*(1.-smoothstep(.3,1.35,length(uv*vec2(.85,1.))));
+ col+=(hash1(gl_FragCoord.xy+fract(t*11.))-.5)/255.*2.;
+ gl_FragColor=vec4(clamp(col,0.,1.),1.);
+}
+`;
 
   function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
   function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
@@ -340,12 +551,12 @@
     if (!gl || glProgs[variant] !== undefined) return glProgs[variant] || null;
     var head = variant === 'orb' ? '#define NO_FLOW\n' : variant === 'flow' ? '#define NO_ORB\n' : '';
     try {
-      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, head + PARTY_SHADER);
+      var vs = glCompile(gl.VERTEX_SHADER, 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'), fs = glCompile(gl.FRAGMENT_SHADER, variant === 'ink' ? INK_SHADER : head + PARTY_SHADER);
       var prog = gl.createProgram(); gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
       gl.deleteShader(vs); gl.deleteShader(fs);
       if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'link');
       var u = {};
-      GL_UNIFORMS.forEach(function (n) { u[n] = gl.getUniformLocation(prog, n); });
+      (variant === 'ink' ? INK_UNIFORMS : GL_UNIFORMS).forEach(function (n) { u[n] = gl.getUniformLocation(prog, n); });
       glProgs[variant] = prog; glUs[variant] = u;
     } catch (e) {
       glProgs[variant] = null;
@@ -355,6 +566,7 @@
   }
   function glUse(variant) {
     var prog = glBuild(variant);
+    if (!prog && variant === 'ink') return false;
     if (!prog && variant !== 'both') { variant = 'both'; prog = glBuild(variant); }
     if (!prog) return false;
     if (prog !== glProg) {
@@ -366,7 +578,7 @@
   }
   // Compile the other builds shortly after Party opens, so switching experience never stalls a frame.
   function glWarm() {
-    var order = ['orb', 'flow', 'both'], i = 0;
+    var order = ['orb', 'flow', 'both', 'ink'], i = 0;
     (function next() {
       if (!glOk || !gl || !active) return;
       while (i < order.length && glProgs[order[i]] !== undefined) i++;
@@ -384,11 +596,12 @@
       glBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
       if (!glUse(experience === 'flow' ? 'flow' : 'orb')) throw new Error('shader');
+      if (experience === 'ink' && !glBuild('ink')) inkUnavailable();
       glOk = true; glFrames = 0; root.setAttribute('data-gl', 'on');
       setTimeout(glWarm, 900);
     } catch (e) {
       glFailed = true; glOk = false; glDestroy(); root.setAttribute('data-gl', 'off');
-      if (experience === 'flow') { experience = 'orb'; flowTarget = 0; flowMix = 0; }
+      if (experience === 'flow' || experience === 'ink') { experience = 'orb'; flowTarget = 0; flowMix = 0; inkTarget = inkMix = 0; }
       if (backdrop !== 'classic') { backdrop = 'classic'; bgFrom = bgTo = 0; bgMix = 0; }
       try { console.warn('Party GL unavailable: ' + e.message); } catch (err) {}
     }
@@ -463,6 +676,8 @@
     if (bgTo !== bgFrom) { bgMix = Math.min(1, bgMix + s / 1.3); if (bgMix >= 1) { bgFrom = bgTo; bgMix = 0; } }
     surge = Math.max(0, surge - s * .9); tapAt.age = Math.min(9, tapAt.age + s);
     glResize();
+    inkStep(s, now, eNorm, mN);
+    if (inkMix >= .5) return inkDraw(dt, s, eNorm, bN, mN, hN, beatN);
     var pal = presetRgb, U = Math.min(w, h), t = now * .001, cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
     if (!glUse(flowMix <= .001 ? 'orb' : flowMix >= .999 ? 'flow' : 'both')) return false;
     gl.viewport(0, 0, glCanvas.width, glCanvas.height);
@@ -501,6 +716,151 @@
     else if (glFastFrames > 240 && glScale < glScaleMax) { glScale = Math.min(glScaleMax, glScale * 1.08); glFastFrames = 0; }
     return true;
   }
+  // ---- Ink Machine ----
+  function inkUnavailable() {
+    inkFailed = true; inkTarget = inkMix = 0;
+    if (experience === 'ink') { experience = 'orb'; flowTarget = flowMix = 0; }
+    setGlOpacity(1); syncExperienceUi();
+  }
+  function setGlOpacity(v) {
+    var o = v >= .999 ? '' : String(Math.max(0, v).toFixed(3));
+    if (o !== glOpacity && glCanvas) { glOpacity = o; glCanvas.style.opacity = o; }
+  }
+  // Shader space: centred, one unit = the screen height, y up.
+  function inkX(px) { return (px - w * .5) / h; }
+  function inkY(py) { return -(py - h * .5) / h; }
+  function triggerInk(power) {
+    blastPow = Math.min(1.6, power); blastAge = 0; blastEnv = 0; inkBlastCount++; lastInkBlast = performance.now();
+  }
+  // The liquid's own events. Ordinary beats only pulse it (the beat uniform); a hard bass punch
+  // throws a modest splash now and then, and a drop, an eruption out of a quiet passage or a
+  // build-up resolving sets off a full explosion. The cooldowns keep the hypnotic stretches intact.
+  function detectInk(now) {
+    if (experience !== 'ink' || inkMix < .5) return;
+    var punch = bassFast - bassSlow;
+    if (!(punch > Math.max(.022, bassSlow * 1.1) && bassFast > .034 && musicLevel > .14)) return;
+    var erupts = now - lastQuietAt < 900 && punch > .045;
+    var clears = bassFast > bassPeak * .97 && punch > Math.max(.045, bassSlow * 2.1);
+    if ((buildUp > .55 || erupts || clears) && now - lastInkMajor > 3200) {
+      triggerInk(1 + Math.min(.6, punch * 5 + buildUp * .5)); lastInkMajor = now; buildUp *= .25;
+    } else if (punch > Math.max(.04, bassSlow * 1.6) && now - lastInkBlast > 1900) {
+      triggerInk(.35 + Math.min(.3, punch * 3));
+    }
+  }
+  function inkStep(s, now, eNorm, mN) {
+    if (experience !== 'ink' && inkMix <= 0) { setGlOpacity(1); return; }
+    var was = inkMix;
+    inkMix = inkTarget > inkMix ? Math.min(1, inkMix + s / 1.1) : Math.max(0, inkMix - s / 1.1);
+    if (was < .5 && inkMix >= .5) inkFrames = 0;
+    setGlOpacity(inkMix < .5 ? 1 - inkMix * 2 : 1);
+    // quiet music drifts; building and loud music speed the liquid up
+    inkT = (inkT + s * (.22 + eNorm * .85 + mN * .35 + buildUp * .35 + blastEnv * .6)) % 1000;
+    var swirlTarget = Math.sin(inkT * .21) * (.35 + mN * 1.5);
+    inkSwirl += (swirlTarget - inkSwirl) * Math.min(1, s * 1.5);
+    blastAge = Math.min(9, blastAge + s);
+    blastEnv = blastPow > 0 ? clamp(Math.min(1, blastAge * 12) * Math.exp(-blastAge * 1.25) * blastPow, 0, 1.6) : 0;
+    if (blastPow > 0 && blastAge > 3.5) blastPow = 0;
+    // gestures
+    if (inkG && inkG.mode === 'pending' && now - inkG.t0 > 420) {
+      inkG.mode = 'twist'; inkGestures.twist++;
+      inkTwist.on = true; inkTwist.x = inkX(inkG.x); inkTwist.y = inkY(inkG.y);
+    }
+    if (inkTwist.on) {
+      inkTwist.str = Math.min(1, inkTwist.str + s * .8);
+      inkTwist.wind = Math.min(9, inkTwist.wind + s * (1.6 + inkTwist.str * 2.2 + mN * 1.2));
+    } else {
+      inkTwist.str *= Math.exp(-s * 1.1); inkTwist.wind *= Math.exp(-s * 1.6);
+      if (inkTwist.str < .002) inkTwist.str = inkTwist.wind = 0;
+    }
+    for (var i = 0; i < 3; i++) { var b = inkBursts[i]; b.age = Math.min(9, b.age + s); if (b.age > 3.5) b.pow = 0; }
+    for (i = 0; i < 4; i++) { var d = inkDrags[i]; d.life *= Math.exp(-s * 1.3); if (d.life < .02) d.life = 0; }
+    inkSplash.age = Math.min(9, inkSplash.age + s);
+    for (i = 0; i < 2; i++) {
+      var j = inkInj[i];
+      if (j.grow) j.amt = Math.min(1.6, j.amt + s * .6);
+      else { j.amt *= Math.exp(-s * .2); if (j.amt < .01) j.amt = 0; }
+    }
+    // palette changes blend over about a second rather than cutting
+    var pal = INK_PALETTES[preset] || INK_PALETTES.orb;
+    if (!inkCols) inkCols = pal.cols.map(function (c) { return c.slice(); });
+    var k = Math.min(1, s * 3);
+    for (i = 0; i < 5; i++) for (var c = 0; c < 3; c++) inkCols[i][c] += (pal.cols[i][c] - inkCols[i][c]) * k;
+    inkPrism += (pal.prism - inkPrism) * k;
+  }
+  function inkDraw(dt, s, eNorm, bN, mN, hN, beatN) {
+    if (!glUse('ink')) { inkUnavailable(); return false; }
+    var u = glU, fade = clamp(inkMix * 2 - 1, 0, 1);
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+    gl.uniform2f(u.res, glCanvas.width, glCanvas.height);
+    gl.uniform1f(u.T, inkT); gl.uniform1f(u.bass, bN); gl.uniform1f(u.mid, mN); gl.uniform1f(u.high, hN);
+    gl.uniform1f(u.energy, eNorm); gl.uniform1f(u.beat, beatN);
+    gl.uniform1f(u.blast, Math.min(1.2, blastEnv)); gl.uniform1f(u.blastAge, blastAge); gl.uniform1f(u.build, buildUp);
+    gl.uniform1f(u.quality, glQuality); gl.uniform1f(u.prism, inkPrism > .5 ? 1 : 0); gl.uniform1f(u.swirl, inkSwirl);
+    gl.uniform1f(u.fadeIn, fade * fade * (3 - 2 * fade));
+    for (var i = 0; i < 5; i++) gl.uniform3f(u['k' + (i + 1)], inkCols[i][0], inkCols[i][1], inkCols[i][2]);
+    var B = inkBuf.bursts, D = inkBuf.drags, J = inkBuf.inj;
+    for (i = 0; i < 3; i++) { var b = inkBursts[i]; B[i * 4] = b.x; B[i * 4 + 1] = b.y; B[i * 4 + 2] = b.age; B[i * 4 + 3] = b.pow; }
+    for (i = 0; i < 4; i++) { var d = inkDrags[i]; D[i * 4] = d.x; D[i * 4 + 1] = d.y; D[i * 4 + 2] = d.vx * d.life; D[i * 4 + 3] = d.vy * d.life; }
+    for (i = 0; i < 2; i++) { var j = inkInj[i]; J[i * 4] = j.x; J[i * 4 + 1] = j.y; J[i * 4 + 2] = j.amt; J[i * 4 + 3] = j.pos; }
+    gl.uniform4fv(u.bursts, B); gl.uniform4fv(u.drags, D); gl.uniform4fv(u.inj, J);
+    gl.uniform4f(u.twist, inkTwist.x, inkTwist.y, inkTwist.str, inkTwist.wind);
+    gl.uniform4f(u.splash, inkSplash.x, inkSplash.y, inkSplash.dx, inkSplash.dy); gl.uniform1f(u.splashAge, inkSplash.age);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    glFrames++; inkFrames++;
+    if (dt > frameInterval * 1.6) { glSlowFrames++; glFastFrames = 0; } else { glFastFrames++; glSlowFrames = Math.max(0, glSlowFrames - 1); }
+    if (glSlowFrames > 40 && glScale > .26) { glScale = Math.max(.26, glScale * .85); glSlowFrames = 0; }
+    else if (glFastFrames > 240 && glScale < glScaleMax) { glScale = Math.min(glScaleMax, glScale * 1.08); glFastFrames = 0; }
+    return true;
+  }
+  // Gestures. A quick tap bursts; holding still twists; moving drags; a fast flick on release
+  // splashes; a tap followed straight away by a press-and-hold injects colour.
+  function inkDown(e) {
+    var p = point(e), now = performance.now();
+    inkG = { id: e.pointerId, sx: p.x, sy: p.y, x: p.x, y: p.y, lastX: p.x, lastY: p.y, lastT: now, t0: now, vx: 0, vy: 0, mode: 'pending', path: 0, lastDrop: 0 };
+    if (inkLastTap && now - inkLastTap.t < 380 && Math.hypot(p.x - inkLastTap.x, p.y - inkLastTap.y) < 70) {
+      inkG.mode = 'inject'; inkGestures.inject++; inkLastTap = null;
+      var j = inkInj[inkInjNext]; inkInjNext = (inkInjNext + 1) % 2;
+      inkInjPos = (inkInjPos + .37) % 1;
+      j.x = inkX(p.x); j.y = inkY(p.y); j.amt = .05; j.pos = .35 + inkInjPos * .3; j.grow = true; inkG.inj = j;
+    }
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    e.preventDefault();
+  }
+  function inkMove(e) {
+    var g = inkG, p = point(e), now = performance.now(), dts = Math.max(8, now - g.lastT) / 1000;
+    var ivx = (p.x - g.lastX) / h / dts, ivy = -(p.y - g.lastY) / h / dts;
+    g.vx = g.vx * .55 + ivx * .45; g.vy = g.vy * .55 + ivy * .45;
+    g.path += Math.hypot(p.x - g.lastX, p.y - g.lastY);
+    g.x = p.x; g.y = p.y; g.lastX = p.x; g.lastY = p.y; g.lastT = now;
+    var dist = Math.hypot(p.x - g.sx, p.y - g.sy);
+    if (g.mode === 'pending' && dist > 14) { g.mode = 'drag'; inkGestures.drag++; }
+    if (g.mode === 'twist') { inkTwist.x += (inkX(p.x) - inkTwist.x) * .5; inkTwist.y += (inkY(p.y) - inkTwist.y) * .5; }
+    else if (g.mode === 'inject') { g.inj.x = inkX(p.x); g.inj.y = inkY(p.y); }
+    else if (g.mode === 'drag' && g.path - g.lastDrop > 14) {
+      g.lastDrop = g.path;
+      var d = inkDrags[inkDragNext]; inkDragNext = (inkDragNext + 1) % 4;
+      var sp = Math.hypot(g.vx, g.vy), k = sp > 3 ? 3 / sp : 1;
+      d.x = inkX(p.x); d.y = inkY(p.y); d.vx = g.vx * k; d.vy = g.vy * k; d.life = 1;
+    }
+    e.preventDefault();
+  }
+  function inkUp(e, cancelled) {
+    var g = inkG, now = performance.now(), held = now - g.t0;
+    inkG = null;
+    if (g.mode === 'pending' && !cancelled) {
+      var b = inkBursts[inkBurstNext]; inkBurstNext = (inkBurstNext + 1) % 3;
+      b.x = inkX(g.x); b.y = inkY(g.y); b.age = 0; b.pow = held < 300 ? 1 : .8; inkGestures.burst++;
+      inkLastTap = { t: now, x: g.x, y: g.y }; sound(300, .12);
+    } else if (g.mode === 'drag' && !cancelled) {
+      var sp = Math.hypot(g.vx, g.vy);
+      if (sp > 2.2 && held < 650) {
+        var pw = clamp(sp / 2.2, 1, 2.5);
+        inkSplash.x = inkX(g.x); inkSplash.y = inkY(g.y); inkSplash.dx = g.vx / sp * pw; inkSplash.dy = g.vy / sp * pw; inkSplash.age = 0;
+        inkGestures.splash++; sound(180, .18);
+      }
+    } else if (g.mode === 'twist') inkTwist.on = false;
+    else if (g.mode === 'inject') g.inj.grow = false;
+  }
   function syncExperienceUi() {
     root.setAttribute('data-experience', experience);
     root.setAttribute('data-backdrop', backdrop);
@@ -508,6 +868,13 @@
       var on = el.getAttribute('data-experience') === experience;
       el.classList.toggle('active', on); el.setAttribute('aria-pressed', on ? 'true' : 'false');
       if (el.getAttribute('data-experience') === 'flow') { el.disabled = glFailed; el.title = glFailed ? 'Energy Flow needs WebGL graphics' : ''; }
+      if (el.getAttribute('data-experience') === 'ink') { el.disabled = glFailed || inkFailed; el.title = glFailed || inkFailed ? 'Ink Machine needs WebGL graphics' : ''; }
+    });
+    // In Ink Machine the same four COLOUR buttons choose its four liquid palettes.
+    Array.prototype.forEach.call(document.querySelectorAll('.party-preset'), function (el) {
+      if (!el.getAttribute('data-label')) el.setAttribute('data-label', el.textContent);
+      var ink = INK_PALETTES[el.getAttribute('data-preset')];
+      el.textContent = experience === 'ink' && ink ? ink.name : el.getAttribute('data-label');
     });
     Array.prototype.forEach.call(document.querySelectorAll('.party-backdrop'), function (el) {
       var on = el.getAttribute('data-backdrop') === backdrop;
@@ -516,8 +883,18 @@
     });
   }
   function setExperience(name) {
-    if (experiences.indexOf(name) < 0 || (name === 'flow' && glFailed)) return;
-    experience = name; flowTarget = name === 'flow' ? 1 : 0; flowCanvasCleared = false;
+    if (experiences.indexOf(name) < 0 || (name === 'flow' && glFailed) || (name === 'ink' && (glFailed || inkFailed))) return;
+    experience = name; flowCanvasCleared = false;
+    if (name === 'ink') {
+      inkTarget = 1;
+      if (!active) inkMix = 1;
+    } else {
+      flowTarget = name === 'flow' ? 1 : 0;
+      // the old scene comes back from under the ink, already on the experience picked
+      if (inkMix > 0) flowMix = flowTarget;
+      inkTarget = 0; if (!active) inkMix = 0;
+      inkG = null; inkTwist.on = false;
+    }
     syncExperienceUi();
     try { localStorage.setItem('nexus.party.experience', name); } catch (e) {}
   }
@@ -627,6 +1004,7 @@
   function bassCannon() {
     // In Energy Flow the cannon is the manual Supernova Burst.
     if (experience === 'flow' && glOk) triggerBurst(1.4);
+    if (experience === 'ink' && glOk) triggerInk(1.4);
     ripple(w * .5, h * .48, 1.5);
     for (var i = 0; i < orbs.length; i++) {
       var o = orbs[i], dx = o.x - w * .5, dy = o.y - h * .48, d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -863,12 +1241,12 @@
     glDraw(now, dt);
     var classicTarget = !glOk || (backdrop === 'classic' && experience === 'orb') ? 1 : 0;
     classicWeight += (classicTarget - classicWeight) * (1 - Math.exp(-dt / 420));
-    if (glOk && experience === 'flow' && flowMix >= 1) {
-      // Energy Flow has no orb field; the 2D layer stays clear while the GL scene runs.
+    if (glOk && ((experience === 'flow' && flowMix >= 1) || inkMix >= .5)) {
+      // Energy Flow and Ink Machine have no orb field; the 2D layer stays clear while the GL scene runs.
       if (!flowCanvasCleared) { ctx.clearRect(0, 0, w, h); flowCanvasCleared = true; }
     } else {
       flowCanvasCleared = false;
-      canvas.style.opacity = glOk ? String(1 - flowMix) : '1';
+      canvas.style.opacity = glOk ? String((1 - flowMix) * (inkMix > 0 ? 1 - inkMix * 2 : 1)) : '1';
       drawAtmosphere(now);
       drawConnections(now); drawTrails(); drawOrbs(now);
     }
@@ -890,6 +1268,7 @@
   }
   canvas.addEventListener('pointerdown', function (e) {
     if (!active || gesture || e.isPrimary === false) return;
+    if (experience === 'ink' && glOk) { if (!inkG) inkDown(e); else e.preventDefault(); return; }
     if (experience === 'flow' && glOk) {
       var fp = point(e); tapAt.x = fp.x; tapAt.y = fp.y; tapAt.age = 0; surge = Math.min(1.6, surge + .55); sound(260, .16);
       e.preventDefault(); return;
@@ -906,6 +1285,7 @@
     e.preventDefault();
   });
   canvas.addEventListener('pointermove', function (e) {
+    if (inkG) { if (inkG.id === e.pointerId && active) inkMove(e); return; }
     if (!gesture || gesture.id !== e.pointerId || !active) return;
     var p = point(e), total = Math.hypot(p.x - gesture.startX, p.y - gesture.startY);
     if (total > 9) { gesture.moved = true; if (gesture.orb) gesture.orb.charge = 0; }
@@ -920,6 +1300,7 @@
     gesture.lastX = p.x; gesture.lastY = p.y; e.preventDefault();
   });
   function release(e, cancelled) {
+    if (inkG) { if (!e || inkG.id === e.pointerId) inkUp(e, cancelled); return; }
     if (!gesture || (e && gesture.id !== e.pointerId)) return;
     var g = gesture, p = e ? point(e) : { x: g.lastX, y: g.lastY }, held = performance.now() - g.started;
     if (g.orb) {
@@ -1033,7 +1414,7 @@
           else { beatConfidence = Math.max(0, beatConfidence - .2); if (beatConfidence < .2) beatPeriod = clamp(gap, .3, 1.2); }
         }
         lastBeatAt = now; beatPhase = 0;
-        detectBurst(now);
+        detectBurst(now); detectInk(now);
         if (mode === 'ripple') ripple(w * .5, h * .5, .7 + beatPulse * .55);
         if (mode === 'chaos') for (var bi = 0; bi < orbs.length; bi++) { orbs[bi].vx += (orbs[bi].x - w * .5) * .00055 * beatPulse; orbs[bi].vy += (orbs[bi].y - h * .5) * .00055 * beatPulse; }
       }
@@ -1058,6 +1439,7 @@
     active = true; runId++; lastFrame = 0;
     resize();
     bgFrom = bgTo; bgMix = 0; flowMix = flowTarget; tapAt.age = 9;
+    inkMix = inkTarget; inkG = null; inkTwist.on = false; inkTwist.str = inkTwist.wind = 0; blastPow = 0; blastAge = 9; inkCols = null; glOpacity = 'x';
     buildUp = 0; beatPhase = 1; beatConfidence = 0; burstPower = 0; burstEnv = 0; burstAge = 9; fieldRecoil = 0;
     bassFast = 0; bassSlow = .01; bassPeak = .02; energyFast = energySlow = .08; highFast = highSlow = 0;
     lastAudioSample = 0; lastBeatAt = lastBurstAt = lastDropAt = lastQuietAt = performance.now();
@@ -1073,7 +1455,7 @@
     active = false; runId++;
     if (raf) cancelAnimationFrame(raf); raf = 0;
     if (pollTimer) clearInterval(pollTimer); pollTimer = 0;
-    selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0;
+    selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0; inkG = null; inkTwist.on = false;
     ctx.clearRect(0, 0, w, h);
     glDestroy();
   }
@@ -1097,5 +1479,11 @@
   window.NexusParty = { setExperience: setExperience, setBackdrop: setBackdrop,
     state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active, variant: glVariant,
       build: buildUp, beatPhase: beatPhase, beatPeriod: beatPeriod, beatConfidence: beatConfidence, burst: burstEnv, burstPower: burstPower, burstAge: burstAge, burstCount: burstCount, recoil: fieldRecoil,
-      bassFast: bassFast, bassSlow: bassSlow, energyFast: energyFast, energySlow: energySlow }; } };
+      bassFast: bassFast, bassSlow: bassSlow, energyFast: energyFast, energySlow: energySlow,
+      ink: { mix: inkMix, failed: inkFailed, frames: inkFrames, t: inkT, swirl: inkSwirl, blast: blastEnv, blastCount: inkBlastCount, palette: preset,
+        gestures: { burst: inkGestures.burst, twist: inkGestures.twist, drag: inkGestures.drag, splash: inkGestures.splash, inject: inkGestures.inject },
+        twist: { on: inkTwist.on, str: inkTwist.str, wind: inkTwist.wind }, injected: Math.max(inkInj[0].amt, inkInj[1].amt),
+        dragLife: Math.max(inkDrags[0].life, inkDrags[1].life, inkDrags[2].life, inkDrags[3].life), splashAge: inkSplash.age,
+        burstAge: Math.min(inkBursts[0].age, inkBursts[1].age, inkBursts[2].age), cols: inkCols ? inkCols.map(function (c) { return c.slice(); }) : null } }; },
+    triggerInk: function (p) { triggerInk(p || 1); } };
 })();

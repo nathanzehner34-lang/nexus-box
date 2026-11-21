@@ -180,7 +180,20 @@
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
   function start() { if (raf || document.hidden) return; lastT = 0; lastFrame = 0; raf = requestAnimationFrame(frame); }
-  function pause() { if (raf) cancelAnimationFrame(raf); raf = 0; if (meterWanted) { meterWanted = false; try { if (A && A.partyMeter) A.partyMeter(false); } catch (e) {} } }
+  // The music meter is one shared listener. When the background pauses because Party Mode or an
+  // experience (Liquid Dreams, Visuals) has opened over it, that screen is now using the meter, so
+  // the background must hand it over rather than switch it off underneath them.
+  function meterInUseElsewhere() {
+    try {
+      if (window.XP && XP.active) return true;
+      var party = document.getElementById('party');
+      return !!(party && !party.classList.contains('hidden'));
+    } catch (e) { return false; }
+  }
+  function pause() {
+    if (raf) cancelAnimationFrame(raf); raf = 0;
+    if (meterWanted) { meterWanted = false; if (!meterInUseElsewhere()) { try { if (A && A.partyMeter) A.partyMeter(false); } catch (e) {} } }
+  }
   function select(id) {
     var i = IDS.indexOf(id); if (i < 0) return;
     S.env = id; save();

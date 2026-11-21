@@ -2798,7 +2798,7 @@ void main(){
   // entry rather than another experience.
   // ==================================================================
   var ND_HEAD = `
-uniform float travel, night, react, mids, highs, q;
+uniform float travel, night, react, mids, highs, q, fadeIn;
 uniform vec3 cA, cB, cC, cD;
 float fbm(vec2 p, float oct){ float v=0., a=.5; mat2 m=mat2(1.6,1.2,-1.2,1.6);
  for(int i=0;i<5;i++){ if(float(i)>=oct) break; v+=a*noise(p); p=m*p+vec2(3.1,1.7); a*=.5; } return v; }
@@ -2822,6 +2822,7 @@ float ndRidge(float az, float lay, float tr){
   //   ndSky   — everything above the road: sky, celestial bodies, horizon silhouettes
   //   ndHaze  — the cheap colour the road fades into at the horizon
   //   ndGround— the terrain either side of the asphalt
+  //   ndRoadFx— light the world adds on top of the asphalt (return the road unchanged for none)
   var ND_MAIN = `
 void main(){
  vec2 uv = (gl_FragCoord.xy - .5*res)/res.y;
@@ -2869,6 +2870,7 @@ void main(){
    road += mix(neon, cB, .5)*exp(-abs(edge-HALF)*1.1)*.5*(1. + mus*.9 + run*.8);
    road += mix(cB, neon, .4)*exp(-abs(edge-HALF)*.38)*.11*smoothstep(HALF,0.,edge)*(1. + mus*.8);
    road += mix(neon, cD, .5)*exp(-abs(edge-HALF)*.9)*.16*(1.-fade)*(.8+kick*react*.9);
+   road = ndRoadFx(road, xr, wz, edge, fade);
    ground = mix(ground, road, smoothstep(HALF+1.6, HALF+.2, edge));
   }
   ground = mix(ndHaze(rd, t), ground, fade);
@@ -2880,6 +2882,8 @@ void main(){
  col = col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
  col = pow(clamp(col,0.,1.), vec3(.95));
  col *= .80 + .20*smoothstep(1.45,.3, length(uv*vec2(.78,1.)));
+ // the world rises out of black when it starts or changes, instead of cutting in
+ col *= fadeIn;
  col += (hash(gl_FragCoord.xy + fract(t*11.))-.5)/255.*2.;
  gl_FragColor = vec4(clamp(col,0.,1.), 1.);
 }
@@ -2976,6 +2980,7 @@ vec4 ndRings(vec3 ro, vec3 rd, vec3 rn, vec3 L, float t, float tPlanet, out floa
  col *= 1. + highs*react*.35*fine;
  return vec4(col*(.62+dens*1.05)*(1.+energy*react*.35+mids*react*.45), clamp(dens*1.9 + wave*.25, 0., 1.));
 }
+vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){ return road; }
 vec3 ndHaze(vec3 rd, float t){
  vec3 skyLow = mix(vec3(.040,.060,.150), vec3(.014,.022,.068), night);
  return skyLow + mix(mix(cA, cD, .45), cB, .35)*(.14+energy*react*.06)*(1.-night*.62)
@@ -3022,8 +3027,192 @@ vec3 ndSky(vec3 rd, float t){
 }
 `;
 
+  // ---- World 2: COSMIC HIGHWAY ----
+  // A galaxy arching over the road, neon light ribbons sweeping the horizon on both sides, soft
+  // blue hills, and long-exposure light trails streaming along the lanes. Music: bass beats pulse
+  // the trails and the horizon, overall loudness lifts the galaxy, mids swell the ribbons and
+  // highs make the stars flare.
+  var ND_COSMIC_HIGHWAY = `
+// The galaxy band runs from high on the right down to the horizon just left of the road.
+const vec2 GAL_A = vec2(.62, .78), GAL_B = vec2(-.30, -.02);
+const vec2 GAL_CORE = vec2(.02, .33);
+vec2 chSky(vec3 rd){ return vec2(atan(rd.x, -rd.z), rd.y / max(length(rd.xz), 1e-4)); }
+float chBand(vec2 p, out float along){
+ vec2 d = normalize(GAL_A - GAL_B), q = p - GAL_B;
+ along = dot(q, d);
+ return dot(q, vec2(-d.y, d.x));
+}
+vec3 chStars(vec2 p, float bandMask, float t){
+ vec3 o = vec3(0.);
+ // three layers: fine dust, ordinary stars and a few big sparklers with four-point spikes
+ for(int i=0;i<3;i++){ float fi=float(i);
+  float sc = 46. - fi*14.;
+  vec2 g = p*vec2(sc*1.25, sc);
+  vec2 id = floor(g), f = fract(g)-.5;
+  float h = hash(id+fi*13.1), h2 = hash(id+fi*13.1+5.7);
+  f -= (vec2(h, h2)-.5)*.6;
+  float dens = i==0 ? .80 - bandMask*.42 : (i==1 ? .90 - bandMask*.10 : .955);
+  if(h < dens) continue;
+  float tw = .6 + .4*sin(t*(.8+h2*2.6) + h*60.);
+  float flare = 1. + highs*react*1.4*step(.55, h2);
+  vec3 c = mix(vec3(.78,.86,1.), mix(vec3(1.,.82,.98), cA, .25), h2);
+  float r2 = dot(f,f);
+  float core = exp(-r2*(i==0 ? 900. : (i==1 ? 260. : 120.)));
+  float spikes = 0.;
+  if(i==2){ float big = .5 + 1.2*step(.985, h); spikes = (exp(-abs(f.x)*26./big-f.y*f.y*1400.) + exp(-abs(f.y)*26./big-f.x*f.x*1400.)) * big; core *= big*1.6; }
+  o += c * (core*(i==0 ? .55 : 1.) + spikes) * tw * flare;
+ }
+ return o;
+}
+vec3 chGalaxy(vec2 p, float t, out float mask){
+ float along, d = chBand(p, along);
+ float wob = fbm(vec2(along*3.2, 1.7), 2.)-.5;
+ float w = .085 + .05*fbm(vec2(along*2.1+4., .3), 2.);
+ float body = exp(-pow((d - wob*.05)/w, 2.));
+ mask = body;
+ // clumpy star clouds and dark dust lanes along the band
+ vec2 bp = vec2(along*9., d*26.);
+ float cloud = fbm(bp + vec2(t*.01, 0.), 3.+q);
+ float lanes = smoothstep(.50,.78, fbm(vec2(along*5.5+9., d*40.+wob*6.), 3.));
+ float core = exp(-length((p - GAL_CORE)*vec2(1.,1.25))*7.5);
+ float lum = body*(.30 + cloud*.85)*(1.-lanes*.62) + core*(.9 + cloud*.6);
+ vec3 c = mix(cB*.95, mix(cB, cC, .45), smoothstep(.35,.8,cloud));
+ c = mix(c, vec3(.95,.86,1.), smoothstep(.55,1.2,core + cloud*body*.4));
+ vec3 halo = mix(cB, vec3(.25,.45,1.), .5) * exp(-pow(d/(w*3.2),2.)) * .16;
+ return (c*lum*.78 + halo) * (1. + energy*react*.45);
+}
+// Neon light ribbons sweeping across the sky near the horizon, mostly out to the sides.
+vec3 chRibbons(vec2 p, float t){
+ vec3 o = vec3(0.);
+ for(int i=0;i<7;i++){ float fi=float(i);
+  float side = mod(fi,2.)*2.-1.;                      // alternate right / left
+  float base = .040 + fi*.021;
+  float y = base + .055*sin(p.x*(2.6+fi*.5)*side + fi*1.9 + t*.22 + travel*.0003)
+                 + .022*sin(p.x*7.1 - t*.35 + fi*4.);
+  y += .012*mids*react*sin(p.x*11. + t*1.7 + fi);
+  float dy = abs(p.y - y);
+  float out_ = smoothstep(.04,.42, p.x*side + .08);   // sweep in from the edges toward the road
+  float seg = .25 + .75*pow(.5 + .5*sin((p.x*.9*side + fi*.37 - t*.035 - travel*.00006)*6.28318), 1.5);
+  vec3 c = mod(fi,3.)==0. ? cC : (mod(fi,3.)==1. ? cA : mix(cB, cC, .5));
+  float glow = exp(-dy*420.)*1.1 + exp(-dy*70.)*.22 + exp(-dy*16.)*.05;
+  o += mix(c, vec3(1.), exp(-dy*900.)*.5) * glow * out_ * seg * (.55 + mids*react*.9 + energy*react*.25);
+ }
+ return o;
+}
+// One shooting star at a time, every few seconds, high in the sky.
+vec3 chMeteor(vec2 p, float t){
+ float cyc = t*.11, k = floor(cyc), ph = fract(cyc);
+ if(ph > .22) return vec3(0.);
+ float h = hash(vec2(k, 3.1)), h2 = hash(vec2(k, 7.7));
+ vec2 dir = normalize(vec2(-.85, -.42 - h2*.25));
+ vec2 head = vec2(.05 + h*.55, .62 - h2*.12) + dir*ph*2.2;
+ vec2 rel = p - head;
+ float a = dot(rel, -dir), d = abs(dot(rel, vec2(-dir.y, dir.x)));
+ float tail = (1.-smoothstep(.0,.26, a))*step(0., a);
+ float life = smoothstep(.0,.03,ph)*(1.-smoothstep(.12,.22,ph));
+ return mix(cA, vec3(1.), .5) * exp(-d*700.) * tail * life * (1.2 + highs*react);
+}
+float chHill(float az, float lay, float tr){
+ float x = az*(1.5+lay*1.2) + tr*(.00012+lay*.0003);
+ float h = .018 + .075*pow(fbm(vec2(x, lay*7.3), 3.), 1.6) + .022*sin(x*1.3+lay*2.+1.);
+ // the road runs out through a low gap between the hills
+ return h*mix(.35, 1., smoothstep(.04,.30, abs(az + .02))) - lay*.008;
+}
+vec3 ndHaze(vec3 rd, float t){
+ vec3 low = mix(vec3(.05,.07,.20), vec3(.02,.03,.10), night);
+ return low + mix(cC, cB, .45)*(.16 + kick*react*.10 + energy*react*.06)*(1.-night*.45);
+}
+vec3 ndGround(float xr, float wz, float fade){
+ float gn = fbm(vec2(xr*.03, wz*.010), 3.);
+ // moonlit fields: dark blue-green grass with lighter patches
+ float gx = fbm(vec2(xr*.11, wz*.05), 2.);
+ vec3 c = mix(vec3(.030,.050,.120), vec3(.060,.090,.200), gn*.7 + gx*.3) * (1.-night*.25);
+ // distance haze: the far fields take on the blue of the night sky
+ c = mix(c, mix(vec3(.10,.12,.32), cB*.45, .3)*(1.-night*.25), (1.-smoothstep(.3,1.,fade))*.8);
+ // the sky glow rolling across the fields
+ c += mix(cB, cA, .4) * .035 * smoothstep(.4,.9,gn) * fade;
+ // a still lake off to the left catching the galaxy and the horizon glow
+ float lake = smoothstep(.52,.6, fbm(vec2(xr*.012+3., wz*.0016), 3.)) * (1.-smoothstep(-40.,-24., xr));
+ vec3 water = mix(vec3(.03,.05,.14), mix(cB, cA, .5)*.32, .5+.5*sin(wz*.06 + xr*.2 + time*.6)) ;
+ water += mix(cC, cB, .5) * (.08 + kick*react*.08) * (1.-fade);
+ c = mix(c, water, lake);
+ // distant settlement lights near the horizon
+ float lights = step(.93, hash(floor(vec2(xr*.35, wz*.05)))) * (1.-smoothstep(.1,.55, fade));
+ c += mix(cA, vec3(1.,.85,.7), hash(floor(vec2(xr*.35, wz*.05))+2.)) * lights * .6;
+ // posts along the shoulder carrying small lights
+ float post = (1.-smoothstep(.0,.6, abs(abs(xr)-14.5))) * step(.85, fract(wz*.03));
+ c += mix(cA, cC, step(0., xr)) * post * .5 * fade * (1.+kick*react*.8);
+ return c;
+}
+// Long-exposure light trails streaming along the lanes, brightening on every beat.
+vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
+ vec3 add = vec3(0.);
+ for(int i=0;i<12;i++){ float fi=float(i);
+  float h = hash(vec2(fi, 9.3)), h2 = hash(vec2(fi, 4.1));
+  float side = fi < 5.5 ? -1. : 1.;
+  float x = side*(.6 + h*9.6) + .45*sin(wz*.009 + fi*2.3);
+  float wd = .14 + h2*.32;
+  float d = abs(xr - x)/wd;
+  // long streaks that keep flowing, oncoming on the left and away on the right
+  float stream = fract(wz*(.0022 + h2*.0016) - time*(.16 + h*.14)*side*-1. + h*7.);
+  float run = smoothstep(.0,.08, stream)*(1.-smoothstep(.35,1., stream));
+  vec3 c = mod(fi,3.)==0. ? cC : (mod(fi,3.)==1. ? mix(cC, cB, .5) : mix(cC, vec3(1.,.55,.95), .4));
+  if(mod(fi,5.)==4.) c = mix(cB, cA, .45);
+  float line = exp(-d*d*2.2)*.75 + exp(-d*.9)*.22;
+  add += mix(c, vec3(1.,.93,1.), exp(-d*d*9.)*.55) * line * (.18 + .82*run);
+ }
+ add += mix(cC, cB, .5) * exp(-abs(xr)*.18) * .05 * (1.-fade*.6);
+ float pulse = .60 + energy*react*.50 + kick*react*.70;
+ return road*.85 + add * pulse * (.45 + .55*fade);
+}
+vec3 ndSky(vec3 rd, float t){
+ vec2 p = chSky(rd);
+ float top = smoothstep(.02,.65,p.y);
+ vec3 skyLow = mix(vec3(.06,.08,.26), vec3(.025,.035,.13), night);
+ vec3 skyTop = mix(vec3(.010,.014,.075), vec3(.004,.006,.032), night);
+ vec3 col = mix(skyLow, skyTop, pow(top,.7));
+ // violet wash where the galaxy meets the horizon
+ col += mix(cB, cC, .3) * exp(-pow((p.x+.05)/.6,2.))*exp(-max(p.y,0.)*5.)*.22;
+ float gmask;
+ col += chGalaxy(p, t, gmask) * (1.-night*.15);
+ col += chStars(p, gmask, t) * (.55 + night*.45);
+ col += chMeteor(p, t);
+ // a handful of brilliant stars with long diffraction spikes, placed like a composed shot
+ for(int i=0;i<5;i++){ float fi=float(i);
+  vec2 sp = i==0 ? vec2(-.50,.48) : (i==1 ? vec2(.32,.56) : (i==2 ? vec2(.44,.27) : (i==3 ? vec2(-.24,.62) : vec2(.66,.47))));
+  vec2 f = p - sp;
+  float sz = i==0 ? 1.3 : (i==1 ? 1. : .75);
+  float tw = .8 + .2*sin(t*(1.1+fi*.37) + fi*3.) + highs*react*.6;
+  float spk = exp(-abs(f.x)*30./sz - f.y*f.y*9000.) + exp(-abs(f.y)*30./sz - f.x*f.x*9000.);
+  spk += (exp(-abs(f.x+f.y)*90./sz - pow(f.x-f.y,2.)*14000.) + exp(-abs(f.x-f.y)*90./sz - pow(f.x+f.y,2.)*14000.))*.35;
+  float core = exp(-dot(f,f)*5200./sz) + exp(-dot(f,f)*260./sz)*.18;
+  col += mix(vec3(.85,.92,1.), cA, .25) * (spk*.8 + core*1.4) * sz * tw;
+ }
+ col += chRibbons(p, t);
+ // the bright glow on the horizon where the road disappears
+ col += mix(cC, cB, .35) * exp(-abs(p.y)*16.) * exp(-p.x*p.x*6.) * (.38 + kick*react*.40 + energy*react*.20);
+ col += mix(cA, cB, .5) * exp(-abs(p.y)*40.) * .18;
+ // soft rolling hills, far range first, each lit along its crest
+ for(int i=1;i>=0;i--){ float lay=float(i);
+  float h = chHill(p.x, lay, travel);
+  if(p.y < h){
+   float sh = smoothstep(.0,.06, h-p.y);
+   vec3 hill = mix(vec3(.075,.10,.27), vec3(.030,.042,.12), lay*.0 + (1.-lay)*.55) * (1.-night*.3);
+   hill = mix(hill, hill*.55, sh);
+   hill += mix(cB, cA, .3) * .06 * (1.-sh);
+   col = mix(col, hill, .92);
+   col += mix(cA, cB, .5) * exp(-max(h-p.y,0.)*160.) * (.32 + energy*react*.25) * (1.-lay*.35);
+  }
+ }
+ // just below the horizon the hills give way to the far haze, so the ground meets them softly
+ col = mix(col, ndHaze(rd, t), (1.-smoothstep(-.012,.0,p.y)));
+ return col;
+}
+`;
+
   var ND_WORLDS = [
-    { id: 'rings', name: 'CELESTIAL RINGS', frag: ND_CELESTIAL_RINGS }
+    { id: 'rings', name: 'CELESTIAL RINGS', frag: ND_CELESTIAL_RINGS },
+    { id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY }
   ];
   var ND_PALETTES = [
     ['ultraviolet', 'ULTRAVIOLET', [.25, .72, 1], [.52, .35, 1], [1, .35, .85], [.25, .95, .82]],
@@ -3053,7 +3242,7 @@ vec3 ndSky(vec3 rd, float t){
     var oldGLX = GLX;
     GLX = HIGH_MEMORY_DEVICE ? 1.05 : .70;
     var quality = HIGH_MEMORY_DEVICE ? 1 : 0;
-    var travel = 0, lastNow = 0, frames = 0, beat = null, g = null, failed = false, surge = 0;
+    var travel = 0, lastNow = 0, frames = 0, beat = null, g = null, failed = false, surge = 0, fadeStart = 0;
 
     function beatOn() { if (!beat) beat = beatTracker({ quiet: true }); }
     function beatOff() { beat = null; try { if (A) A.meter(false); } catch (e) {} }
@@ -3061,7 +3250,7 @@ vec3 ndSky(vec3 rd, float t){
 
     function build() {
       g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN);
-      failed = !g;
+      failed = !g; fadeStart = 0;
       if (failed) { text('xpMid', 'NIGHT DRIVE NEEDS WEBGL GRAPHICS'); $('xpMid').style.color = '#9fd0ff'; }
       return !!g;
     }
@@ -3127,6 +3316,10 @@ vec3 ndSky(vec3 rd, float t){
       g.f('mids', b ? b.mid : 0);
       g.f('highs', b ? b.high : 0);
       g.f('q', quality);
+      // ease the world in from black over 1.6 s when it starts or another world is picked
+      if (!fadeStart) fadeStart = now;
+      var fk = Math.min(1, (now - fadeStart) / 1600);
+      g.f('fadeIn', fk * fk * (3 - 2 * fk));
       g.v3('cA', palette[2]); g.v3('cB', palette[3]); g.v3('cC', palette[4]); g.v3('cD', palette[5]);
       g.draw(now, b, 0);
       frames++;
@@ -3142,7 +3335,7 @@ vec3 ndSky(vec3 rd, float t){
     };
     XP.ndDebug = function () {
       return { world: world.id, palette: palette[0], time: timeOfNight[0], speed: speed[0], react: react,
-        travel: travel, frames: frames, gl: !!g, quality: quality, glx: GLX,
+        travel: travel, frames: frames, gl: !!g, quality: quality, glx: GLX, fade: fadeStart ? Math.min(1, (lastNow - fadeStart) / 1600) : 0,
         idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat };
     };
   }

@@ -338,6 +338,10 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 #party[data-experience="flow"] .party-modes,#party[data-experience="flow"] .party-backdrops { display:none; }
 #party[data-experience="flow"] .party-flow-caption { display:block; }
 #party:not([data-gl="on"]) .party-flow-caption { display:none; }
+.party-ink-caption { display:none;margin:1.4vh auto 0;color:rgba(214,230,255,.66);font:600 clamp(9px,1.15vmin,13px) monospace;letter-spacing:.2vmin; }
+#party[data-experience="ink"] .party-modes,#party[data-experience="ink"] .party-backdrops { display:none; }
+#party[data-experience="ink"] .party-ink-caption { display:block; }
+#party:not([data-gl="on"]) .party-ink-caption { display:none; }
 #party[data-preset="orb"] { --party-rgb:39,190,255; }
 #party[data-preset="voltage"] { --party-rgb:35,122,255; }
 #party[data-preset="aurora"] { --party-rgb:94,99,255; }

@@ -21,12 +21,13 @@ function lit(name) {
   assert(m, name + ' is embedded in experiences.js');
   return m[1];
 }
-const ND_HEAD = lit('ND_HEAD'), ND_MAIN = lit('ND_MAIN'), ND_RINGS = lit('ND_CELESTIAL_RINGS');
+const ND_HEAD = lit('ND_HEAD'), ND_MAIN = lit('ND_MAIN'), ND_RINGS = lit('ND_CELESTIAL_RINGS'), ND_COSMIC = lit('ND_COSMIC_HIGHWAY');
 const GL_HEAD = (exp.match(/var GL_HEAD = ([\s\S]*?);\n  function glStart/) || [])[1];
 assert(GL_HEAD, 'the shared shader prelude is readable');
 // eslint-disable-next-line no-new-func
 const prelude = Function('return ' + GL_HEAD)();
 const shader = prelude + ND_HEAD + ND_RINGS + ND_MAIN;
+const cosmicShader = prelude + ND_HEAD + ND_COSMIC + ND_MAIN;
 
 // ---------- Static integration ----------
 assert(/case 'night': fromVisuals = false; openExperience\('nightdrive'\); break;/.test(app), 'the Night Drive tile opens the experience');
@@ -48,7 +49,18 @@ assert(ND_MAIN.includes('float h0 = hillAt(tr);') && ND_MAIN.includes('- h0)*.26
 assert(/if \(S !== old\) \{ pendingSize = true;/.test(exp) && exp.includes('if (pendingSize) { pendingSize = false; size(); }'),
   'a quality change resizes right before the next draw, so no black frame is shown');
 assert(ND_MAIN.includes('float run = ') && ND_RINGS.includes('float wave = '), 'the neon edges and the rings both follow the music');
-['ndSky', 'ndHaze', 'ndGround'].forEach(h => assert(ND_RINGS.includes('vec3 ' + h + '('), 'Celestial Rings implements the ' + h + ' hook'));
+['ndSky', 'ndHaze', 'ndGround', 'ndRoadFx'].forEach(h => {
+  assert(ND_RINGS.includes('vec3 ' + h + '('), 'Celestial Rings implements the ' + h + ' hook');
+  assert(ND_COSMIC.includes('vec3 ' + h + '('), 'Cosmic Highway implements the ' + h + ' hook');
+});
+assert(/\{ id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY \}/.test(exp), 'Cosmic Highway is offered as a Night Drive world');
+['chGalaxy', 'chStars', 'chRibbons', 'chMeteor', 'chHill'].forEach(f => assert(ND_COSMIC.includes(f + '('), 'Cosmic Highway builds its ' + f));
+// GLSL leaves smoothstep undefined when its first edge is above the second; some GPUs return 0.
+(ND_COSMIC.match(/smoothstep\(\s*-?[\d.]+\s*,\s*-?[\d.]+/g) || []).forEach(m => {
+  const e = m.slice(11).split(',').map(Number);
+  assert(e[0] < e[1], 'Cosmic Highway only uses well-defined smoothstep edges: ' + m);
+});
+assert(ND_MAIN.includes('col *= fadeIn;') && /fadeIn', fk \* fk \* \(3 - 2 \* fk\)/.test(exp), 'a world eases in from black when it starts or changes');
 ['ndPlanet', 'ndRings', 'ndStars', 'ndNebula'].forEach(f => assert(ND_RINGS.includes(f + '('), 'the world builds its ' + f));
 assert(/curveAt|hillAt/.test(ND_HEAD) && ND_MAIN.includes('hillAt(') && ND_MAIN.includes('curveAt('),
   'the shared highway carries the curves and crests, so other worlds inherit them');
@@ -56,7 +68,7 @@ assert(ND_MAIN.includes('ndSky(') && ND_MAIN.includes('ndGround(') && ND_MAIN.in
   'the shared highway calls into the world through the hooks only');
 assert(!/orbR|heroOrb|PARTY/.test(ND_HEAD + ND_MAIN), 'Night Drive shares nothing with Party Mode');
 // Nothing automotive: the journey is the highway and the world around it.
-assert(!/\b(car|truck|vehicle|cockpit|dashboard|steeringWheel|speedometer|bonnet|windshield)\b/i.test(ND_HEAD + ND_RINGS + ND_MAIN),
+assert(!/\b(car|truck|vehicle|cockpit|dashboard|steeringWheel|speedometer|bonnet|windshield)\b/i.test(ND_HEAD + ND_RINGS + ND_COSMIC + ND_MAIN),
   'the scene contains no vehicle, cockpit or dashboard');
 assert(css.includes('#xp.night-drive.nd-idle .nd-ui') && css.includes('opacity: 0; pointer-events: none;'),
   'the controls fade out of the way');
@@ -136,7 +148,7 @@ try{
  const l=gl.getAttribLocation(p,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
  const W=200,H=120,px=new Uint8Array(W*H*4);
  // hue comes from the shared prelude and this world does not use it, so it is not set here
- const base={res:[W,H],time:42.5,kick:.2,energy:.35,travel:1200,night:.55,react:1,mids:.3,highs:.3,q:1,
+ const base={res:[W,H],time:42.5,kick:.2,energy:.35,travel:1200,night:.55,react:1,mids:.3,highs:.3,q:1,fadeIn:1,
   cA:[.25,.72,1],cB:[.52,.35,1],cC:[1,.35,.85],cD:[.25,.95,.82]};
  // helper boxes in pixels, measured from the bottom-left
  function box(x0,y0,x1,y1){return [x0,y0,x1,y1];}
@@ -175,6 +187,7 @@ try{
  R.noReact=render({react:0,kick:1,energy:1});
  R.aurora=render({cA:[.34,1,.82],cB:[.44,.56,1],cC:[.82,.44,1],cD:[.30,.96,.96]});
  R.q0=render({q:0});
+ R.black=render({fadeIn:0}); R.half=render({fadeIn:.5});
  R.d={move:diff(R.hero,R.moved),far:diff(R.hero,R.farAlong),music:diff(R.quiet,R.loud),
   palette:diff(R.hero,R.aurora),deaf:diff(R.loud,R.noReact),tier:diff(R.hero,R.q0)};
  // a long journey must keep changing: sample the horizon across many kilometres
@@ -211,6 +224,24 @@ assert(S.d.deaf > 2, 'music reactivity can be switched off (' + S.d.deaf.toFixed
 assert(S.d.palette > 3, 'the colour schemes are genuinely different (' + S.d.palette.toFixed(1) + ')');
 assert(S.q0.lum > 12 && S.q0.roadNear.left > 110 && S.q0.roadNear.right > 110 && S.q0.formation > .2,
   'the 2 GB quality tier renders the same world');
+
+assert(S.black.lum < 2 && S.half.lum > 3 && S.half.lum < S.hero.lum, 'the world fades in from black (' + S.black.lum.toFixed(1) + ' -> ' + S.half.lum.toFixed(1) + ' -> ' + S.hero.lum.toFixed(1) + ')');
+
+// ---------- A2. Cosmic Highway, in pixels ----------
+const C = runPage('nd-cosmic', shaderPage.split(JSON.stringify(shader)).join(JSON.stringify(cosmicShader)), 60000);
+assert(C.hero.lum > 20, 'Cosmic Highway is lit, not a black frame (' + C.hero.lum.toFixed(1) + ')');
+assert(C.hero.maxSky > 220, 'the galaxy and brilliant stars blaze in the sky (' + C.hero.maxSky.toFixed(0) + ')');
+assert(C.hero.formation > .25, 'the galaxy, ribbons and horizon glow fill much of the sky (' + (C.hero.formation * 100).toFixed(0) + '%)');
+assert(C.hero.roadNear.left > 110 && C.hero.roadNear.right > 110, 'light trails and neon edges run down both sides of the road');
+assert(C.hero.roadBright > .02, 'the road carries bright light trails (' + C.hero.roadBright.toFixed(3) + ')');
+assert(C.hero.sat > .35, 'the neon palette stays rich (' + C.hero.sat.toFixed(2) + ')');
+assert(C.d.move > 2 && C.d.far > 6, 'the drive moves and the view keeps changing (' + C.d.move.toFixed(1) + ', ' + C.d.far.toFixed(1) + ')');
+assert(C.journeyDiff.every(d => d > 2), 'a long Cosmic Highway journey keeps changing (' + C.journeyDiff.map(d => d.toFixed(1)).join(', ') + ')');
+assert(C.d.music > 4 && C.loud.lum > C.quiet.lum * 1.08, 'Cosmic Highway answers the music clearly (' + C.d.music.toFixed(1) + ', ' + C.quiet.lum.toFixed(1) + ' -> ' + C.loud.lum.toFixed(1) + ')');
+assert(C.d.deaf > 2, 'its music reactivity can be switched off (' + C.d.deaf.toFixed(1) + ')');
+assert(C.d.palette > 3 && C.dusk.lum > C.deep.lum * 1.05, 'colour and time of night both change the world');
+assert(C.q0.lum > 20 && C.q0.roadNear.left > 110, 'the 2 GB quality tier renders Cosmic Highway too');
+assert(C.black.lum < 2 && C.half.lum < C.hero.lum, 'Cosmic Highway fades in from black');
 
 // ---------- B. The real app ----------
 function appPage(setup, scenario) {
@@ -253,6 +284,11 @@ const scenario = `
  R.stored={speed:window.__prefs.ndSpeed,time:window.__prefs.ndTime,palette:window.__prefs.ndPalette,react:window.__prefs.ndReact};
  R.meterOffWithMusicOff=window.__meter===false;
  document.querySelector("[data-react=t]").click();await frames(2);R.reactBack=nd().react;
+ // switch to Cosmic Highway mid-journey: it eases in and keeps driving
+ const tw=nd().travel;
+ document.querySelector("[data-world=cosmic]").click();await frames(6);
+ R.cosmic={world:nd().world,gl:nd().gl,moved:nd().travel-tw,saved:window.__prefs.ndWorld,
+  on:!!document.querySelector('[data-world=cosmic].on'),fade:nd().fade};
  // keep driving for a while: nothing should pile up
  const domBefore=document.querySelectorAll("#xp *").length;
  await frames(25);
@@ -296,14 +332,17 @@ const scenario = `
     'time, colour and music reactivity all take effect ' + JSON.stringify(run.afterSettings));
   assert(run.meterOffWithMusicOff, 'switching music reactivity off stops the audio meter');
   assert(run.reactBack === true, 'music reactivity switches back on');
+  assert(run.cosmic.world === 'cosmic' && run.cosmic.gl && run.cosmic.on && run.cosmic.saved === 'cosmic',
+    'Cosmic Highway can be picked from the WORLD row and is saved ' + JSON.stringify(run.cosmic));
+  assert(run.cosmic.moved > 0 && run.cosmic.fade > 0, 'the journey carries on through the change and the new world fades in');
   assert(run.stored.speed === 'fast' && run.stored.time === 'deep' && run.stored.palette === 'aurora', 'choices are saved');
   assert(run.longRun && run.domStable === 0, 'a long run adds nothing to the page (' + run.domStable + ' nodes)');
   assert(!run.afterExit.active && run.afterExit.hidden && !run.afterExit.ui && !run.afterExit.ndDebug && !run.afterExit.nightClass,
     'exit tears the journey down completely ' + JSON.stringify(run.afterExit));
   assert(run.backHome, 'exit returns to the Nexus home screen');
-  assert(run.relaunched && run.restored.speed === 'fast' && run.restored.palette === 'aurora',
+  assert(run.relaunched && run.restored.speed === 'fast' && run.restored.palette === 'aurora' && run.restored.world === 'cosmic',
     'the next journey remembers the settings ' + JSON.stringify(run.restored));
   assert(run.party.open && run.party.state === true, 'Party Mode still opens and runs');
   assert(run.liquid, 'Liquid Dreams still opens');
-  console.log('Night Drive: Celestial Rings verified in pixels (planet, rings, highway, movement, music, tiers), and launched, driven, adjusted, exited and re-entered in the real app page with Party Mode and Liquid Dreams unaffected.');
+  console.log('Night Drive: Celestial Rings and Cosmic Highway verified in pixels (planet, rings, highway, movement, music, tiers), and launched, driven, adjusted, exited and re-entered in the real app page with Party Mode and Liquid Dreams unaffected.');
 })().catch(e => { console.error(e); process.exit(1); });
