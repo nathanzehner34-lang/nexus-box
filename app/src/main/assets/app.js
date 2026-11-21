@@ -1473,7 +1473,7 @@
       switchHtml('data-toggle="exitBubble"', 'Show a "‹ NEXUS" button over Spotify', pref('exitBubble') !== '0') +
       (A && A.exitBubbleAllowed && !A.exitBubbleAllowed() ? '<span class="btn go" id="sExitAllow">ALLOW THE EXIT BUTTON</span><div class="hint">Opens Android settings. Turn on "Allow display over other apps" for Nexus, then come back.</div>' : '') +
       '<div class="hint">While Spotify is open, tap the floating button to come straight back to Nexus. Drag it to move it.</div></div>' +
-      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Liquid Nebula, Floating Energy, Cosmic Aurora, Neural Flow or Liquid Chrome, and adjust motion, brightness and quality. They move on their own and do not react to music.</div>' +
+      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Prismatic Dimension, Floating Energy, Cosmic Aurora, Neural Flow or Bioluminescent Abyss, and adjust motion, brightness and quality. They move on their own and do not react to music.</div>' +
       '<span class="btn go" id="sEnv">OPEN ENVIRONMENTS</span></div>' +
       '<div class="field"><label>SYSTEM</label>' +
       '<span class="btn" id="sReplay">REPLAY STARTUP</span><span class="btn" id="sAndroid">ANDROID SETTINGS</span>' +

@@ -41,7 +41,7 @@ assert((html.match(/<svg viewBox="0 0 24 24">/g) || []).length >= 16, 'home tile
 
 // ---- 2. real WebGL renders of the five worlds ----
 const common = JSON.parse(env.match(/var COMMON = ("(?:[^"\\]|\\.)*");/)[1]);
-const envSrc = {}; for (const id of ['NEBULA', 'ENERGY', 'AURORA', 'NEURAL', 'CHROME']) {
+const envSrc = {}; for (const id of ['PRISM', 'ENERGY', 'AURORA', 'NEURAL', 'ABYSS']) {
   const m = env.match(new RegExp("id: '" + id.toLowerCase() + "'[^\\n]*src: (\"(?:[^\"\\\\]|\\\\.)*\")"));
   assert(m, id + ' shader source present'); envSrc[id.toLowerCase()] = JSON.parse(m[1]);
 }
