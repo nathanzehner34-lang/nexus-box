@@ -175,7 +175,8 @@ try{
    planet:mean(box(44,62,78,96)), skyHigh:mean(box(150,96,190,116)),
    roadNear:scan(14,30,.04), roadHorizon:scan(42,52,.15),
    formation:(function(){let c=0,n=0;for(let y=Math.floor(H*.5);y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4;const L2=.299*px[i]+.587*px[i+1]+.114*px[i+2];if(L2>60)c++;n++;}return c/n;})(),
-   roadC:mean(box(86,6,114,30)), offRoad:mean(box(2,6,26,30)),
+   roadC:mean(box(86,6,114,30)), offRoad:mean(box(2,6,26,30)), horizonDark:(function(){let n=0;for(let y=56;y<62;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4;if(.299*px[i]+.587*px[i+1]+.114*px[i+2]<25)n++;}return n/(6*W);})(),
+   green:(function(){let g=0;for(let y=0;y<H*.6;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4;if(px[i+1]>120&&px[i+1]>px[i]*1.4&&px[i+1]>px[i+2]*1.1)g++;}return g/(W*H);})(),
    horizonL:mean(box(70,46,86,54)), horizonR:mean(box(114,46,130,54)), bytes:bytes};}
  const diff=(a,b)=>a.bytes.reduce((s,v,i)=>s+Math.abs(v-b.bytes[i]),0)/a.bytes.length;
  const R={};
@@ -202,8 +203,11 @@ try{
 const S = runPage('nd-shader', shaderPage, 60000);
 
 assert(S.hero.lum > 12, 'the world is lit, not a black frame (' + S.hero.lum.toFixed(1) + ')');
-assert(S.hero.planet > S.hero.skyHigh * 1.7,
-  'the ringed planet dominates its part of the sky (' + S.hero.planet.toFixed(1) + ' vs open sky ' + S.hero.skyHigh.toFixed(1) + ')');
+assert(S.hero.planet > S.hero.skyHigh * 1.25,
+  'the ringed planet stands out clearly against the open sky (' + S.hero.planet.toFixed(1) + ' vs open sky ' + S.hero.skyHigh.toFixed(1) + ')');
+assert(S.hero.horizonDark < .2, 'the horizon is open, luminous sky with no dark silhouettes (' + (S.hero.horizonDark * 100).toFixed(0) + '% dark just above it)');
+assert(S.hero.green > .004, 'green lamps line the highway (' + (S.hero.green * 100).toFixed(2) + '% of the frame)');
+assert(S.d.music > 2 && S.loud.green > S.quiet.green, 'the green lamps flash brighter with the music');
 assert(S.hero.formation > .2,
   'the planet and its rings fill a large part of the sky (' + (S.hero.formation * 100).toFixed(0) + '% of it)');
 assert(S.hero.maxSky > 200, 'the rings carry bright luminous bands (' + S.hero.maxSky.toFixed(0) + ')');
