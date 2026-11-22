@@ -21,6 +21,10 @@ const total = clips.reduce((n, f) => n + fs.statSync(path.join(clipDir, f)).size
 assert(total < 70e6, 'clips stay light for the box (' + (total / 1e6).toFixed(1) + ' MB)');
 for (const k of order.slice(1)) assert(fs.existsSync(path.join(clipDir, k.slice(5) + '.jpg')), k + ' has a film still for its card');
 assert(app.includes('Film visuals by Beeple'), 'the clips are credited');
+// The box's WebView serves the page and the clips from file:///android_asset: a CORS request on a file URL always
+// fails there (the headless test browser hides this), so no crossOrigin, and file pages must count as one origin.
+assert(!/crossOrigin/.test(vis), 'clips load without a CORS request (it fails on file:// in the WebView)');
+assert(java.includes('s.setAllowFileAccessFromFileURLs(true);'), 'the WebView lets the page draw its own bundled clips through WebGL');
 
 // ---- reset: nothing of the old Visuals remains ----
 for (const old of ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole', 'deepsea', 'robotdj', 'mushroomworld', 'rollercoaster', 'livingskull', 'alienparty', 'neonhighway', 'VX_ORDER', 'vxStart', 'VX_SCENE'])

@@ -150,6 +150,9 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setAllowFileAccess(true);
+        // The page and its film clips both come from the app's own files (file:///android_asset). Treat them
+        // as one origin so the clips can be drawn through WebGL for the music effects. No remote content.
+        s.setAllowFileAccessFromFileURLs(true);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         web.setWebViewClient(new WebViewClient());
         web.setWebChromeClient(new WebChromeClient());

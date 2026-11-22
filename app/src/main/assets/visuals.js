@@ -1753,7 +1753,7 @@
     '}'].join('\n');
   function makeVideo() {
     var v = document.createElement('video');
-    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
+    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
     v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
     v.style.cssText = 'position:absolute;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px';
     return v;
@@ -1778,7 +1778,8 @@
   };
   ClipTheme.prototype.load = function (slot, src) {
     var v = this.vids[slot], self = this; this.ready[slot] = false;
-    v.oncanplay = function () { self.ready[slot] = true; };
+    v.oncanplay = function () { self.ready[slot] = true; self.err = ''; };
+    v.onerror = function () { var e = v.error; self.err = 'clip ' + src + ' failed (' + (e ? e.code + (e.message ? ': ' + e.message : '') : '?') + ')'; };
     v.src = src; try { v.load(); } catch (e) {}
   };
   ClipTheme.prototype.play = function (slot) { var v = this.vids[slot]; try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} };
@@ -1800,7 +1801,7 @@
   ClipTheme.prototype.upload = function (slot, unit) {
     var v = this.vids[slot];
     gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, this.tex[slot]);
-    if (v.readyState >= 2 && v.videoWidth) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v); } catch (e) {} }
+    if (v.readyState >= 2 && v.videoWidth) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v); this.drawn = true; } catch (e) { this.err = 'clip could not be drawn (' + e.name + ')'; } }
   };
   ClipTheme.prototype.frame = function (dt, t) {
     var m = M, s = dt / 1000, fx = this.fx, cutNow = false, fade = false;
@@ -1822,6 +1823,9 @@
     var v = this.vids[this.cur]; if (Math.abs((v.playbackRate || 1) - rate) > .04) try { v.playbackRate = rate; } catch (e) {}
     if (v.paused && v.readyState >= 2) this.play(this.cur);
     if (this.fading) { this.mix += s / .35; if (this.mix >= 1) { this.fading = false; this.mix = 0; try { this.vids[this.fadeFrom].pause(); } catch (e) {} this.load(this.fadeFrom, this.list[(this.idx + 1) % this.list.length]); } }
+    if (!this.startAt) this.startAt = t;
+    var note = $('xpMid');
+    if (note) { var msg = !this.drawn && t - this.startAt > 4 ? (this.err || 'Clip is still loading… (state ' + v.readyState + ')') : this.err || ''; if (note.textContent !== msg) note.textContent = msg; }
     var p = compile('video', 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }', FS_VIDEO);
     gl.useProgram(p); gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
     // while fading, the outgoing angle stays the base image and the incoming one dissolves in
@@ -1938,6 +1942,7 @@
     cur = null; cancelAnimationFrame(raf); raf = 0;
     try { if (A && A.meterDetail) A.meterDetail(false); } catch (e) {}
     if (glc) glc.style.display = 'none';
+    var note = $('xpMid'); if (note && theme && theme.video) note.textContent = '';
     if (layer) layer.classList.remove('vx-active');
     clearTimeout(barTimer); if (bar) { bar.classList.remove('on'); bar.style.display = 'none'; }
     if (!quiet) releaseAll();
