@@ -13,6 +13,13 @@ assert(FOREST.includes('#define ND_OVERLAY') && MAIN.includes('#ifdef ND_OVERLAY
 assert(!RINGS.includes('ND_OVERLAY') && !COSMIC.includes('ND_OVERLAY'), 'the other two worlds are untouched by the overlay hook');
 assert(/\{ id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST \}/.test(exp), 'Enchanted Forest is offered in the WORLD row');
 assert(!/\b(car|cars|truck|vehicle|cockpit|dashboard|speedometer|building|person|people)\b/i.test(FOREST), 'no vehicles, buildings or people');
+// no reversed smoothstep edges anywhere in Night Drive (undefined in GLSL; some GPUs return 0)
+function smoothsteps(t) { const out = []; const re = /smoothstep\(/g; let m; while ((m = re.exec(t))) { let i = m.index + 11, d = 1, args = [], cur = ''; for (; i < t.length && d > 0; i++) { const c = t[i]; if (c === '(') d++; if (c === ')') { d--; if (!d) break; } if (c === ',' && d === 1) { args.push(cur); cur = ''; } else cur += c; } args.push(cur); out.push(args); } return out; }
+const evalEdge = x => { try { return Function('aa', 'HALF', 'return ' + x.replace(/(\d)\.(?!\d)/g, '$1.0'))(0, 11); } catch (e) { return NaN; } };
+for (const [n, t] of [['ND_MAIN', MAIN], ['ND_HEAD', HEAD], ['ND_CELESTIAL_RINGS', RINGS], ['ND_COSMIC_HIGHWAY', COSMIC], ['ND_ENCHANTED_FOREST', FOREST]])
+  smoothsteps(t).forEach(([a, b]) => { const A = evalEdge(a), B = evalEdge(b); if (!isNaN(A) && !isNaN(B)) assert(A < B, n + ': reversed smoothstep edges ' + a + ', ' + b); });
+assert(MAIN.includes('vec3 mirror = ndHaze(vec3(rd.x, -rd.y, rd.z), t);'), 'all three worlds get the wet-road reflection of their own horizon');
+assert(/const float FS = 3\.0;/.test(FOREST), 'the forest is built at Night Drive scale');
 (FOREST.match(/smoothstep\(\s*-?[\d.]+\s*,\s*-?[\d.]+\s*,/g) || []).forEach(m => {
   const [a, b] = m.slice(11).split(',').map(Number);
   assert(a < b, 'no reversed smoothstep edges (undefined on some GPUs): ' + m);
@@ -31,6 +38,12 @@ const jobs = {
   q1: [build(FOREST), Object.assign({}, U, { q: 1 })],
   cosmic: [build(COSMIC), U]
 };
+// Apparent speed: frames 1/30 s apart at DRIFT (42), CRUISE (96) and FAST (168) for the forest and Celestial Rings
+const SPEEDS = { drift: 42, cruise: 96, fast: 168 };
+for (const [sn, v] of Object.entries(SPEEDS)) for (const [wn, w] of [['forest', FOREST], ['rings', RINGS]]) for (const t0 of [5200, 9400]) {
+  jobs['m_' + wn + '_' + sn + '_' + t0 + '_a'] = [build(w), Object.assign({}, U, { travel: t0 })];
+  jobs['m_' + wn + '_' + sn + '_' + t0 + '_b'] = [build(w), Object.assign({}, U, { travel: t0 + v / 30 })];
+}
 const page = `<pre id=o>WAIT</pre><canvas id=c width=${W} height=${H}></canvas><script>
 const gl=c.getContext('webgl',{preserveDrawingBuffer:true,antialias:false,alpha:false});const J=${JSON.stringify(jobs)};const R={};
 const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
@@ -76,4 +89,22 @@ assert(move > 3, 'driving forward moves the forest past the camera (' + move.toF
 assert(diff(base, R.q1.img) > .3, 'the higher tier adds a further row of trees and more particles');
 // cost on the box tier compared with the existing heaviest road world
 assert(R.base.ms < R.cosmic.ms * 1.7, 'the forest costs no more than 1.7x Cosmic Highway (' + R.base.ms.toFixed(1) + ' vs ' + R.cosmic.ms.toFixed(1) + ' ms)');
+// block matching: how far textured 8x8 patches move between the two frames, in pixels
+function flow(A, B, f) { const mags = []; const L = (img, x, y) => lum(img, x, y);
+  for (let by = 8; by < H - 16; by += 8) for (let bx = 8; bx < W - 16; bx += 8) { if (!f(bx + 4, by + 4)) continue;
+    let m = 0, v = 0; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) m += L(A, bx + x, by + y); m /= 64; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const d = L(A, bx + x, by + y) - m; v += d * d; } if (v / 64 < 25) continue;
+    let best = 1e9, bd = 0; for (let dy = -14; dy <= 14; dy++) for (let dx = -14; dx <= 14; dx++) { const y0 = by + dy, x0 = bx + dx; if (y0 < 0 || x0 < 0 || y0 + 8 > H || x0 + 8 > W) continue; let sad = 0; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) sad += Math.abs(L(A, bx + x, by + y) - L(B, x0 + x, y0 + y)); sad += (Math.abs(dx) + Math.abs(dy)) * 2; if (sad < best) { best = sad; bd = Math.hypot(dx, dy); } }
+    mags.push(bd); }
+  return mags.length ? mags.reduce((a, b) => a + b, 0) / mags.length : 0; }
+const sides = (x, y) => (x < W * .3 || x > W * .7) && y > H * .25, ground = (x, y) => y < H * .45 && (x < W * .3 || x > W * .7);
+const speedReport = [];
+for (const sn of Object.keys(SPEEDS)) {
+  let fs = 0, fg = 0, rg = 0;
+  for (const t0 of [5200, 9400]) { const g = k => R['m_' + k + '_' + sn + '_' + t0 + '_a'].img, h = k => R['m_' + k + '_' + sn + '_' + t0 + '_b'].img;
+    fs += flow(g('forest'), h('forest'), sides) / 2; fg += flow(g('forest'), h('forest'), ground) / 2; rg += flow(g('rings'), h('rings'), ground) / 2; }
+  speedReport.push(sn + ' forest sides ' + fs.toFixed(1) + ', forest verge ' + fg.toFixed(1) + ', rings verge ' + rg.toFixed(1));
+  assert(fg < rg * 1.35 + .5, sn + ': the forest floor beside the road moves at the same rate as Celestial Rings (' + fg.toFixed(2) + ' vs ' + rg.toFixed(2) + ' px/frame)');
+  assert(fs < rg * 1.1 + .5, sn + ': the trees no longer stream past faster than the scenery beside the road in Celestial Rings (' + fs.toFixed(2) + ' vs ' + rg.toFixed(2) + ' px/frame)');
+}
+console.log('Apparent speed (px per frame at 30 fps): ' + speedReport.join(' | '));
 console.log('Enchanted Forest: hooks, road clearance, trees, canopy gap, colour, music, movement, tiers and cost verified (' + R.base.ms.toFixed(1) + ' ms vs Cosmic ' + R.cosmic.ms.toFixed(1) + ' ms)');
