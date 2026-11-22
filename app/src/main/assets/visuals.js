@@ -1719,130 +1719,90 @@
   var CLIPS = {"coins": ["clips/coins_0.mp4", "clips/coins_1.mp4", "clips/coins_2.mp4", "clips/coins_3.mp4", "clips/coins_4.mp4"], "skulls": ["clips/skulls_0.mp4", "clips/skulls_1.mp4"], "flag": ["clips/flag_0.mp4", "clips/flag_1.mp4"], "cityfire": ["clips/cityfire_0.mp4", "clips/cityfire_1.mp4", "clips/cityfire_2.mp4"], "inferno": ["clips/inferno_0.mp4", "clips/inferno_1.mp4"], "serpent": ["clips/serpent_0.mp4", "clips/serpent_1.mp4", "clips/serpent_2.mp4", "clips/serpent_3.mp4"], "idol": ["clips/idol_0.mp4", "clips/idol_1.mp4"], "frenzy": ["clips/frenzy_0.mp4", "clips/frenzy_1.mp4", "clips/frenzy_2.mp4", "clips/frenzy_3.mp4"], "run": ["clips/run_0.mp4", "clips/run_1.mp4", "clips/run_2.mp4"], "collapse": ["clips/collapse_0.mp4", "clips/collapse_1.mp4", "clips/collapse_2.mp4", "clips/collapse_3.mp4", "clips/collapse_4.mp4"]};
   var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "flag": "Molten Flag", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
   var CLIP_ORDER = ["coins", "skulls", "flag", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse"];
-  var FS_VIDEO = [
-    'precision mediump float;',
-    'uniform sampler2D uA, uB; uniform float uMix, uTime; uniform vec2 uRes, uShake;',
-    'uniform vec4 uFx;',                    // zoom punch, glitch, flash, colour split
-    'uniform vec4 uM0, uM1, uM2;',
-    'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
-    'vec3 grab(sampler2D t, vec2 p, vec2 c, float ca){',
-    '  return vec3(texture2D(t, p + c * ca).r, texture2D(t, p).g, texture2D(t, p - c * ca).b);',
-    '}',
-    'void main(){',
-    '  vec2 uv = gl_FragCoord.xy / uRes;',
-    '  vec2 c = (uv - .5) * (1. - uFx.x) + uShake;',
-    '  float sl = floor(uv.y * 22.);',
-    '  float g = step(.72, hash(vec2(sl, floor(uTime * 24.)))) * uFx.y;',
-    '  c.x += (hash(vec2(sl, 3.1)) - .5) * .09 * g;',
-    '  vec2 p = clamp(c + .5, .001, .999); p.y = 1. - p.y;',
-    '  float ca = .002 + uFx.w * .022;',
-    '  vec3 col = grab(uA, p, c, ca);',
-    '  if (uMix > .001) col = mix(col, grab(uB, p, c, ca), uMix);',
-    // cheap glow: a few wide taps of the bright parts
-    '  vec3 gl = (texture2D(uA, p + vec2(.012, 0.)).rgb + texture2D(uA, p - vec2(.012, 0.)).rgb + texture2D(uA, p + vec2(0., .02)).rgb + texture2D(uA, p - vec2(0., .02)).rgb) * .25;',
-    '  col += max(gl - .6, 0.) * (.35 + uM2.y * .7 + uM1.z * .45);',
-    // grade: contrast and saturation rise with the energy, exposure pulses on the kick
-    '  float l = dot(col, vec3(.299, .587, .114));',
-    '  col = mix(vec3(l), col, 1.05 + uM2.y * .35);',
-    '  col = (col - .5) * (1.04 + uM2.y * .25) + .5;',
-    '  col *= .92 + uM1.z * .17 + uM2.w * .12;',
-    '  col += uFx.z;',
-    '  col += (hash(gl_FragCoord.xy + fract(uTime) * 91.) - .5) * (.03 + uM2.x * .07);',          // film grain, sparkling on hats
-    '  vec2 vg = uv - .5; col *= 1. - dot(vg, vg) * (.9 - uM1.z * .3);',
-    '  gl_FragColor = vec4(col, 1.);',
-    '}'].join('\n');
+  // The clip plays in a plain <video> element, so Android's hardware decoder draws it straight to the screen
+  // (smooth even on the X3). The music effects are light layers on top: a CSS zoom / shake on the video,
+  // and three overlay sheets (flash, dip, glitch lines). Only ONE video is ever loaded, and it is
+  // released the moment the scene stops: the X3 can only decode a couple of videos at once.
   function makeVideo() {
     var v = document.createElement('video');
     v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
-    v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
-    v.style.cssText = 'position:absolute;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px';
+    v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
+    v.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;background:#000';
     return v;
   }
-  function videoTex() {
-    var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0]));
-    return t;
-  }
-  function ClipTheme(id, list, name) {
-    this.id = id; this.name = name; this.list = list; this.video = true;
-  }
+  function sheet(css) { var d = document.createElement('div'); d.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;opacity:0;' + css; return d; }
+  function ClipTheme(id, list, name) { this.id = id; this.name = name; this.list = list; this.video = true; }
   ClipTheme.prototype.init = function () {
-    this.vids = [makeVideo(), makeVideo()]; this.tex = [videoTex(), videoTex()];
-    this.vids.forEach(function (v) { if (layer) layer.appendChild(v); });
-    this.cur = 0; this.idx = 0; this.mix = 0; this.fading = false;
-    this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, split: 0 }; this.lastCutBar = -1; this.lastCutBeat = -1; this.ready = [false, false];
-    this.load(0, this.list[0]); this.load(1, this.list[1 % this.list.length]);
-    this.play(0);
+    var box = this.box = document.createElement('div');
+    box.className = 'nv-clip'; box.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:#000';
+    this.v = makeVideo(); box.appendChild(this.v);
+    this.vig = sheet('opacity:1;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%)'); box.appendChild(this.vig);
+    this.dim = sheet('background:#000'); box.appendChild(this.dim);
+    this.scan = sheet('background:repeating-linear-gradient(0deg, rgba(255,40,140,0) 0, rgba(255,40,140,0) 7px, rgba(120,230,255,.45) 7px, rgba(120,230,255,.45) 9px)'); box.appendChild(this.scan);
+    this.flash = sheet('background:#fff'); box.appendChild(this.flash);
+    var anchor = $('xpc');
+    if (anchor && anchor.parentNode === layer) layer.insertBefore(box, anchor.nextSibling); else layer.appendChild(box);
+    this.idx = 0; this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, dip: 0, sx: 0, sy: 0 }; this.lastCutBar = -1; this.css = {}; this.fails = 0;
+    var self = this;
+    this.v.addEventListener('playing', function () { self.err = ''; self.fails = 0; });
+    this.v.addEventListener('error', function () {
+      var e = self.v.error; self.err = 'Clip ' + self.list[self.idx] + ' failed (' + (e ? e.code : '?') + ')';
+      if (++self.fails < self.list.length) setTimeout(function () { if (self.v) self.cut(); }, 400);       // skip a bad angle
+    });
+    this.load(this.list[0]);
   };
-  ClipTheme.prototype.load = function (slot, src) {
-    var v = this.vids[slot], self = this; this.ready[slot] = false;
-    v.oncanplay = function () { self.ready[slot] = true; self.err = ''; };
-    v.onerror = function () { var e = v.error; self.err = 'clip ' + src + ' failed (' + (e ? e.code + (e.message ? ': ' + e.message : '') : '?') + ')'; };
+  ClipTheme.prototype.load = function (src) {
+    var v = this.v; this.startAt = 0;
     v.src = src; try { v.load(); } catch (e) {}
+    try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
   };
-  ClipTheme.prototype.play = function (slot) { var v = this.vids[slot]; try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} };
-  ClipTheme.prototype.cut = function (fade) {
-    // the preloaded angle takes over; the old element starts loading the one after it
-    var next = 1 - this.cur; this.idx = (this.idx + 1) % this.list.length;
-    try { this.vids[next].currentTime = 0; } catch (e) {}
-    this.play(next);
-    if (fade) { this.fading = true; this.mix = 0.0001; this.fadeFrom = this.cur; }
-    this.cur = next;
-    var self = this, old = 1 - next;
-    if (!fade) { try { this.vids[old].pause(); } catch (e) {} this.load(old, this.list[(this.idx + 1) % this.list.length]); }
-    this.pendingLoad = fade ? old : -1;
+  ClipTheme.prototype.cut = function () {
+    if (this.list.length < 2) return;
+    this.idx = (this.idx + 1) % this.list.length;
+    this.fx.dip = 1;                       // a quick dip on the beat hides the moment the new angle starts
+    this.load(this.list[this.idx]);
   };
   ClipTheme.prototype.free = function () {
-    this.vids.forEach(function (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} if (v.parentNode) v.parentNode.removeChild(v); });
-    if (gl) this.tex.forEach(function (t) { gl.deleteTexture(t); });
+    var v = this.v;
+    if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+    if (this.box && this.box.parentNode) this.box.parentNode.removeChild(this.box);
+    this.v = null; this.box = null;
   };
-  ClipTheme.prototype.upload = function (slot, unit) {
-    var v = this.vids[slot];
-    gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, this.tex[slot]);
-    if (v.readyState >= 2 && v.videoWidth) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v); this.drawn = true; } catch (e) { this.err = 'clip could not be drawn (' + e.name + ')'; } }
-  };
+  ClipTheme.prototype.set = function (el, key, val) { if (this.css[key] !== val) { this.css[key] = val; el.style[key.split('.')[1]] = val; } };
   ClipTheme.prototype.frame = function (dt, t) {
-    var m = M, s = dt / 1000, fx = this.fx, cutNow = false, fade = false;
-    // when do we cut to the next angle? (single-angle scenes simply keep playing)
-    if (this.list.length > 1 && m.live) {
-      var every = m.build > .6 ? 0 : m.energy > .45 ? 2 : 4;
-      if (m.drop) { cutNow = true; }
-      else if (every === 0 && m.kickHit && m.beat !== this.lastCutBeat) { cutNow = true; this.lastCutBeat = m.beat; }
-      else if (every && m.kickHit && m.bar !== this.lastCutBar && m.bar % every === 0 && m.frac < .3) { cutNow = true; }
-    } else if (this.list.length > 1 && !m.live && t - (this.idleCut || 0) > 9) { cutNow = true; fade = true; this.idleCut = t; }
-    if (cutNow && !this.fading && this.ready[1 - this.cur]) { this.lastCutBar = m.bar; this.cut(fade); if (!fade) fx.flash = Math.max(fx.flash, m.drop ? .4 : .05); }
+    var m = M, s = dt / 1000, fx = this.fx, v = this.v;
+    if (!v) return;
+    // cuts on the beat: every 4 bars (2 when it's busy), straight away on a drop; slow fades when there's no music
+    if (this.list.length > 1) {
+      if (m.live) {
+        var every = m.energy > .45 ? 2 : 4;
+        if (m.drop || (m.kickHit && m.bar !== this.lastCutBar && m.bar % every === 0 && m.frac < .3 && m.bar > 0)) { this.lastCutBar = m.bar; this.cut(); }
+      } else if (t - (this.idleCut || 0) > 12) { this.idleCut = t; this.cut(); }
+    }
+    if (v.paused && v.readyState >= 2) { try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
     // music -> effects
-    if (m.kickHit) { fx.zv += .9 * m.strength; fx.split = Math.max(fx.split, m.strength); }
-    if (m.drop) { fx.zv += 2.2; fx.flash = .5; }
-    fx.zv += (-fx.zoom * 60 - fx.zv * 9) * s; fx.zoom = Math.max(-.02, fx.zoom + fx.zv * s);
-    fx.split *= Math.exp(-dt / 160); fx.flash *= Math.exp(-dt / 140);
-    fx.glitch = Math.max(fx.glitch * Math.exp(-dt / 110), m.snareHit ? m.snare : 0);
-    var rate = m.live ? clamp(.65 + m.energy * .75 + m.build * .2, .6, 1.35) : .55;
-    var v = this.vids[this.cur]; if (Math.abs((v.playbackRate || 1) - rate) > .04) try { v.playbackRate = rate; } catch (e) {}
-    if (v.paused && v.readyState >= 2) this.play(this.cur);
-    if (this.fading) { this.mix += s / .35; if (this.mix >= 1) { this.fading = false; this.mix = 0; try { this.vids[this.fadeFrom].pause(); } catch (e) {} this.load(this.fadeFrom, this.list[(this.idx + 1) % this.list.length]); } }
+    if (m.kickHit) { fx.zv += 4 * m.strength; fx.sx = (Math.random() - .5) * 8 * m.strength; fx.sy = (Math.random() - .5) * 6 * m.strength; fx.flash = Math.max(fx.flash, .07 * m.strength); }
+    if (m.drop) { fx.zv += 4.5; fx.flash = .55; }
+    if (m.snareHit) fx.glitch = Math.max(fx.glitch, m.snare);
+    fx.zv += (-fx.zoom * 70 - fx.zv * 10) * s; fx.zoom = Math.max(-.02, Math.min(1.6, fx.zoom + fx.zv * s));
+    fx.flash *= Math.exp(-dt / 130); fx.glitch *= Math.exp(-dt / 110); fx.dip *= Math.exp(-dt / 90);
+    fx.sx *= Math.exp(-dt / 70); fx.sy *= Math.exp(-dt / 70);
+    var scale = 1.02 + Math.min(fx.zoom, .5) * .24 + m.dropEnv * .03;     // a kick punches in about 4%, a drop about 8%
+    var jx = fx.glitch > .2 ? (Math.random() - .5) * 14 * fx.glitch : 0;
+    this.set(v, 'v.transform', 'translate3d(' + (fx.sx + jx).toFixed(1) + 'px,' + fx.sy.toFixed(1) + 'px,0) scale(' + scale.toFixed(3) + ')');
+    this.set(this.flash, 'f.opacity', (fx.flash + m.kick * .03).toFixed(2));
+    this.set(this.scan, 's.opacity', (fx.glitch * .8 + m.hat * .06).toFixed(2));
+    this.set(this.dim, 'd.opacity', Math.min(.85, fx.dip * .85 + (m.live ? 0 : .18)).toFixed(2));
+    // if nothing plays after a few seconds, say why on screen
     if (!this.startAt) this.startAt = t;
-    var note = $('xpMid');
-    if (note) { var msg = !this.drawn && t - this.startAt > 4 ? (this.err || 'Clip is still loading… (state ' + v.readyState + ')') : this.err || ''; if (note.textContent !== msg) note.textContent = msg; }
-    var p = compile('video', 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }', FS_VIDEO);
-    gl.useProgram(p); gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
-    // while fading, the outgoing angle stays the base image and the incoming one dissolves in
-    var base = this.fading ? this.fadeFrom : this.cur, over = this.fading ? this.cur : 1 - this.cur;
-    this.upload(base, 0); if (this.fading) this.upload(over, 1); else { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tex[over]); }
-    gl.uniform1i(p.u('uA'), 0); gl.uniform1i(p.u('uB'), 1); gl.uniform1f(p.u('uMix'), this.fading ? vxEase(this.mix) : 0);
-    gl.uniform2f(p.u('uRes'), F.w, F.h); gl.uniform1f(p.u('uTime'), t);
-    var sh = m.kick * .006; gl.uniform2f(p.u('uShake'), Math.sin(t * 37) * sh, Math.cos(t * 41) * sh);
-    gl.uniform4f(p.u('uFx'), clamp(fx.zoom * .32, -.01, .16), fx.glitch, fx.flash, fx.split);
-    gl.uniform4f(p.u('uM0'), M.sub, M.bass, M.lowmid, M.mid); gl.uniform4f(p.u('uM1'), M.high, M.air, M.kick, M.snare); gl.uniform4f(p.u('uM2'), M.hat, M.energy, M.build, M.dropEnv);
-    gl.bindBuffer(gl.ARRAY_BUFFER, quad); var pa = p.a('p'); attribs([pa]); gl.vertexAttribPointer(pa, 2, gl.FLOAT, false, 0, 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.activeTexture(gl.TEXTURE0);
+    var note = $('xpMid'), playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
+    if (playing) this.started = true;
+    if (note) { var msg = !playing && t - this.startAt > 4 ? (this.err || 'Clip is still loading… (state ' + v.readyState + ')') : (this.started ? '' : this.err || ''); if (note.textContent !== msg) note.textContent = msg; }
   };
   ClipTheme.prototype.debug = function () {
-    var v = this.vids[this.cur];
-    return { angle: this.idx, src: this.list[this.idx], ready: v.readyState, playing: !v.paused, rate: v.playbackRate, time: v.currentTime, zoom: this.fx.zoom, glitch: this.fx.glitch, flash: this.fx.flash };
+    var v = this.v || {};
+    return { angle: this.idx, src: this.list[this.idx], ready: v.readyState, playing: !v.paused, time: v.currentTime, zoom: this.fx.zoom, glitch: this.fx.glitch, flash: this.fx.flash, err: this.err || '',
+      transform: v.style ? v.style.transform : '', videos: document.querySelectorAll('#xp video').length };
   };
   CLIP_ORDER.forEach(function (k) { THEMES['clip_' + k] = new ClipTheme('clip_' + k, CLIPS[k], CLIP_NAMES[k]); });
   // the mix: every scene, every angle, cut on the beat
@@ -1874,8 +1834,7 @@
     var t = (now - tStart) / 1000;
     musicTick(now, dt);
     F.t = t;
-    gl.viewport(0, 0, F.w, F.h);
-    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (!theme.video) { gl.viewport(0, 0, F.w, F.h); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); }
     theme.frame(dt, t);
     frames++;
   }
@@ -1916,16 +1875,18 @@
   }
   function showBar(ms) { if (!bar) return; bar.classList.add('on'); clearTimeout(barTimer); barTimer = setTimeout(function () { if (bar) bar.classList.remove('on'); }, ms || 4000); }
   function start(name) {
-    if (!THEMES[name] || !ensureGl()) return false;
-    try { theme = getTheme(name); meshProgram(); } catch (e) { try { console.log('NXV start: ' + (e.stack || e)); } catch (er) {} return false; }
+    var isClip = !!(THEMES[name] && THEMES[name].video);
+    layer = layer || $('xp');
+    if (!THEMES[name] || !layer || (!isClip && !ensureGl())) return false;
+    try { theme = getTheme(name); if (!isClip) meshProgram(); } catch (e) { try { console.log('NXV start: ' + (e.stack || e)); } catch (er) {} return false; }
     cur = name; frames = 0; tPrev = 0; lastFrame = 0; perf = { n: 0, sum: 0, since: 0, good: 0 };
     if (!tStart) tStart = performance.now();
-    glc.style.display = 'block'; sizeCanvas();
+    if (!isClip) { glc.style.display = 'block'; sizeCanvas(); } else if (glc) glc.style.display = 'none';
     layer.classList.add('vx-active');
     try { if (A) { if (A.meterDetail) A.meterDetail(true); A.meter(true); } } catch (e) {}
     ensureBar(); showBar(3200);
     layer.onclick = function () { showBar(); };
-    render(performance.now());          // first frame before compositing: no black flash on entry
+    if (!isClip) render(performance.now());          // first frame before compositing: no black flash on entry
     raf = requestAnimationFrame(loop);
     return true;
   }
@@ -1938,6 +1899,8 @@
     musicReset(); tStart = 0;
   }
   function stop(quiet) {
+    // clip scenes always let go of their video, even on a quick switch
+    Object.keys(built).forEach(function (k) { if (built[k].video) { try { built[k].free(); } catch (e) {} delete built[k]; } });
     if (!cur && quiet) return;
     cur = null; cancelAnimationFrame(raf); raf = 0;
     try { if (A && A.meterDetail) A.meterDetail(false); } catch (e) {}
@@ -1947,9 +1910,9 @@
     clearTimeout(barTimer); if (bar) { bar.classList.remove('on'); bar.style.display = 'none'; }
     if (!quiet) releaseAll();
   }
-  function redraw() { if (cur && gl && theme) try { render(performance.now()); } catch (e) {} }
+  function redraw() { if (cur && theme && (theme.video || gl)) try { render(performance.now()); } catch (e) {} }
   function snapshot() {
-    if (!cur || !glc || glc.width < 4) return;
+    if (!cur || !glc || glc.width < 4 || (theme && theme.video)) return;
     if (!snap) { snap = document.createElement('canvas'); snap.id = 'vxSnap'; snap.setAttribute('aria-hidden', 'true'); snap.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none'; }
     if (snap.parentNode !== layer) layer.appendChild(snap);
     snap.style.transition = 'none'; snap.style.opacity = '1';

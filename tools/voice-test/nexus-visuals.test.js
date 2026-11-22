@@ -24,6 +24,7 @@ assert(app.includes('Film visuals by Beeple'), 'the clips are credited');
 // The box's WebView serves the page and the clips from file:///android_asset: a CORS request on a file URL always
 // fails there (the headless test browser hides this), so no crossOrigin, and file pages must count as one origin.
 assert(!/crossOrigin/.test(vis), 'clips load without a CORS request (it fails on file:// in the WebView)');
+assert(!/playbackRate|texImage2D\(gl\.TEXTURE_2D, 0, gl\.RGB, gl\.RGB, gl\.UNSIGNED_BYTE, v\)/.test(vis), 'clips play at normal speed on the hardware path (no per-frame copies into WebGL, no speed changes)');
 assert(java.includes('s.setAllowFileAccessFromFileURLs(true);'), 'the WebView lets the page draw its own bundled clips through WebGL');
 
 // ---- reset: nothing of the old Visuals remains ----
@@ -46,38 +47,39 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
 
 (async () => {
   const R = await H.run(`
-    R.t={};
+    R.t={}; R.maxVideos=0;
+    const vids=()=>document.querySelectorAll('#xp video').length;
     for (const k of NXV.order) {
       NXV.start(k); const t0=Date.now(); let d;
-      while(Date.now()-t0<8000){ await wait(150); d=NXV.debug().theme; if(d&&d.ready>=2&&d.time>.2)break; }
-      // watch the scene for ~1.5 s and keep its best frame: one slow first frame on a busy machine can't fail it
-      const c=document.getElementById('nvc'), cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d');
+      while(Date.now()-t0<8000){ await wait(150); d=NXV.debug().theme; R.maxVideos=Math.max(R.maxVideos,vids()); if(d&&d.ready>=2&&d.time>.2)break; }
+      // the hardware video itself must carry real pictures (sampled over ~1.5 s, best frame)
+      const v=document.querySelector('#xp video'), cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d');
       let mean=0, sd=0;
-      for(let f=0;f<10;f++){ NXV.redraw(); g.drawImage(c,0,0,64,36);
+      for(let f=0;f<10;f++){ g.drawImage(v,0,0,64,36);
         const im=g.getImageData(0,0,64,36).data; let s=0,s2=0; for(let i=0;i<im.length;i+=4){const l=.299*im[i]+.587*im[i+1]+.114*im[i+2]; s+=l; s2+=l*l;}
         const n=im.length/4, m=s/n, d2=Math.sqrt(Math.max(0,s2/n-m*m)); if(m+d2>mean+sd){mean=m;sd=d2;} await wait(150); }
-      // a kick: zoom punch and colour split must respond
-      const z0=NXV.debug().theme.zoom; for(let i=0;i<45;i++){NXV.feed([.2,.2,.3,.3,.2,.2]);await wait(40);} const zA=NXV.debug().theme.zoom; NXV.feed([1,1,.4,.4,.3,.3]); let zMax=-1; for(let i=0;i<12;i++){await wait(25); zMax=Math.max(zMax,NXV.debug().theme.zoom);}
-      const z1=zMax, z0b=zA;
-      R.t[k]={ready:d.ready,playing:d.playing,time:d.time,mean,sd,zoomKick:z1-z0b,src:d.src};
-      NXV.stop(true);
+      for(let i=0;i<45;i++){NXV.feed([.2,.2,.3,.3,.2,.2]);await wait(40);}
+      const tf0=NXV.debug().theme.transform, zA=NXV.debug().theme.zoom; NXV.feed([1,1,.4,.4,.3,.3]); let zMax=-1, tfKick='';
+      for(let i=0;i<12;i++){await wait(25); const dd=NXV.debug().theme; if(dd.zoom>zMax){zMax=dd.zoom; tfKick=dd.transform;}}
+      R.t[k]={ready:d.ready,playing:d.playing,time:d.time,mean,sd,zoomKick:zMax-zA,tf0,tfKick,src:d.src,err:d.err,videos:vids()};
+      NXV.stop(true); R.afterStop=vids();
     }
-    // a drop cuts straight to the next angle
-    NXV.start('clip_mix'); await wait(2500);
-    const a0=NXV.debug().theme.angle; NXV.music.energy=.2;
-    for(let i=0;i<40;i++){NXV.feed([.15,.15,.2,.2,.2,.2]);await wait(40);} for(let i=0;i<4;i++){NXV.feed([1,1,.9,.9,.8,.8]);await wait(60);}
-    await wait(300); R.dropAngle=[a0,NXV.debug().theme.angle];
-    NXV.stop(false); R.stopped=NXV.debug();
+    // switching straight from scene to scene never piles up videos
+    for (const k of NXV.order.slice(0,5)) { NXV.stop(true); NXV.start(k); await wait(300); R.maxVideos=Math.max(R.maxVideos,vids()); }
+    NXV.stop(false); R.stopped=NXV.debug(); R.videosAtEnd=vids();
   `, { w: 1024, h: 600, limit: 400000 });
   assert.deepStrictEqual(R.errors, [], 'no browser errors: ' + R.errors.join('; '));
   for (const k of order) {
     const t = R.t[k];
     assert(t && t.ready >= 2 && t.playing && t.time > .2, k + ' loads and plays its film clip (' + JSON.stringify(t) + ')');
     assert(t.mean > 6 && t.sd > 6, k + ' shows a real, detailed picture (lum ' + t.mean.toFixed(1) + ', contrast ' + t.sd.toFixed(1) + ')');
-    assert(t.zoomKick > .005, k + ' punches on the kick (' + t.zoomKick.toFixed(3) + ')');
-    console.log(k.padEnd(15) + ' playing ' + t.src.padEnd(22) + ' lum ' + t.mean.toFixed(1) + ' contrast ' + t.sd.toFixed(1) + ' kick punch ' + t.zoomKick.toFixed(3));
+    assert(t.zoomKick > .12 && t.tfKick !== t.tf0, k + ' punches on the kick (' + t.zoomKick.toFixed(2) + ': ' + t.tfKick + ')');
+    assert(t.videos === 1, k + ' runs exactly one video');
+    console.log(k.padEnd(15) + ' playing ' + t.src.padEnd(22) + ' lum ' + t.mean.toFixed(1) + ' contrast ' + t.sd.toFixed(1) + ' kick ' + t.tfKick);
   }
-  assert(!R.stopped.current && R.stopped.w <= 1, 'stopping Visuals releases the renderer and the videos');
+  assert(R.maxVideos <= 1, 'never more than one video loaded, even while switching (' + R.maxVideos + ')');
+  assert(R.afterStop === 0 && R.videosAtEnd === 0, 'a scene releases its video the moment it stops');
+  assert(!R.stopped.current, 'stopping Visuals stops the scene');
   // ---- the whole app: home tile -> Visuals menu -> theme -> bar -> exit ----
   const page = html.replace(/(src|href)="(?!https?:)([^"]+\.(js|css))"/g, (m, a, f) => a + '="' + 'file:///' + path.join(A, f).replace(/\\/g, '/').replace(/^\//, '') + '"');
   const appR = await H.runPage(page, `
@@ -88,20 +90,20 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
     document.querySelector('.vis-card').click();
     await wait(2500);
     R.running=NXV.debug();R.xpVisible=!document.getElementById('xp').classList.contains('hidden');
-    R.canvas=getComputedStyle(document.getElementById('nvc')).display;
+    R.canvas=document.querySelectorAll('#xp video').length;
     document.getElementById('xp').click();await wait(200);
     R.bar=[...document.querySelectorAll('#vxBar .vx-pick')].map(b=>b.dataset.vx);R.barOn=document.getElementById('vxBar').classList.contains('on');
     R.meterDetail=window.__detail.slice();
     document.getElementById('xpClose').click();await wait(400);
-    R.after=NXV.debug();R.meterDetailAfter=window.__detail.slice();
+    R.after=NXV.debug();R.meterDetailAfter=window.__detail.slice();R.videosAfter=document.querySelectorAll('#xp video').length;
     R.backInMenu=!!document.querySelector('.vis-card');
   `);
   assert.deepStrictEqual(appR.errors, [], 'no app errors: ' + appR.errors.join('; '));
   assert.deepStrictEqual(appR.cards.map(c => c[0]), order, 'the Visuals menu lists exactly the built themes');
   assert(appR.cards.every(c => c[2]), 'every card shows a film still');
-  assert(appR.xpVisible && appR.canvas === 'block' && appR.running.frames > 3 && appR.running.current === order[0], 'tapping a card starts the theme full screen');
+  assert(appR.xpVisible && appR.canvas === 1 && appR.running.frames > 3 && appR.running.current === order[0], 'tapping a card starts the scene full screen with one video (' + JSON.stringify(appR.running) + ')');
   assert(appR.barOn && appR.bar.join() === order.join(), 'tapping the screen shows the theme bar');
   assert(appR.meterDetail[0] === true, 'starting Visuals turns on the six-band music feed');
-  assert(!appR.after.current && appR.meterDetailAfter.includes(false) && appR.backInMenu, 'closing stops the theme, turns the feed off and returns to the Visuals menu');
-  console.log('Visuals: ' + order.length + ' cinematic scenes play their clips, punch on kicks and pass the full-app run; a drop cut ' + R.dropAngle.join(' -> ') + '.');
+  assert(!appR.after.current && appR.meterDetailAfter.includes(false) && appR.backInMenu && appR.videosAfter === 0, 'closing stops the scene, releases its video, turns the feed off and returns to the Visuals menu');
+  console.log('Visuals: ' + order.length + ' cinematic scenes play on the hardware video path, one video at a time, punch on kicks, and pass the full-app run.');
 })().catch(e => { console.error(e.stack || e.message); process.exit(1); });
