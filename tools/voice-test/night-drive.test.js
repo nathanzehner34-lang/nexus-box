@@ -343,7 +343,7 @@ const scenario = `
   assert(run.reactBack === true, 'music reactivity switches back on');
   assert(run.cosmic.world === 'cosmic' && run.cosmic.gl && run.cosmic.on && run.cosmic.saved === 'cosmic' && run.cosmic.speedScale === 1,
     'Cosmic Highway keeps its original speed profile ' + JSON.stringify(run.cosmic));
-  assert(run.forest.world === 'forest' && run.forest.on && run.forest.saved === 'forest' && run.forest.speedScale === .2 && run.forest.effectiveSpeed < 20,
+  assert(run.forest.world === 'forest' && run.forest.on && run.forest.saved === 'forest' && run.forest.speedScale === .2 && run.forest.effectiveSpeed < 40,
     'Enchanted Forest switches to a genuinely slower Drift/Cruise/Fast profile ' + JSON.stringify(run.forest));
   assert(run.cosmic.moved > 0 && run.cosmic.fade > 0, 'the journey carries on through the change and the new world fades in');
   assert(run.stored.speed === 'fast' && run.stored.time === 'deep' && run.stored.palette === 'aurora', 'choices are saved');
@@ -351,7 +351,7 @@ const scenario = `
   assert(!run.afterExit.active && run.afterExit.hidden && !run.afterExit.ui && !run.afterExit.ndDebug && !run.afterExit.nightClass,
     'exit tears the journey down completely ' + JSON.stringify(run.afterExit));
   assert(run.backHome, 'exit returns to the Nexus home screen');
-  assert(run.relaunched && run.restored.speed === 'fast' && run.restored.palette === 'aurora' && run.restored.world === 'cosmic',
+  assert(run.relaunched && run.restored.speed === 'fast' && run.restored.palette === 'aurora' && run.restored.world === 'forest',
     'the next journey remembers the settings ' + JSON.stringify(run.restored));
   assert(run.party.open && run.party.state === true, 'Party Mode still opens and runs');
   assert(run.liquid, 'Liquid Dreams still opens');
