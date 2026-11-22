@@ -3649,10 +3649,14 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
     var palette = ndFind(ND_PALETTES, N.pref('ndPalette') || 'ultraviolet');
     var timeOfNight = ndFind(ND_TIMES, N.pref('ndTime') || 'night');
     var speed = ndFind(ND_SPEEDS, N.pref('ndSpeed') || 'cruise');
+    // Enchanted Forest is a slow, immersive woodland cruise; the other worlds retain their speeds.
+    var speedScale = world.id === 'forest' ? .20 : 1;
     var react = N.pref('ndReact') !== '0';
     var oldGLX = GLX;
-    GLX = HIGH_MEMORY_DEVICE ? 1.05 : .70;
-    var quality = HIGH_MEMORY_DEVICE ? 1 : 0;
+    GLX = HIGH_MEMORY_DEVICE ? 1.10 : .78;
+    // A modest extra shader-detail step and render-scale lift sharpen all three worlds.
+    // The existing adaptive frame-time controller still backs quality down if the X3 struggles.
+    var quality = HIGH_MEMORY_DEVICE ? 1 : .25;
     var travel = 0, lastNow = 0, frames = 0, beat = null, g = null, failed = false, surge = 0, fadeStart = 0;
 
     function beatOn() { if (!beat) beat = beatTracker({ quiet: true }); }
@@ -3703,7 +3707,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       wake();
       if (!b) return;
       e.stopPropagation();
-      if (b.dataset.world && b.dataset.world !== world.id) { world = ndWorld(b.dataset.world); ndSave('ndWorld', world.id); build(); }
+      if (b.dataset.world && b.dataset.world !== world.id) { world = ndWorld(b.dataset.world); speedScale = world.id === 'forest' ? .20 : 1; ndSave('ndWorld', world.id); build(); }
       else if (b.dataset.time) { timeOfNight = ndFind(ND_TIMES, b.dataset.time); ndSave('ndTime', timeOfNight[0]); }
       else if (b.dataset.palette) { palette = ndFind(ND_PALETTES, b.dataset.palette); ndSave('ndPalette', palette[0]); }
       else if (b.dataset.speed) { speed = ndFind(ND_SPEEDS, b.dataset.speed); ndSave('ndSpeed', speed[0]); }
@@ -3718,8 +3722,9 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       var b = null;
       if (beat) { beat.tick(now); b = beat; }
       // the drive surges with the music's energy and eases back when it calms (never jumps)
-      surge += ((react && b ? Math.min(1, b.e) * .4 : 0) - surge) * Math.min(1, dt * 1.5);
-      travel += speed[2] * dt * (1 + surge);
+      var surgeMax = world.id === 'forest' ? .18 : .4;
+      surge += ((react && b ? Math.min(1, b.e) * surgeMax : 0) - surge) * Math.min(1, dt * 1.5);
+      travel += speed[2] * speedScale * dt * (1 + surge);
       if (travel > 1e7) travel -= 1e7;   // stays in float range on a very long journey
       g.f('travel', travel);
       g.f('night', timeOfNight[2]);
@@ -3745,7 +3750,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       beat = null;
     };
     XP.ndDebug = function () {
-      return { world: world.id, palette: palette[0], time: timeOfNight[0], speed: speed[0], react: react,
+      return { world: world.id, palette: palette[0], time: timeOfNight[0], speed: speed[0], speedScale: speedScale, effectiveSpeed: speed[2] * speedScale, react: react,
         travel: travel, frames: frames, gl: !!g, quality: quality, glx: GLX, fade: fadeStart ? Math.min(1, (lastNow - fadeStart) / 1600) : 0,
         idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat };
     };
