@@ -241,6 +241,25 @@
     }
     for (j = 0; j < seg; j++) for (i = 0; i < ts; i++) { var a = base + j * (ts + 1) + i, b = a + ts + 1; M_.i.push(a, b, a + 1, a + 1, b, b + 1); }
   }
+  // axis-aligned box with flat faces
+  function box(M_, bone, o, sz, c, opt) {
+    opt = opt || {}; var hx = sz[0] / 2, hy = sz[1] / 2, hz = sz[2] / 2;
+    var F_ = [[[1, 0, 0], [[hx, -hy, hz], [hx, -hy, -hz], [hx, hy, -hz], [hx, hy, hz]]], [[-1, 0, 0], [[-hx, -hy, -hz], [-hx, -hy, hz], [-hx, hy, hz], [-hx, hy, -hz]]],
+      [[0, 1, 0], [[-hx, hy, hz], [hx, hy, hz], [hx, hy, -hz], [-hx, hy, -hz]]], [[0, -1, 0], [[-hx, -hy, -hz], [hx, -hy, -hz], [hx, -hy, hz], [-hx, -hy, hz]]],
+      [[0, 0, 1], [[-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]]], [[0, 0, -1], [[hx, -hy, -hz], [-hx, -hy, -hz], [-hx, hy, -hz], [hx, hy, -hz]]]];
+    F_.forEach(function (f) {
+      if (opt.skip && opt.skip(f[0])) return;
+      var b0 = M_.n;
+      f[1].forEach(function (p) { M_.vert([p[0] + o[0], p[1] + o[1], p[2] + o[2]], f[0], c, bone, opt.em, opt.pat); });
+      M_.i.push(b0, b0 + 2, b0 + 1, b0, b0 + 3, b0 + 2);
+    });
+  }
+  // flat quad whose vertex colours carry (u, v, style) for screen patterns
+  function screenQuad(M_, bone, p0, p1, p2, p3, nn, style, opt) {
+    opt = opt || {}; var b0 = M_.n, uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    [p0, p1, p2, p3].forEach(function (p, i) { M_.vert(p, nn, [uv[i][0], uv[i][1], style], bone, opt.em || 1, opt.pat || 9); });
+    M_.i.push(b0, b0 + 2, b0 + 1, b0, b0 + 3, b0 + 2, b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);   // both sides
+  }
   function cone(M_, bone, a, b, r, c, opt) { opt = opt || {}; limb(M_, bone, a, b, r, r * .04, c, { seg: opt.seg || 10, rings: 2, caps: false, em: opt.em, pat: opt.pat }); }
 
   // ==================================================================
@@ -250,11 +269,17 @@
   var MAXB = 20;
   var VS_MESH = [
     'attribute vec3 aP, aN, aC, aM;',
-    'uniform mat4 uVP; uniform mat4 uB[' + MAXB + '];',
+    'uniform mat4 uVP; uniform mat4 uB[' + MAXB + ']; uniform vec4 uWarp; uniform float uT;',
     'varying vec3 vW, vN, vC, vM, vL;',
     'void main(){',
     '  mat4 B = uB[int(aM.x + .5)];',
-    '  vec4 w = B * vec4(aP, 1.);',
+    '  vec3 p = aP;',
+    '  if (uWarp.x + uWarp.w > 0.) {',
+    '    float wv = sin(aP.x * uWarp.y + uT * uWarp.z) * sin(aP.y * uWarp.y * 1.3 - uT * uWarp.z * .7) * cos(aP.z * uWarp.y * .9 + uT);',
+    '    float sp = pow(abs(sin(aP.x * 9. + aP.z * 7.) * sin(aP.y * 11. - aP.z * 5.)), 6.);',
+    '    p += aN * (uWarp.x * wv + uWarp.w * sp);',
+    '  }',
+    '  vec4 w = B * vec4(p, 1.);',
     '  vW = w.xyz; vN = mat3(B[0].xyz, B[1].xyz, B[2].xyz) * aN; vC = aC; vM = aM; vL = aP;',
     '  gl_Position = uVP * w;',
     '}'].join('\n');
@@ -286,8 +311,38 @@
     '  } else if (pat > 4.5 && pat < 5.5) {',      // energy lines running over the body
     '    float l = fract(vL.y * 3.2 + vL.x * .8 - uM3.w * .9 - uM3.x * .25); float ln = smoothstep(.0, .025, l) * smoothstep(.07, .035, l);',
     '    em += ln * (1.1 + uM1.z * 2.); glowC = vec3(.35, .95, 1.); spec = .7; gloss = 40.;',
-    '  } else if (pat > 5.5) {',                   // chrome
+    '  } else if (pat > 5.5 && pat < 6.5) {',      // chrome
     '    spec = 1.6; gloss = 60.; base = mix(base, uSky * 1.4, .35 + fr * .5);',
+    '  } else if (pat > 7.5 && pat < 8.5) {',      // skyscraper facade: a grid of windows, some lit, some flickering, some flashing on kicks
+    '    vec2 wc = abs(N.x) > .5 ? vec2(vL.z, vL.y) : vec2(vL.x, vL.y);',
+    '    if (abs(N.y) > .5) { base *= .5; } else {',
+    '      vec2 cell = floor(wc / vec2(.3, .4)), f = fract(wc / vec2(.3, .4)); cell = mod(cell, 61.);',
+    '      float win = step(.2, f.x) * step(f.x, .8) * step(.25, f.y) * step(f.y, .78);',
+    '      float h = h3(vec3(cell, floor(vC.r * 300.)));',
+    '      float floorBand = step(.3, fract(cell.y * .137 + vC.r * 3.));',
+    '      float lit = step(.6, h) * floorBand + step(.985, h3(vec3(cell, mod(floor(uM3.w * 3.), 50.)))) * uM2.x;',
+    '      float flash = step(.93, h) * uM1.z;',
+    '      glowC = mix(vec3(1., .72, .4), vec3(.4, .85, 1.), step(.75, fract(h * 7.)));',
+    '      glowC = mix(glowC, vec3(1., .3, .8), step(.9, fract(h * 13.)));',
+    '      em += win * (min(lit, 1.) * (.35 + .3 * fract(h * 3.)) + flash * 1.3);',
+    '      base = mix(base, vec3(.02, .02, .04), win);',
+    '    }',
+    '  } else if (pat > 8.5) {',                   // billboard screen: live equaliser bars, scanlines, glitch on the snare
+    '    vec2 uv = vC.rg; float style = vC.b;',
+    '    float bi = floor(uv.x * 12.), b6 = bi < 6. ? bi : 11. - bi;',
+    '    float lvl = b6 < .5 ? uM0.x : b6 < 1.5 ? uM0.y : b6 < 2.5 ? uM0.z : b6 < 3.5 ? uM0.w : b6 < 4.5 ? uM1.x : uM1.y;',
+    '    float bar = step(uv.y, .08 + lvl * .85) * step(.12, fract(uv.x * 12.)) * step(fract(uv.x * 12.), .88);',
+    '    float seg = step(.25, fract(uv.y * 24.));',
+    '    vec3 bc = .5 + .5 * cos(6.28318 * (uv.y * .6 + uM3.z + style * .3 + vec3(0., .33, .67)));',
+    '    float scan = .75 + .25 * sin(uv.y * 160. + uM3.w * 8.);',
+    '    float glitch = step(.7, fract(sin(floor(uv.y * 18.) * 91.7 + floor(uM3.w * 12.)) * 437.)) * uM1.w;',
+    '    vec3 scr = bc * bar * seg * 1.6 + bc * .08;',
+    '    scr += vec3(1., .2, .7) * glitch * .8;',
+    '    float frame = step(.97, max(abs(uv.x - .5), abs(uv.y - .5)) * 2.);',
+    '    base = vec3(.01); glowC = scr * scan + vec3(.3, .9, 1.) * frame; em = 1. + uM1.z * .5;',
+    '  } else if (pat > 6.5) {',                   // iridescent: thin-film colours sliding with the view and the music
+    '    vec3 film = .5 + .5 * cos(6.28318 * (fr * .9 + vL.y * .25 + uM3.z + uM0.w * .15 + vec3(0., .33, .67)));',
+    '    base = mix(base * .45, film * .8, .35 + fr * .45); spec = 1.6; gloss = 80.; glowC = film; em += fr * fr * (.6 + uM1.z * .9);',
     '  }',
     '  float ndl = dot(N, uKeyDir);',
     '  float dif = max(0., ndl * .7 + .3);',
@@ -416,8 +471,10 @@
     gl.disable(gl.BLEND); gl.depthMask(true); gl.depthFunc(gl.LEQUAL); gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.uniformMatrix4fv(p.u('uVP'), false, F.vp); gl.uniform1f(p.u('uRefl'), 0); gl.frontFace(gl.CW);
   }
-  function drawMesh(p, mesh, bones, eye, tint) {
+  function drawMesh(p, mesh, bones, eye, tint, warp) {
     gl.uniformMatrix4fv(p.u('uB[0]'), false, bones);
+    if (warp) gl.uniform4fv(p.u('uWarp'), warp); else gl.uniform4f(p.u('uWarp'), 0, 0, 0, 0);
+    gl.uniform1f(p.u('uT'), F.t);
     gl.uniform3fv(p.u('uEye'), eye || [0, 1, 1]); gl.uniform3fv(p.u('uTint'), tint || [1, 1, 1]);
     gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibo);
     var a = [p.a('aP'), p.a('aN'), p.a('aC'), p.a('aM')]; attribs(a);
@@ -1038,13 +1095,619 @@
     },
     debug: function () { return { verts: this.verts, dancers: this.crew.map(function (d) { return { name: d.def.name, head: d.jointPos(4), hips: d.jointPos(0), handL: d.jointPos(7), jaw: d.rot[17][0] }; }) }; }
   };
+  // ==================================================================
+  // THEME 3 — PSYCHEDELIC DIMENSIONS
+  // Four impossible worlds, one after another, joined by rippling dimensional tears:
+  //   0 Kaleido Temple   — folded fractal mandala flying forward
+  //   1 Liquid Tunnel    — log-polar fractal tunnel of flowing colour
+  //   2 Inverted Lattice — a hex lattice turned inside out around the centre
+  //   3 Endless Cubes    — impossible isometric cubes sliding forever
+  // A floating crystal with gyroscope rings and orbiting light orbs sits in the middle.
+  // Bass: zoom punch and bulge · mids: warp and spin · highs: shimmer · kicks: pulses · drops: dimension jump
+  // ==================================================================
+  var PSY_BG = [
+    'mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }',
+    'vec3 dKaleido(vec2 uv, float z){',
+    '  float r = length(uv), a = atan(uv.y, uv.x), n = 8.;',
+    '  a = mod(a + z * .04, 6.28318 / n); a = abs(a - 3.14159 / n);',
+    '  vec2 p = vec2(cos(a), sin(a)) * r * (1.6 + uM1.z * .25);',
+    '  float glow = 0., acc = 0.;',
+    '  for (int i = 0; i < 5; i++) {',
+    '    p = abs(p) - vec2(.55 + .12 * sin(z * .21 + float(i)), .34 + uM0.w * .08);',
+    '    p *= rot(.55 + z * .03 + uM0.w * .15);',
+    '    p *= 1.32;',
+    '    float d = abs(p.y) * exp(-float(i) * .25);',
+    '    glow += exp(-d * (6. + uM1.x * 6.)) * (.35 + .1 * float(i));',
+    '    acc += length(p) * .1;',
+    '  }',
+    '  vec3 c = pal(acc * .45 + r * .6 + z * .02 + uM3.z) * glow * .5;',
+    '  c += pal(acc * .8 + .5 + uM3.z) * (.06 + .1 * sin(acc * 9. + z)) * smoothstep(1.6, .2, r);',
+    '  c += pal(uM3.z + .3) * exp(-r * 3.) * .3;',
+    '  return c;',
+    '}',
+    'vec3 dTunnel(vec2 uv, float z){',
+    '  float r = length(uv) + 1e-3, a = atan(uv.y, uv.x);',
+    '  vec2 lp = vec2(log(r) * 1.4 - z * .55, a / 6.28318 * 6.);',
+    '  lp += vec2(sin(a * 3. + lp.x * 2.1 + z * .3) + .5 * sin(a * 5. - lp.x * 3.3), cos(a * 2. - lp.x * 1.7 + z * .2)) * (.18 + uM0.w * .3);',
+    '  float rings = sin(lp.x * 6.28318 * 1.5) * sin(lp.y * 6.28318);',
+    '  float band = smoothstep(.0, .08, abs(rings)) * .7 + .3;',
+    '  float lines = exp(-abs(rings) * (14. + uM1.x * 20.));',
+    '  vec3 c = pal(lp.x * .15 + cos(a) * .12 + uM3.z) * band * .35 + pal(lp.x * .3 + .4 + uM3.z) * lines * .8;',
+    '  c *= smoothstep(.0, .25, r);',
+    '  c += vec3(1., .9, 1.) * exp(-r * 9.) * (.25 + uM1.z * .6);',
+    '  return c;',
+    '}',
+    'vec3 dLattice(vec2 uv, float z){',
+    '  vec2 q = uv / max(dot(uv, uv), .02);',                                        // inversion: the outside world wrapped into the centre
+    '  q *= rot(z * .05); q += vec2(mod(z * .35, 17.320508), mod(z * .12, 17.320508));',
+    '  q += .25 * vec2(sin(q.y * 1.3 + z * .4), cos(q.x * 1.1 - z * .3)) * uM0.w;',
+    '  vec2 h = vec2(1., 1.7320508);',
+    '  vec2 a = mod(q, h) - h * .5, b = mod(q - h * .5, h) - h * .5;',
+    '  vec2 g = dot(a, a) < dot(b, b) ? a : b;',
+    '  vec2 id = q - g;',
+    '  float hexd = max(abs(g.x) * .866 + abs(g.y) * .5, abs(g.y));',
+    '  float edge = exp(-abs(hexd - .45) * (25. + uM1.x * 30.));',
+    '  float cellv = hash(mod(floor(id * 10. + .5), 97.));',
+    '  vec3 c = pal(cellv * .5 + z * .03 + uM3.z) * (.08 + .25 * step(.6, cellv) * (.5 + uM2.x)) + pal(cellv + .3 + uM3.z) * edge * .9;',
+    '  c *= smoothstep(.0, .3, length(uv));',
+    '  return c;',
+    '}',
+    'vec3 dCubes(vec2 uv, float z){',
+    '  vec2 p = uv * (3.2 + uM1.z * .4) * rot(.08 * sin(z * .07)); p.y += mod(z * .45, 17.320508); p.x += mod(z * .15, 10.);',
+    '  vec2 h = vec2(1., 1.7320508);',
+    '  vec2 a = mod(p, h) - h * .5, b = mod(p - h * .5, h) - h * .5;',
+    '  vec2 g = dot(a, a) < dot(b, b) ? a : b; vec2 id = p - g;',
+    '  vec2 cid = mod(floor(id * 2. + .5), 89.);',
+    '  float ang = atan(g.y, g.x); float face = floor(mod(ang / 2.0944 + .5 + step(.5, hash(cid)) * 1.5, 3.));',
+    '  float shade = face < .5 ? .95 : face < 1.5 ? .55 : .25;',
+    '  float hexd = max(abs(g.x) * .866 + abs(g.y) * .5, abs(g.y));',
+    '  float seam = exp(-abs(hexd - .5) * 40.) + exp(-min(abs(sin(ang * 1.5)), 1.) * 30.) * step(hexd, .5) * .6;',
+    '  vec3 col = pal(hash(cid) * .3 + z * .015 + uM3.z + face * .08);',
+    '  vec3 c = col * shade * (.35 + uM2.y * .4) + pal(uM3.z + .5) * seam * (.3 + uM1.x * .7);',
+    '  c *= .55 + .45 * smoothstep(1.4, .2, length(uv));',
+    '  return c;',
+    '}',
+    'vec3 dim(float k, vec2 uv, float z){',
+    '  if (k < .5) return dKaleido(uv, z);',
+    '  if (k < 1.5) return dTunnel(uv, z);',
+    '  if (k < 2.5) return dLattice(uv, z);',
+    '  return dCubes(uv, z);',
+    '}',
+    'void main(){',
+    '  vec2 uv = (gl_FragCoord.xy * 2. - uRes) / uRes.y;',
+    '  float r = length(uv);',
+    '  uv *= 1. - uM1.z * .07 - uM0.x * .04;',                                   // the kick punches the whole world inward
+    '  uv *= 1. + .12 * uM0.x * exp(-r * 2.);',                                  // sub-bass bulge in the middle
+    '  uv *= rot(uM3.x * .02 + sin(uTime * .1) * .05);',
+    '  float z = uX.w;',
+    '  vec3 c = dim(uX.y, uv, z);',
+    '  if (uX.x > 0. && uX.x < 1.) {',                                             // the dimensional tear: a rippling radial wipe
+    '    float edge = uX.x * 2.4 - r + .12 * sin(atan(uv.y, uv.x) * 7. + uTime * 3.) * (1. - uX.x);',
+    '    float m = smoothstep(-.05, .05, edge);',
+    '    vec3 c2 = dim(uX.z, uv * (1.3 - uX.x * .3), z);',
+    '    c = mix(c, c2, m) + pal(uM3.z + .2) * exp(-abs(edge) * 25.) * 1.2;',
+    '  }',
+    '  c += vec3(1.) * step(.995, hash(floor(gl_FragCoord.xy / 3.) + floor(uTime * 20.))) * uM1.x * .6;',   // treble glitter
+    '  c *= (.62 + .38 * smoothstep(.0, .45, uM2.y)) * (1. + uM1.z * .35 + uM2.w * .6);',   // quiet music dims the worlds, energy lights them
+    '  vec2 vg = gl_FragCoord.xy / uRes - .5; c *= 1. - dot(vg, vg) * .8;',
+    '  gl_FragColor = vec4(c, 1.);',
+    '}'].join('\n');
+  THEMES.psychedelic = {
+    id: 'psychedelic', name: 'Psychedelic Dimensions', bg: PSY_BG,
+    init: function () {
+      var m = new Mesh(), phi = (1 + Math.sqrt(5)) / 2;
+      ellipsoid(m, 0, [0, 0, 0], [.42, .42, .42], [.6, .5, .9], { seg: 24, rows: 14, pat: 7 });
+      var ico = [[0, 1, phi], [0, -1, phi], [0, 1, -phi], [0, -1, -phi], [1, phi, 0], [-1, phi, 0], [1, -phi, 0], [-1, -phi, 0], [phi, 0, 1], [-phi, 0, 1], [phi, 0, -1], [-phi, 0, -1]];
+      ico.forEach(function (v) { var d = norm3(v); cone(m, 0, [d[0] * .3, d[1] * .3, d[2] * .3], [d[0] * 1.05, d[1] * 1.05, d[2] * 1.05], .13, [.7, .6, 1], { seg: 8, pat: 7 }); });
+      [[1, .95, .03], [2, 1.12, .028], [3, 1.3, .024]].forEach(function (r) { torus(m, r[0], [0, 0, 0], r[1], r[2], [1, 1, 1], { seg: 48, ts: 6, em: 1.4, pat: 4 }); torus(m, r[0], [0, 0, 0], r[1], r[2] * 2.2, [.5, .5, .6], { seg: 48, ts: 6, pat: 7 }); });
+      for (var i = 4; i < 12; i++) { ellipsoid(m, i, [0, 0, 0], [.07, .07, .07], [1, 1, 1], { seg: 12, em: 2, pat: 4 }); ellipsoid(m, i, [0, 0, 0], [.11, .11, .11], [.5, .5, .5], { seg: 12, pat: 7 }); }
+      this.mesh = upload(m); this.verts = m.n;
+      this.bones = new Float32Array(MAXB * 16); for (i = 0; i < MAXB; i++) this.bones.set(m4(), i * 16);
+      this.tmp = m4(); this.rings = [0, 0, 0]; this.spin = 0; this.z = 0; this.dimA = 0; this.dimB = 1; this.trans = 0; this.lastSwitchBar = 0; this.hue = .8;
+      this.dust = makeSparkles(HIGH ? 160 : 90, 5, [-4, 4, -2.5, 2.5, -3, 2]);
+      this.addData = new Float32Array(this.dust.length * 8);
+      this.pulse = 0;
+    },
+    free: function () { freeMesh(this.mesh); },
+    frame: function (dt, t) {
+      var m = M, s = dt / 1000, self = this;
+      this.hue += s * (.015 + m.mid * .05) + (m.kickHit ? .01 : 0); F.hue = this.hue;
+      this.z += s * (.6 + m.energy * 1.6 + m.kick * 2.2 + m.dropEnv * 3);       // travel speed follows the music
+      // the next dimension every 8 bars (or straight away on a drop)
+      var due = m.live && m.bar - this.lastSwitchBar >= 8;
+      if (this.trans === 0 && (due || m.drop || (!m.live && t - (this.idleAt || 0) > 40))) { this.trans = .0001; this.dimB = (this.dimA + 1) % 4; this.lastSwitchBar = m.bar; this.idleAt = t; }
+      if (this.trans > 0) { this.trans += s / (m.drop ? .9 : 2.2); if (this.trans >= 1) { this.trans = 0; this.dimA = this.dimB; } }
+      var ang = Math.sin(t * .1) * .3;
+      setCamera([Math.sin(ang) * 6, Math.sin(t * .13) * .5, Math.cos(ang) * 6], [0, 0, 0], .75 - m.kick * .03, Math.sin(t * .07) * .05);
+      drawBackground(this, function (p) { gl.uniform4f(p.u('uX'), self.trans, self.dimA, self.dimB, self.z); });
+      // crystal + gyroscope + orbiting orbs
+      this.spin += s * (.25 + m.mid * .8 + m.dropEnv * 3);
+      var sc = .85 + m.kick * .28 + m.sub * .1 + m.dropEnv * .2;
+      trs(this.tmp, 0, Math.sin(t * .6) * .12, 0, this.spin * .7, this.spin, this.spin * .4, sc, sc, sc); this.bones.set(this.tmp, 0);
+      var axes = [[1, 0, 0], [0, 0, 1], [.7, .7, 0]];
+      for (var i = 0; i < 3; i++) {
+        this.rings[i] += s * (.5 + i * .3) * (1 + m.mid * 1.5 + m.snare * 2) * (i % 2 ? -1 : 1);
+        var rs = 1 + m.kick * .12 * (i + 1) * .5 + m.dropEnv * .3;
+        trs(this.tmp, 0, Math.sin(t * .6) * .12, 0, this.rings[i] * axes[i][0] + i * .7, this.rings[i] * axes[i][1] + this.spin * .3, this.rings[i] * axes[i][2], rs, rs, rs);
+        this.bones.set(this.tmp, (i + 1) * 16);
+      }
+      for (i = 0; i < 8; i++) {
+        var a = t * (.4 + m.energy * .6) + i * Math.PI / 4, R = 1.9 + Math.sin(t * .7 + i) * .25 + m.kick * .35, os = 1 + m.hat * .8;
+        trs(this.tmp, Math.cos(a) * R, Math.sin(a * 1.3 + i) * .6, Math.sin(a) * R, 0, 0, 0, os, os, os); this.bones.set(this.tmp, (4 + i) * 16);
+      }
+      var c1 = hsv(this.hue, .7, 1), c2 = hsv(this.hue + .5, .7, 1);
+      var p = beginMeshes({ key: [.3, .8, .9], keyCol: [.9, .9, 1], rimA: scale3(c1, 1 + m.kick), rimB: scale3(c2, 1 + m.snare), sky: hsv(this.hue + .2, .5, .7), ground: hsv(this.hue + .6, .6, .25), fog: [0, 0, 0], fogD: 0, glow: 1 + m.energy });
+      drawMesh(p, this.mesh, this.bones, hsv(this.hue + .3, .8, 1), hsv(this.hue + .1, .3, 1));
+      var o = 0, A_ = this.addData;
+      for (i = 0; i < this.dust.length; i++) {
+        var d = this.dust[i], dz = s * (1.5 + m.energy * 4 + m.kick * 6);
+        d.z += dz; if (d.z > 4) { d.z = -6; d.x = (Math.random() - .5) * 8; d.y = (Math.random() - .5) * 5; }
+        var col = hsv(this.hue + d.h * .5, .6, 1);
+        A_[o++] = d.x; A_[o++] = d.y; A_[o++] = d.z; A_[o++] = col[0]; A_[o++] = col[1]; A_[o++] = col[2]; A_[o++] = .5 + m.hat * .6; A_[o++] = .05 * d.s;
+      }
+      drawAdditive(A_, this.dust.length, gl.POINTS, true);
+    },
+    debug: function () { return { verts: this.verts, dim: this.dimA, trans: this.trans }; }
+  };
+
+  // ==================================================================
+  // THEME 4 — NEON CYBERPUNK WORLDS
+  // Flying down a rain-soaked neon street between endless skyscrapers: thousands of lit windows,
+  // neon edge strips, giant billboard screens showing the live music, flying traffic and rain.
+  // The city streams forever (six recycled blocks). Bass: neon pulses and window flashes · energy:
+  // flight speed · snare: screen glitches · hats: rain sparkle · build-up: the camera climbs · drop: a dive.
+  // ==================================================================
+  var CYBER_BG = [
+    'vec3 sky(vec3 rd){',
+    '  float y = rd.y, az = atan(rd.x, -rd.z);',
+    '  vec3 c = mix(vec3(.55, .12, .45), vec3(.05, .02, .12), smoothstep(-.05, .45, y));',
+    '  c += vec3(1., .35, .6) * exp(-abs(y - .02) * 12.) * (.35 + uM0.x * .3);',
+    '  vec3 sd = normalize(vec3(0., .12, -1.)); float sa = acos(clamp(dot(rd, sd), -1., 1.));',
+    '  float sun = smoothstep(.16, .15, sa) * (.6 + .4 * step(.5, fract((rd.y - sd.y) * 40. + uTime * .3)) * step(rd.y, sd.y + .05) + step(sd.y + .05, rd.y));',
+    '  c += vec3(1., .45, .35) * sun * .9 + vec3(1., .3, .5) * exp(-sa * 5.) * .35;',
+    // distant skyline with blinking lights
+    '  float bx = floor(az * 60.), bh = .03 + hash(vec2(bx, 2.)) * .12 + step(.9, hash(vec2(bx, 5.))) * .1;',
+    '  float bld = step(y, bh);',
+    '  vec2 wl = vec2(az * 600., y * 300.); float lights = step(.8, hash(floor(wl))) * step(abs(fract(wl.x) - .5), .3) * step(abs(fract(wl.y) - .5), .3);',
+    '  c = mix(c, vec3(.04, .02, .07) + vec3(1., .6, .9) * lights * .5 * step(.02, y), bld);',
+    // flying traffic streams across the sky
+    '  for (int i = 0; i < 3; i++) { float fi = float(i); float ly = .16 + fi * .07 + sin(az * 2. + fi) * .02; float lane = exp(-abs(y - ly) * 400.);',
+    '    float dash = step(.6, fract(az * (20. + fi * 7.) + uTime * (.2 + fi * .1) * (mod(fi, 2.) * 2. - 1.)));',
+    '    c += mix(vec3(1., .2, .3), vec3(.6, .9, 1.), mod(fi, 2.)) * lane * dash * .9; }',
+    '  return c;',
+    '}',
+    'void main(){',
+    '  vec3 rd = rayDir(); vec3 c;',
+    '  if (rd.y < -.002) {',
+    '    float t = -uCam.y / rd.y; vec3 p = uCam + rd * t; p.z += uX.x;',          // street coordinates travel with the camera
+    '    float side = abs(p.x);',
+    '    vec3 refl = sky(reflect(rd, vec3(0., 1., 0.)));',
+    '    float wet = .55 + .45 * noise(p.xz * vec2(.6, .15));',
+    '    c = vec3(.015, .012, .025) + refl * .25 * wet;',
+    // neon reflections smeared along the wet road under each building row
+    '    for (int i = 0; i < 6; i++) { float fi = float(i); float xs = (fi < 3. ? -1. : 1.) * (5.5 + mod(fi, 3.) * 1.1);',
+    '      float zz = p.z * .08 + fi * 1.7; float on = step(.35, noise(vec2(zz, fi)));',
+    '      c += pal(fi * .17 + uM3.z) * exp(-abs(p.x - xs) * 2.2) * on * wet * (.18 + uM0.y * .4 + uM1.z * .35); }',
+    '    float lane = step(abs(p.x), .07) * step(.5, fract(p.z * .25));',
+    '    float edge = exp(-abs(side - 4.6) * 18.);',
+    '    c += vec3(1., .9, .7) * lane * .35 + pal(uM3.z + .5) * edge * (.4 + uM1.z * .9);',
+    '    c *= smoothstep(5., 4.65, side) * .8 + .2;',                                // sidewalks are darker
+    '    c = mix(c, vec3(.3, .08, .3), 1. - exp(-t * .045));',
+    '  } else c = sky(rd);',
+    '  vec2 uv = gl_FragCoord.xy / uRes - .5; c *= 1. - dot(uv, uv) * .6;',
+    '  gl_FragColor = vec4(c, 1.);',
+    '}'].join('\n');
+  var CY_SEG = 16, CY_N = 6;
+  THEMES.cyberpunk = {
+    id: 'cyberpunk', name: 'Neon Cyberpunk Worlds', bg: CYBER_BG,
+    init: function () {
+      var m = new Mesh(), R = rng(2077), self = this;
+      for (var sg = 0; sg < CY_N; sg++) {
+        for (var side = -1; side <= 1; side += 2) {
+          var z = 0, k = 0;
+          while (z < CY_SEG - .5) {
+            var w = 2.2 + R() * 2.4, dpt = Math.min(CY_SEG - z, 2.6 + R() * 2.6), h = 5 + R() * 16 + (R() < .15 ? 12 : 0);
+            var x = side * (5.4 + w / 2 + R() * .3), zc = -(z + dpt / 2), seed = R();
+            var col = [seed, .05 + R() * .08, R()];
+            box(m, sg, [x, h / 2, zc], [w, h, dpt * .94], [.06 + seed * .04, .055, .1 + seed * .05], { pat: 8, skip: function (n) { return n[1] < -.5; } });
+            var nc = hsv(R(), .8, 1), edgeX = x - side * w / 2;
+            box(m, sg, [edgeX, h / 2, zc + dpt * .47], [.08, h, .08], nc, { em: 1.3, pat: 4 });
+            if (R() < .6) box(m, sg, [edgeX, h * (.25 + R() * .6), zc], [.06, .08, dpt * .9], hsv(R(), .8, 1), { em: 1.3, pat: 4 });
+            if (R() < .5) { box(m, sg, [x, h + .4, zc], [w * .5, .8, dpt * .4], [.08, .07, .1], { pat: 0 }); limb(m, sg, [x, h + .8, zc], [x, h + 2.5 + R() * 2, zc], .04, .02, [.3, .3, .35], { seg: 5, rings: 1, caps: false }); ellipsoid(m, sg, [x, h + 2.6, zc], [.08, .08, .08], [1, .2, .2], { em: 3, pat: 4, seg: 6 }); }
+            if (k % 2 === 1 && h > 8) {   // billboard screen on the street face
+              var bw = Math.min(dpt * .85, 3.2), bh2 = bw * .6, by = h * .55, fx = edgeX - side * .05;
+              var p0 = [fx, by - bh2 / 2, zc + side * bw / 2], p1 = [fx, by - bh2 / 2, zc - side * bw / 2], p2 = [fx, by + bh2 / 2, zc - side * bw / 2], p3 = [fx, by + bh2 / 2, zc + side * bw / 2];
+              screenQuad(m, sg, p0, p1, p2, p3, [-side, 0, 0], R());
+            }
+            // far row: taller towers behind
+            if (R() < .7) { var fh = 14 + R() * 26, fw = 3 + R() * 3; box(m, sg, [side * (12 + R() * 5), fh / 2, zc - R()], [fw, fh, 3 + R() * 2], [.05, .04, .08], { pat: 8, skip: function (n) { return n[1] < -.5; } });
+              box(m, sg, [side * (12 + R() * 5) - side * fw / 2, fh * .7, zc], [.1, fh * .5, .1], hsv(R(), .8, 1), { em: 2, pat: 4 }); }
+            z += dpt; k++;
+          }
+        }
+        // overhead neon gate every block
+        var gc = hsv(sg / CY_N, .8, 1);
+        box(m, sg, [0, 10 + (sg % 2) * 2.5, -CY_SEG / 2], [10.8, .12, .12], gc, { em: 2.4, pat: 4 });
+      }
+      this.mesh = upload(m); this.verts = m.n;
+      this.bones = new Float32Array(MAXB * 16); for (var i = 0; i < MAXB; i++) this.bones.set(m4(), i * 16);
+      this.travel = 0; this.tmp = m4(); this.hue = .85; this.alt = 0;
+      this.rain = []; for (i = 0; i < (HIGH ? 260 : 150); i++) this.rain.push({ x: (R() - .5) * 16, y: R() * 14, z: -R() * 30, s: .6 + R() * .6 });
+      this.cars = []; for (i = 0; i < 14; i++) this.cars.push({ lane: i % 4, z: -R() * 90, v: (i % 2 ? 1 : -1) * (6 + R() * 6), y: 6 + (i % 4) * 2.2 + R() });
+      this.addData = new Float32Array((this.rain.length * 2 + this.cars.length * 4) * 8);
+    },
+    free: function () { freeMesh(this.mesh); },
+    frame: function (dt, t) {
+      var m = M, s = dt / 1000, self = this;
+      this.hue += s * (.008 + m.energy * .02) + (m.drop ? .3 : 0); F.hue = this.hue;
+      this.travel += s * (4 + m.energy * 10 + m.kick * 6 + m.dropEnv * 14);
+      this.alt += ((m.build * 4 - m.dropEnv * 1.6) - this.alt) * Math.min(1, s * 1.2);
+      var camX = Math.sin(t * .17) * 1.1, camY = 3.2 + Math.sin(t * .23) * .5 + this.alt + m.kick * .12;
+      var eye = [camX, camY, 0];
+      setCamera(eye, [camX * .4 + Math.sin(t * .11) * .8, camY - .9 - this.alt * .35, -12], .95 + m.dropEnv * .12, Math.sin(t * .19) * .05 + camX * -.02);
+      drawBackground(this, function (p) { gl.uniform4f(p.u('uX'), self.travel, 0, 0, 0); });
+      // stream the six blocks: each block's bone puts it ahead of the camera, wrapping forever
+      var total = CY_SEG * CY_N;
+      for (var i = 0; i < CY_N; i++) {
+        var zz = -(((i * CY_SEG - this.travel) % total + total) % total) + CY_SEG * .8;
+        trs(this.tmp, 0, 0, zz, 0, 0, 0); this.bones.set(this.tmp, i * 16);
+      }
+      var p = beginMeshes({ key: [.2, .6, .8], keyCol: [.35, .3, .5], rimA: scale3(hsv(this.hue, .8, 1), .12 + m.kick * .12), rimB: scale3(hsv(this.hue + .5, .8, 1), .1 + m.snare * .1),
+        sky: [.25, .12, .3], ground: [.06, .03, .08], fog: [.3, .08, .3], fogD: .028, glow: .75 + m.bass * .45 + m.kick * .5 + m.dropEnv * .4 });
+      drawMesh(p, this.mesh, this.bones, [1, 1, 1], [1, 1, 1]);
+      // rain streaks (lines) and flying cars (light points)
+      var o = 0, A_ = this.addData, fall = s * (14 + m.energy * 6);
+      for (i = 0; i < this.rain.length; i++) {
+        var r = this.rain[i]; r.y -= fall * r.s; r.z += s * (4 + m.energy * 10) * .5;
+        if (r.y < 0 || r.z > 2) { r.y = 8 + Math.random() * 8; r.z = -Math.random() * 30; r.x = camX + (Math.random() - .5) * 16; }
+        var a = .25 + m.hat * .6, rc = [.6, .8, 1];
+        A_[o++] = r.x; A_[o++] = r.y; A_[o++] = r.z; A_[o++] = rc[0]; A_[o++] = rc[1]; A_[o++] = rc[2]; A_[o++] = a; A_[o++] = 1;
+        A_[o++] = r.x; A_[o++] = r.y + .5 * r.s; A_[o++] = r.z - .15; A_[o++] = rc[0]; A_[o++] = rc[1]; A_[o++] = rc[2]; A_[o++] = 0; A_[o++] = 1;
+      }
+      var rainVerts = o / 8;
+      for (i = 0; i < this.cars.length; i++) {
+        var c = this.cars[i]; c.z += (c.v + (4 + m.energy * 10)) * s;
+        if (c.z > 6) c.z -= 100; if (c.z < -96) c.z += 100;
+        var cx = (c.lane - 1.5) * 1.6, head = c.v > 0 ? [1, .3, .35] : [.8, .95, 1];
+        for (var e = -1; e <= 1; e += 2) { A_[o++] = cx + e * .22; A_[o++] = c.y; A_[o++] = c.z; A_[o++] = head[0]; A_[o++] = head[1]; A_[o++] = head[2]; A_[o++] = .9; A_[o++] = .35; }
+        A_[o++] = cx; A_[o++] = c.y - .12; A_[o++] = c.z; var uc = hsv(this.hue + i * .07, .8, 1); A_[o++] = uc[0]; A_[o++] = uc[1]; A_[o++] = uc[2]; A_[o++] = .6 + m.kick * .4; A_[o++] = .7;
+        A_[o++] = cx; A_[o++] = c.y; A_[o++] = c.z; A_[o++] = .3; A_[o++] = .3; A_[o++] = .4; A_[o++] = .3; A_[o++] = .9;
+      }
+      drawAdditive(A_, rainVerts, gl.LINES, false);
+      drawAdditive(A_.subarray(rainVerts * 8), this.cars.length * 4, gl.POINTS, true);
+    },
+    debug: function () { return { verts: this.verts, travel: this.travel }; }
+  };
+
+  // ==================================================================
+  // THEME 5 — TRIPPY 3D CREATURES
+  // Three surreal beings drifting through a dreamlike cosmic sea:
+  //   BLOOM MOTH    — four iridescent wings with glowing eyespots, a wingbeat on every beat, harder on bass
+  //   ORB SERPENT   — a living spectrum: its segments swell with the frequency bands, head = bass, tail = treble
+  //   VEIL JELLY    — a vast pulsing bell that contracts on every kick, eight streaming tentacles
+  // Every eight bars their bodies transform: rippling flesh, then sprouting spikes, then calm again.
+  // ==================================================================
+  var CREATURE_BG = [
+    'void main(){',
+    '  vec3 rd = rayDir();',
+    '  float y = rd.y, az = atan(rd.x, -rd.z);',
+    '  vec2 q = vec2(az * 1.6, y * 2.2);',
+    '  vec2 q2 = mat2(.8, -.6, .6, .8) * q;',
+    '  float n = noise(q * 1.7 + vec2(uTime * .02, 0.)) * .55 + noise(q2 * 3.6 - vec2(0., uTime * .03)) * .3 + noise(q * 6.3 + 3.1) * .15;',
+    '  vec3 a = pal(uM3.z + .55), b = pal(uM3.z + .85);',
+    '  vec3 c = mix(vec3(.02, .03, .08), vec3(.08, .03, .12), smoothstep(-.6, .6, y));',
+    '  c += mix(a, b, n) * smoothstep(.25, .85, n) * (.32 + uM0.w * .35);',
+    '  c += mix(b, a, noise(q * 3. + 7.)) * pow(n, 3.) * .25;',
+    '  c += b * exp(-abs(y + .1) * 3.) * .08;',
+    '  float rays = pow(max(0., noise(vec2(az * 9. + uTime * .05, 1.))), 3.) * smoothstep(-.1, .7, y);',    // light shafts from above
+    '  c += a * rays * (.15 + uM1.z * .25);',
+    // drifting giant silhouettes far away
+    '  for (int i = 0; i < 3; i++) { float fi = float(i); vec2 cpos = vec2(sin(uTime * .02 + fi * 2.1) * 1.6, .1 + fi * .12);',
+    '    vec2 d = (vec2(az, y) - cpos) * vec2(1., 2.4); float body = smoothstep(.12, .08, length(d * vec2(.6, 1.)));',
+    '    c = mix(c, c * .55, body * .6); c += b * exp(-length(d) * 12.) * .05; }',
+    '  vec2 st = vec2(az * 70., y * 70.); float hs = hash(floor(st));',
+    '  c += vec3(.8, .9, 1.) * step(.992, hs) * smoothstep(.4, .0, length(fract(st) - .5)) * (1. + uM2.x * 1.5);',
+    '  vec2 uv = gl_FragCoord.xy / uRes - .5; c *= 1. - dot(uv, uv) * .7;',
+    '  c += pal(uM3.z) * uM2.w * .15;',
+    '  gl_FragColor = vec4(c, 1.);',
+    '}'].join('\n');
+  function boneMats(n) { var b = new Float32Array(MAXB * 16); for (var i = 0; i < MAXB; i++) b.set(m4(), i * 16); return b; }
+  var CR_TMP = m4(), CR_TMP2 = m4();
+  THEMES.creatures = {
+    id: 'creatures', name: 'Trippy 3D Creatures', bg: CREATURE_BG,
+    init: function () {
+      // --- Bloom Moth ---
+      var mo = new Mesh(), fur = [.75, .55, .35], wingC = [.6, .4, .9];
+      ellipsoid(mo, 0, [0, -.5, 0], [.17, .48, .17], [.55, .35, .25], { seg: 16, rows: 14, pat: 5 });
+      ellipsoid(mo, 1, [0, 0, 0], [.24, .22, .21], fur, { seg: 18, pat: 1 });
+      ellipsoid(mo, 2, [0, 0, .02], [.15, .13, .14], fur, { seg: 16, pat: 1 });
+      [1, -1].forEach(function (sd) {
+        ellipsoid(mo, 2, [.1 * sd, .02, .1], [.07, .08, .06], [.02, .02, .03], { em: 1.2, pat: 2, seg: 14 });
+        var ab = sd > 0 ? 7 : 8;
+        limb(mo, ab, [0, 0, 0], [0, .55, .1], .012, .008, fur, { seg: 5, rings: 3, caps: false });
+        for (var f = 1; f < 8; f++) { var yy = f * .07; cone(mo, ab, [0, yy, yy * .18], [sd * .09 * (1 - f / 9), yy + .04, yy * .18 + .02], .012, fur, { seg: 4 }); }
+        var up = sd > 0 ? 3 : 5, lo = sd > 0 ? 4 : 6;
+        ellipsoid(mo, up, [.95 * sd, .32, 0], [.95, .55, .018], wingC, { seg: 26, rows: 12, pat: 7, em: .25, rot: [0, 0, .32 * sd] });
+        ellipsoid(mo, up, [1.15 * sd, .45, .03], [.22, .22, .01], [.02, .02, .05], { seg: 16, rot: [0, 0, .32 * sd] });
+        ellipsoid(mo, up, [1.15 * sd, .45, .04], [.12, .12, .01], [1, .8, .3], { seg: 14, em: 1.8, pat: 4, rot: [0, 0, .32 * sd] });
+        ellipsoid(mo, up, [1.15 * sd, .45, -.03], [.12, .12, .01], [1, .8, .3], { seg: 14, em: 1.8, pat: 4, rot: [0, 0, .32 * sd] });
+        ellipsoid(mo, lo, [.6 * sd, -.38, 0], [.6, .45, .016], wingC, { seg: 22, rows: 10, pat: 7, em: .25, rot: [0, 0, -.5 * sd] });
+        ellipsoid(mo, lo, [.78 * sd, -.55, .03], [.1, .1, .01], [.3, 1, .9], { seg: 12, em: 1.8, pat: 4 });
+        ellipsoid(mo, lo, [.78 * sd, -.55, -.03], [.1, .1, .01], [.3, 1, .9], { seg: 12, em: 1.8, pat: 4 });
+      });
+      this.moth = upload(mo); this.mothB = boneMats();
+      // --- Orb Serpent: 18 segments, each its own bone ---
+      var se = new Mesh(), NS = 18;
+      for (var i = 0; i < NS; i++) {
+        var r = .3 * (1 - i / (NS + 4)), sc = hsv(i / NS * .7, .6, 1);
+        ellipsoid(se, i, [0, 0, 0], [r, r, r * 1.15], [.5, .5, .6], { seg: 18, rows: 10, pat: 7 });
+        torus(se, i, [0, 0, 0], r * 1.02, r * .07, sc, { seg: 24, ts: 5, em: .85, pat: 4, rot: [Math.PI / 2, 0, 0] });
+        cone(se, i, [0, r * .8, 0], [0, r * 1.7, -r * .5], r * .25, sc, { em: .8, pat: 4, seg: 6 });
+        if (i === 0) {
+          [1, -1].forEach(function (sd) { ellipsoid(se, 0, [r * .55 * sd, r * .35, r * .75], [r * .28, r * .28, r * .2], [.02, .02, .03], { em: 1.4, pat: 2, seg: 12 });
+            cone(se, 0, [r * .6 * sd, r * .5, r * .2], [r * 1.5 * sd, r * 1.6, -r * .6], r * .18, [.9, .9, 1], { pat: 7, seg: 6 });
+            cone(se, 0, [r * .3 * sd, -r * .5, r * .8], [r * .5 * sd, -r * .9, r * 1.5], r * .1, [1, 1, 1], { pat: 3, seg: 5 }); });
+        }
+      }
+      this.serp = upload(se); this.serpB = boneMats(); this.trail = [];
+      // --- Veil Jelly: bell + 8 tentacles of two segments ---
+      var je = new Mesh();
+      ellipsoid(je, 0, [0, 0, 0], [.8, .6, .8], [.5, .6, .9], { seg: 30, rows: 16, pat: 7, em: .2, deform: function (p) { var y = p[1] < -.12 ? -.12 + (p[1] + .12) * .15 : p[1]; var ripple = 1 + .05 * Math.sin(Math.atan2(p[2], p[0]) * 16) * smooth(.1, -.12, p[1]); return [p[0] * ripple, y, p[2] * ripple]; } });
+      ellipsoid(je, 0, [0, .05, 0], [.35, .28, .35], [1, .55, .9], { seg: 18, em: 1.6, pat: 4 });
+      torus(je, 0, [0, -.12, 0], .78, .04, [.4, 1, .9], { seg: 40, ts: 6, em: 1.8, pat: 4 });
+      for (var tnt = 0; tnt < 8; tnt++) {
+        limb(je, 1 + tnt * 2, [0, 0, 0], [0, -.85, 0], .055, .04, [.6, .5, 1], { seg: 8, rings: 4, pat: 1 });
+        limb(je, 2 + tnt * 2, [0, 0, 0], [0, -.9, 0], .04, .012, [.6, .5, 1], { seg: 8, rings: 4, pat: 1 });
+      }
+      for (var arm_ = 0; arm_ < 4; arm_++) { var aa = arm_ * Math.PI / 2 + .4; limb(je, 0, [Math.cos(aa) * .15, -.1, Math.sin(aa) * .15], [Math.cos(aa) * .25, -1.3, Math.sin(aa) * .25], .07, .02, [1, .6, .9], { seg: 8, rings: 5, em: .6, pat: 1, bulge: .4 }); }
+      this.jelly = upload(je); this.jellyB = boneMats();
+      this.verts = mo.n + se.n + je.n;
+      this.spores = makeSparkles(HIGH ? 200 : 120, 13, [-6, 6, -3, 4, -5, 3]);
+      this.addData = new Float32Array(this.spores.length * 8);
+      this.flap = 0; this.pulse = 0; this.hue = .6; this.sPath = 0;
+    },
+    free: function () { freeMesh(this.moth); freeMesh(this.serp); freeMesh(this.jelly); },
+    frame: function (dt, t) {
+      var m = M, s = dt / 1000, self = this, amp = m.live ? sat(.25 + m.energy * 1.2) : .15;
+      this.hue += s * (.01 + m.energy * .025) + (m.drop ? .2 : 0); F.hue = this.hue;
+      var ang = t * .05 + Math.sin(t * .03) * .6, rad = 7.2 - m.build * .8 - m.dropEnv;
+      setCamera([Math.sin(ang) * rad, 1.1 + Math.sin(t * .07) * .6, Math.cos(ang) * rad], [0, .75, 0], .85, Math.sin(t * .1) * .04);
+      drawBackground(this, null);
+      // transformation cycle: calm -> rippling flesh -> spikes, every eight bars (a drop jumps to spikes)
+      var phaseT = m.live ? (m.bar >> 3) % 3 : 0, morph = this.morph || (this.morph = [0, 0]);
+      morph[0] += ((phaseT === 1 ? 1 : .15) - morph[0]) * Math.min(1, s * .8);
+      morph[1] += ((phaseT === 2 || m.dropEnv > .5 ? 1 : 0) - morph[1]) * Math.min(1, s * .8);
+      var warpA = [.05 * morph[0] * (1 + m.mid * 2) + m.kick * .02, 5, 2 + m.energy * 3, .1 * morph[1] * (.4 + m.bass * .9)];
+      // --- moth: wing beat locked to the beat clock, deeper on bass ---
+      var flapA = (.25 + amp * .55 + m.kick * .35), flap = Math.sin(m.phase * Math.PI * 2) * flapA, mb = this.mothB;
+      var mx = -2.2 + Math.sin(t * .21) * .6, my = .95 + Math.sin(t * .37) * .35 + Math.sin(m.phase * Math.PI * 2 + 1) * .08 * amp, mz = .4 + Math.cos(t * .17) * .6;
+      var mYaw = Math.sin(t * .13) * .5 + .4;
+      var root = trs(CR_TMP, mx, my, mz, .15 + Math.sin(t * .3) * .1, mYaw, Math.sin(t * .2) * .1);
+      var rootC = new Float32Array(root);
+      mb.set(mul(CR_TMP2, rootC, trs(m4(), 0, 0, 0, Math.sin(m.phase * Math.PI * 2) * .08, 0, 0)), 0);
+      mb.set(rootC, 16);
+      mb.set(mul(CR_TMP2, rootC, trs(m4(), 0, .3, 0, -m.kick * .2, 0, 0)), 32);
+      [[3, 1, .14, .08], [4, 1, .12, -.08], [5, -1, -.14, .08], [6, -1, -.12, -.08]].forEach(function (w, k) {
+        var lag = k % 2 ? .25 : 0, fl = Math.sin((m.phase - lag) * Math.PI * 2) * flapA;
+        mb.set(mul(CR_TMP2, rootC, trs(m4(), w[2], w[3], 0, 0, -w[1] * (.35 + fl), w[1] * fl * .25)), w[0] * 16);
+      });
+      [[7, 1], [8, -1]].forEach(function (a) { mb.set(mul(CR_TMP2, rootC, trs(m4(), a[1] * .05, .38, .05, -.3 - m.hat * .3, 0, -a[1] * (.3 + Math.sin(t * 6) * m.high * .2))), a[0] * 16); });
+      // --- serpent: the head swims a looping path, segments follow its trail; each swells with its band ---
+      this.sPath += s * (.45 + m.energy * .9 + m.kick * .6);
+      var sp = this.sPath, head = [Math.sin(sp * .9) * 2.6, .45 + Math.sin(sp * 1.7) * .9, Math.sin(sp * .9 * 2) * 1.2 - .2];
+      this.trail.unshift(head); if (this.trail.length > 400) this.trail.pop();
+      var bandsArr = [m.sub, m.bass, m.lowmid, m.mid, m.high, m.air], sb = this.serpB, dist = 0, ti = 0;
+      for (var i = 0; i < 18; i++) {
+        var want = i * .3; while (ti < this.trail.length - 2 && dist < want) { var a1 = this.trail[ti], a2 = this.trail[ti + 1]; dist += Math.hypot(a1[0] - a2[0], a1[1] - a2[1], a1[2] - a2[2]); ti++; }
+        var pp = this.trail[Math.min(ti, this.trail.length - 1)], nx = this.trail[Math.min(ti + 3, this.trail.length - 1)];
+        var dx = pp[0] - nx[0], dy = pp[1] - nx[1], dz = pp[2] - nx[2];
+        var yaw = Math.atan2(dx, dz), pitch = -Math.atan2(dy, Math.hypot(dx, dz) + 1e-4);
+        var band = bandsArr[Math.min(5, Math.floor(i / 3))], swell = 1 + band * .55 * (m.live ? 1 : 0) + (i === 0 ? m.kick * .25 : 0);
+        sb.set(trs(CR_TMP, pp[0], pp[1], pp[2], pitch, yaw, Math.sin(t * 2 + i * .5) * .3, swell, swell, swell), i * 16);
+      }
+      // --- jelly: bell contracts on each kick, tentacles stream behind ---
+      this.pulse = Math.max(this.pulse * Math.exp(-dt / 260), m.kick);
+      var jb = this.jellyB, jx = 2 + Math.sin(t * .15) * .5, jy = 1.75 + Math.sin(t * .25) * .3 + this.pulse * .15, jz = -1.2;
+      var cs = 1 - this.pulse * .22, ws = 1 + this.pulse * .18;
+      var jr = new Float32Array(trs(CR_TMP, jx, jy, jz, Math.sin(t * .3) * .12, t * .1, Math.cos(t * .27) * .1, ws, cs, ws));
+      jb.set(jr, 0);
+      var jrN = new Float32Array(trs(CR_TMP, jx, jy, jz, Math.sin(t * .3) * .12, t * .1, Math.cos(t * .27) * .1));
+      for (var k = 0; k < 8; k++) {
+        var ta = k / 8 * Math.PI * 2, wave = Math.sin(t * 1.8 + k + m.phase * .5) * (.35 + m.mid * .5), flare = this.pulse * .6;
+        var seg1 = mul(m4(), jrN, trs(CR_TMP2, Math.cos(ta) * .62, -.12, Math.sin(ta) * .62, Math.sin(ta) * (wave + flare) * .6, 0, -Math.cos(ta) * (wave + flare) * .6));
+        jb.set(seg1, (1 + k * 2) * 16);
+        jb.set(mul(m4(), seg1, trs(CR_TMP2, 0, -.85, 0, Math.sin(ta) * Math.sin(t * 1.8 + k - 1) * (.6 + m.mid * .6), Math.sin(t + k) * .3, -Math.cos(ta) * Math.sin(t * 1.8 + k - 1) * (.6 + m.mid * .6))), (2 + k * 2) * 16);
+      }
+      var c1 = hsv(this.hue, .7, 1), c2 = hsv(this.hue + .4, .7, 1);
+      var p = beginMeshes({ key: [.3, .9, .5], keyCol: [.8, .8, .95], rimA: scale3(c1, .8 + m.kick * .8), rimB: scale3(c2, .7 + m.snare * .6), sky: hsv(this.hue + .55, .45, .55), ground: hsv(this.hue + .85, .5, .2), fog: [.04, .03, .09], fogD: .03, glow: 1 + m.energy * .7 });
+      drawMesh(p, this.moth, mb, hsv(this.hue + .1, .6, 1), [1, 1, 1], warpA);
+      drawMesh(p, this.serp, sb, hsv(this.hue + .5, .8, 1), [1, 1, 1], warpA);
+      drawMesh(p, this.jelly, jb, hsv(this.hue + .3, .7, 1), [1, 1, 1], warpA);
+      var o = 0, A_ = this.addData;
+      for (i = 0; i < this.spores.length; i++) {
+        var q = this.spores[i]; q.y += s * (.12 + m.bass * .3) * q.s; q.x += Math.sin(t * .3 + q.ph) * .1 * s;
+        if (m.drop) { q.vx = (q.x) * .8; q.vz = q.z * .8; } q.vx = (q.vx || 0) * .96; q.vz = (q.vz || 0) * .96; q.x += q.vx * s; q.z += q.vz * s;
+        if (q.y > 4) { q.y = -3; q.x = (Math.random() - .5) * 12; q.z = Math.random() * 8 - 5; }
+        var col = hsv(this.hue + q.h * .5, .5, 1);
+        A_[o++] = q.x; A_[o++] = q.y; A_[o++] = q.z; A_[o++] = col[0]; A_[o++] = col[1]; A_[o++] = col[2]; A_[o++] = .35 + .5 * Math.max(0, Math.sin(t * 2 + q.ph * 5)) + m.hat * .5; A_[o++] = .05 * q.s;
+      }
+      drawAdditive(A_, this.spores.length, gl.POINTS, true);
+    },
+    debug: function () { return { verts: this.verts, morph: this.morph }; }
+  };
+
+  // ==================================================================
+  // THEME 6 — FUTURISTIC HOLOGRAMS
+  // A holographic projector in a dark lab. Above it a wireframe entity built from 400 light
+  // segments morphs every eight bars: geodesic sphere -> torus knot -> lattice cube -> DNA helix.
+  // Bass pushes spikes out of it, kicks pulse it, snares glitch it (jitter + colour split), hi-hats
+  // sparkle the particle vortex. A circular spectrum analyser rings the projector; wireframe solids orbit.
+  // ==================================================================
+  var HOLO_BG = [
+    'void main(){',
+    '  vec3 rd = rayDir(); vec3 c;',
+    '  float az = atan(rd.x, -rd.z);',
+    '  vec3 wall = vec3(.01, .02, .04) + vec3(.0, .15, .25) * exp(-abs(rd.y) * 6.) * .25;',
+    '  float pil = pow(max(0., sin(az * 6. + .5)), 40.) * smoothstep(-.1, .5, rd.y);',             // light pillars around the room
+    '  wall += vec3(.1, .5, .8) * pil * (.15 + uM1.z * .3);',
+    '  vec2 gw = vec2(az * 12., rd.y * 12.); vec2 fw = abs(fract(gw) - .5);',
+    '  wall += vec3(.05, .25, .4) * smoothstep(.47, .5, max(fw.x, fw.y)) * .25 * smoothstep(.6, .0, rd.y);',
+    '  if (rd.y < -.002) {',
+    '    float t = -uCam.y / rd.y; vec3 p = uCam + rd * t;',
+    '    vec2 q = p.xz * 1.6; vec2 h = vec2(1., 1.7320508);',
+    '    vec2 a = mod(q, h) - h * .5, b = mod(q - h * .5, h) - h * .5; vec2 g = dot(a, a) < dot(b, b) ? a : b;',
+    '    float hexd = max(dot(abs(g), vec2(.5, .866)), abs(g.x));',
+    '    float r = length(p.xz);',
+    '    float pulse = smoothstep(.5, .0, abs(r - uX.x * 9.)) * (1. - uX.x);',
+    '    float line = smoothstep(.04, .0, abs(hexd - .5)) * (.08 + .5 * exp(-r * .4) * (.4 + uM2.y) + pulse * 1.5);',
+    '    c = vec3(.006, .012, .02) + vec3(.2, .8, 1.) * line;',
+    '    c += vec3(.2, .7, 1.) * exp(-r * r * .25) * (.12 + uM1.z * .3);',                  // projector light pool
+    '    c = mix(wall, c, exp(-t * .08));',
+    '  } else c = wall;',
+    '  vec2 uv = gl_FragCoord.xy / uRes - .5; c *= 1. - dot(uv, uv) * .8;',
+    '  c *= .92 + .08 * sin(gl_FragCoord.y * 1.5 + uTime * 20.);',                            // faint scan texture over the whole view
+    '  gl_FragColor = vec4(c, 1.);',
+    '}'].join('\n');
+  var HSEG = 400;
+  function holoShapes() {
+    var S = [];
+    function pts(fn, n) { var a = []; for (var i = 0; i <= n; i++) a.push(fn(i / n)); return a; }
+    function polyline(list, out, count) { for (var i = 0; i < count && i < list.length - 1; i++) out.push(list[i], list[i + 1]); }
+    // 0 geodesic-style sphere: 10 latitude rings and 10 meridians of 20 segments
+    var sph = [];
+    for (var la = 1; la <= 10; la++) { var ph = la / 11 * Math.PI; polyline(pts(function (u) { var th = u * Math.PI * 2; return [Math.sin(ph) * Math.cos(th), Math.cos(ph), Math.sin(ph) * Math.sin(th)]; }, 20), sph, 20); }
+    for (var me = 0; me < 10; me++) { var th0 = me / 10 * Math.PI * 2; polyline(pts(function (u) { var p2 = u * Math.PI; return [Math.sin(p2) * Math.cos(th0), Math.cos(p2), Math.sin(p2) * Math.sin(th0)]; }, 20), sph, 20); }
+    S.push(sph);
+    // 1 torus knot (2,3), two strands
+    var kn = [];
+    [0, .16].forEach(function (off) { polyline(pts(function (u) { var t = u * Math.PI * 2, r = .75 + .38 * Math.cos(3 * t); return [r * Math.cos(2 * t) * (1 + off * .5), .55 * Math.sin(3 * t) + off * .3, r * Math.sin(2 * t) * (1 + off * .5)]; }, 200), kn, 200); });
+    S.push(kn);
+    // 2 lattice cube: 4x4x4 grid lines (48 lines) split into segments
+    var cu = [], n = 4, per = Math.floor(HSEG / 48);
+    for (var ax = 0; ax < 3; ax++) for (var i = 0; i < n; i++) for (var j = 0; j < n; j++) {
+      var a0 = i / (n - 1) * 1.4 - .7, b0 = j / (n - 1) * 1.4 - .7;
+      polyline(pts(function (u) { var v = u * 1.4 - .7; return ax === 0 ? [v, a0, b0] : ax === 1 ? [a0, v, b0] : [a0, b0, v]; }, per), cu, per);
+    }
+    S.push(cu);
+    // 3 DNA double helix with rungs
+    var dna = [];
+    [0, Math.PI].forEach(function (off) { polyline(pts(function (u) { var t = u * Math.PI * 6; return [.45 * Math.cos(t + off), u * 2.2 - 1.1, .45 * Math.sin(t + off)]; }, 150), dna, 150); });
+    for (var r = 0; r < 100; r++) { var u = r / 100, t = u * Math.PI * 6, y = u * 2.2 - 1.1; dna.push([.45 * Math.cos(t), y, .45 * Math.sin(t)], [.45 * Math.cos(t + Math.PI), y, .45 * Math.sin(t + Math.PI)]); }
+    S.push(dna);
+    // every shape padded or trimmed to the same 400 segments so they can morph point for point
+    return S.map(function (sh) { while (sh.length < HSEG * 2) sh.push(sh[sh.length % 40], sh[(sh.length + 1) % 40]); return sh.slice(0, HSEG * 2); });
+  }
+  function wireSolid(kind) {
+    var V = kind === 0 ? [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]] : kind === 1 ? [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] : [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+    var E = kind === 0 ? [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]] : kind === 1 ? [[0, 2], [0, 3], [0, 4], [0, 5], [1, 2], [1, 3], [1, 4], [1, 5], [2, 4], [2, 5], [3, 4], [3, 5]] : [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    return { V: V, E: E };
+  }
+  THEMES.holograms = {
+    id: 'holograms', name: 'Futuristic Holograms', bg: HOLO_BG,
+    init: function () {
+      var m = new Mesh(), chrome = [.35, .4, .5];
+      limb(m, 0, [0, 0, 0], [0, .35, 0], 1.2, 1.05, chrome, { seg: 48, rings: 2, caps: false, pat: 6 });
+      ellipsoid(m, 0, [0, .35, 0], [1.05, .02, 1.05], [.1, .12, .16], { seg: 48, rows: 4, pat: 6 });
+      ellipsoid(m, 0, [0, .37, 0], [.5, .03, .5], [.3, .9, 1], { seg: 32, rows: 4, em: 1.6, pat: 4 });
+      [[1.2, .02], [1.06, .34], [.8, .37]].forEach(function (r, i) { torus(m, 1 + i, [0, r[1], 0], r[0], .025, [.3, .9, 1], { seg: 64, ts: 5, em: 1.8, pat: 4 }); });
+      for (var k = 0; k < 6; k++) { var a = k / 6 * Math.PI * 2; box(m, 0, [Math.cos(a) * 1.14, .18, Math.sin(a) * 1.14], [.12, .2, .12], [.05, .06, .08], { pat: 6 }); box(m, 0, [Math.cos(a) * 1.2, .18, Math.sin(a) * 1.2], [.04, .12, .04], [1, .3, .6], { em: 2, pat: 4 }); }
+      this.base = upload(m); this.verts = m.n;
+      this.bones = boneMats(); this.shapes = holoShapes(); this.cur = 0; this.next = 1; this.mt = 0; this.lastBar = 0;
+      this.solids = [wireSolid(0), wireSolid(1), wireSolid(2)];
+      this.parts = []; var R = rng(9);
+      for (var i = 0; i < (HIGH ? 320 : 200); i++) this.parts.push({ a: R() * 6.28, r: .2 + R() * 1, y: R() * 3.2, v: .3 + R() * .6, s: .5 + R(), h: R() });
+      var lines = HSEG * 2 * 2 + 64 * 2 + 3 * 12 * 2 + 40;
+      this.lineData = new Float32Array(lines * 8); this.pointData = new Float32Array((this.parts.length + HSEG + 8) * 8); this.beamData = new Float32Array(24 * 8);
+      this.rot = 0; this.glitch = 0; this.wave = 1; this.hue = .52; this.spec = new Float32Array(64);
+    },
+    free: function () { freeMesh(this.base); },
+    frame: function (dt, t) {
+      var m = M, s = dt / 1000, self = this;
+      this.hue += s * (.004 + m.energy * .01) + (m.drop ? .15 : 0); F.hue = this.hue;
+      if (m.kickHit) this.wave = 0; this.wave = Math.min(1, this.wave + dt / 1000);
+      // morph to the next shape every eight bars (or on a drop)
+      if (this.mt === 0 && ((m.live && m.bar - this.lastBar >= 8) || m.drop || (!m.live && t - (this.idle || 0) > 30))) { this.mt = .0001; this.next = (this.cur + 1) % 4; this.lastBar = m.bar; this.idle = t; }
+      if (this.mt > 0) { this.mt += s / 1.6; if (this.mt >= 1) { this.mt = 0; this.cur = this.next; } }
+      this.glitch = Math.max(this.glitch * Math.exp(-dt / 120), m.snare);
+      var ang = t * .08 + Math.sin(t * .05) * .5, rad = 5.6 - m.build * .6 - m.dropEnv * .8;
+      setCamera([Math.sin(ang) * rad, 2.1 + Math.sin(t * .09) * .4, Math.cos(ang) * rad], [0, 1.45, 0], .8, 0);
+      drawBackground(this, function (p) { gl.uniform4f(p.u('uX'), self.wave, 0, 0, 0); });
+      // projector platform (solid): ring bones spin with the music
+      this.rot += s * (.4 + m.mid * 1.2);
+      this.bones.set(m4(), 0);
+      for (var i = 0; i < 3; i++) { var rs = 1 + m.kick * .06 * (i + 1); trs(CR_TMP, 0, 0, 0, 0, this.rot * (i % 2 ? -1 : 1) * (1 + i * .4), 0, rs, 1, rs); this.bones.set(CR_TMP, (i + 1) * 16); }
+      var p = beginMeshes({ key: [.3, .9, .4], keyCol: [.5, .6, .75], rimA: scale3([.2, .8, 1], .6 + m.kick * .7), rimB: scale3([1, .3, .7], .4 + m.snare * .5), sky: [.1, .3, .45], ground: [.02, .04, .06], fog: [.01, .02, .04], fogD: .03, glow: 1 + m.energy * .6 });
+      drawMesh(p, this.base, this.bones, [.3, .9, 1], [1, 1, 1]);
+      // ---- hologram lines ----
+      var L = this.lineData, o = 0, A_ = this.shapes[this.cur], B_ = this.shapes[this.next], mt = this.mt ? vxEase(this.mt) : 0;
+      var groove = m.live ? sat(.3 + m.energy) : .1, beatEase = m.frac < .5 ? vxEase(m.frac * 2) : 1;
+      var spin = t * .12 + (m.beat + beatEase) * .39 * groove + m.dropEnv * 2;                       // turns a step on every beat
+      var cy = 1.65 + Math.sin(t * .8) * .05 + Math.sin(m.phase * Math.PI * 2) * .07 * groove;
+      var sc = .95 + m.kick * .18 + m.dropEnv * .25 + Math.cos(m.phase * Math.PI * 2) * .05 * groove;
+      var cS = Math.cos(spin), sS = Math.sin(spin), jitter = this.glitch * .12, base = hsv(this.hue, .65, 1), alt = hsv(this.hue + .45, .7, 1);
+      var spike = m.bass * .35 + m.sub * .2;
+      var mid = this.pointData, po = 0;
+      for (i = 0; i < HSEG * 2; i++) {
+        var a = A_[i], b = B_[i], x = a[0] + (b[0] - a[0]) * mt, y = a[1] + (b[1] - a[1]) * mt, z = a[2] + (b[2] - a[2]) * mt;
+        if (mt > 0) { var tw = Math.sin(mt * Math.PI) * .35; x += Math.sin(i * 1.7 + t * 3) * tw; y += Math.cos(i * 2.3) * tw; }   // the morph scatters then reforms
+        var push = 1 + spike * Math.pow(Math.abs(Math.sin(x * 7 + t) * Math.sin(y * 9 - t * 1.3) * Math.sin(z * 8 + t * .7)), 2) * 2.2;
+        x *= push * sc; y *= push * sc; z *= push * sc;
+        var rx = x * cS + z * sS, rz = -x * sS + z * cS, wy = y + cy;
+        var gl_ = Math.floor((wy * 14 + t * 6)) % 7 === 0 ? 1 : 0;
+        rx += (gl_ ? jitter : 0) * (Math.sin(t * 60 + wy * 30) > 0 ? 1 : -1);
+        var scan = .6 + .4 * Math.sin(wy * 40 - t * 9), al = (.85 + m.kick * .4 + m.hat * .25) * scan;
+        L[o++] = rx; L[o++] = wy; L[o++] = rz; L[o++] = base[0]; L[o++] = base[1]; L[o++] = base[2]; L[o++] = al; L[o++] = 1;
+        if (i % 2 === 0 && po < HSEG * 8) { mid[po++] = rx; mid[po++] = wy; mid[po++] = rz; mid[po++] = base[0]; mid[po++] = base[1]; mid[po++] = base[2]; mid[po++] = .3 + m.hat * .4 + m.kick * .3; mid[po++] = .075; }
+      }
+      var holoVerts = o / 8;
+      // colour split ghost on the snare
+      if (this.glitch > .15) {
+        for (i = 0; i < holoVerts; i++) { var src = i * 8; L[o++] = L[src] + .05 * this.glitch; L[o++] = L[src + 1]; L[o++] = L[src + 2]; L[o++] = 1; L[o++] = .15; L[o++] = .4; L[o++] = L[src + 6] * this.glitch * .6; L[o++] = 1; }
+      }
+      // circular spectrum analyser around the projector: 64 bars, bass at the front sweeping to treble
+      var bands = [m.sub, m.bass, m.lowmid, m.mid, m.high, m.air];
+      for (i = 0; i < 64; i++) {
+        var u = Math.abs((i / 64) * 2 - 1) * 5, bi = Math.floor(u), bf = u - bi, lv = bands[Math.min(5, bi)] * (1 - bf) + bands[Math.min(5, bi + 1)] * bf;
+        this.spec[i] += (lv - this.spec[i]) * Math.min(1, s * 18);
+        var aa = i / 64 * Math.PI * 2, r0 = 1.35, r1 = 1.4 + this.spec[i] * 1.1 + m.kick * .15, col = hsv(this.hue + i / 64 * .3, .7, 1);
+        L[o++] = Math.cos(aa) * r0; L[o++] = .04; L[o++] = Math.sin(aa) * r0; L[o++] = col[0]; L[o++] = col[1]; L[o++] = col[2]; L[o++] = .9; L[o++] = 1;
+        L[o++] = Math.cos(aa) * r1; L[o++] = .04 + this.spec[i] * .2; L[o++] = Math.sin(aa) * r1; L[o++] = col[0]; L[o++] = col[1]; L[o++] = col[2]; L[o++] = .2; L[o++] = 1;
+      }
+      // three wireframe solids orbiting at different heights
+      for (var k = 0; k < 3; k++) {
+        var so = this.solids[k], oa = t * (.35 + k * .12) + k * 2.1, orad = 2.3 + Math.sin(t * .4 + k) * .2, ox = Math.cos(oa) * orad, oz = Math.sin(oa) * orad, oy = 1.2 + k * .5 + Math.sin(t + k) * .15;
+        var ss = .22 * (1 + m.kick * .3 + (k === 1 ? m.snare * .3 : 0)), r1c = Math.cos(t * (1 + k)), r1s = Math.sin(t * (1 + k)), cc = k === 1 ? alt : base;
+        for (var e = 0; e < so.E.length; e++) for (var w = 0; w < 2; w++) {
+          var v = so.V[so.E[e][w]], vx = v[0] * r1c - v[2] * r1s, vz = v[0] * r1s + v[2] * r1c, vy = v[1] * Math.cos(t * .7) - vz * Math.sin(t * .7);
+          vz = v[1] * Math.sin(t * .7) + vz * Math.cos(t * .7);
+          L[o++] = ox + vx * ss; L[o++] = oy + vy * ss; L[o++] = oz + vz * ss; L[o++] = cc[0]; L[o++] = cc[1]; L[o++] = cc[2]; L[o++] = .8; L[o++] = 1;
+        }
+      }
+      // projection beam
+      var bd = this.beamData, bo = beam(bd, 0, [0, .38, 0], [0, 3.2, 0], .45, 1.2, base, .1 + m.kick * .12 + m.dropEnv * .2);
+      drawAdditive(bd, bo / 8, gl.TRIANGLES, false);
+      drawAdditive(L, o / 8, gl.LINES, false);
+      // particle vortex rising through the beam (+ glow beads on the hologram)
+      for (i = 0; i < this.parts.length; i++) {
+        var q = this.parts[i]; q.y += s * q.v * (1 + m.energy * 1.5 + m.dropEnv * 3); q.a += s * (.8 + m.mid * 1.5) / (q.r + .3);
+        var rr = q.r * (1 + (m.drop ? 1.5 : 0) + m.kick * .25);
+        if (q.y > 3.4) { q.y = .4; q.r = .2 + Math.random(); }
+        var pc = hsv(this.hue + q.h * .2, .5, 1);
+        mid[po++] = Math.cos(q.a) * rr; mid[po++] = q.y; mid[po++] = Math.sin(q.a) * rr; mid[po++] = pc[0]; mid[po++] = pc[1]; mid[po++] = pc[2]; mid[po++] = .3 + m.hat * .7 * (q.h > .5 ? 1 : .3); mid[po++] = .035 * q.s;
+      }
+      drawAdditive(mid, po / 8, gl.POINTS, true);
+    },
+    debug: function () { return { verts: this.verts, shape: this.cur, morph: this.mt }; }
+  };
+  function vxEase(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
+
   function mix3(a, b, t) { return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; }
   function scale3(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
 
   // ==================================================================
   // LIFECYCLE
   // ==================================================================
-  var ORDER = ['aliens', 'skeletons'];
+  var ORDER = ['aliens', 'skeletons', 'psychedelic', 'cyberpunk', 'creatures', 'holograms'];
   var cur = null, theme = null, built = {}, frames = 0, tStart = 0, tPrev = 0, perf = { n: 0, sum: 0, since: 0, good: 0 };
   var bar = null, barTimer = 0, snap = null;
   function sizeCanvas() {
@@ -1209,7 +1872,7 @@
 
   window.NXV = {
     order: ORDER, themes: THEMES, start: start, stop: stop, redraw: redraw, snapshot: snapshot, previews: previews, probe: probe,
-    music: M, feed: feed6,
+    music: M, feed: feed6, instance: function (k) { return THEMES[k] && ensureGl() ? getTheme(k) : null; },
     debug: function () { return { current: cur, frames: frames, q: Q, w: glc ? glc.width : 0, h: glc ? glc.height : 0, theme: theme && theme.debug ? theme.debug() : null, music: { kick: M.kick, snare: M.snare, hat: M.hat, energy: M.energy, bpm: M.bpm, live: M.live, phase: M.phase } }; }
   };
 })();
