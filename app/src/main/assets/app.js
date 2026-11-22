@@ -1481,6 +1481,7 @@
     openPanel('SETTINGS', html);
 
     $('sHome').addEventListener('click', function () { openHomeEditor(); });
+    try { var lastErr = A && A.lastUpdateError ? A.lastUpdateError() : ''; if (lastErr) $('sUpdateMsg').textContent = 'Last try: ' + lastErr; } catch (e) {}
     $('sUpdate').addEventListener('click', function () { if (A && A.updateNexus) { $('sUpdateMsg').textContent = 'Starting…'; A.updateNexus(); } else $('sUpdateMsg').textContent = 'Only works on the box.'; });
     $('sKeySave').addEventListener('click', function () {
       setPref('gemini_key', $('sKey').value.trim()); $('sKeyMsg').textContent = 'Saved.';
@@ -1700,7 +1701,7 @@
       downloading: 'Downloading the verified Nexus APK…',
       ready: 'APK verified. Press INSTALL on the screen that opened.',
       installing: 'Download checked. Opening the install screen…',
-      current: 'The newest Nexus release is already installed.', failed: 'The update did not finish. Check the connection and try again.' }[st] || st;
+      current: 'The newest Nexus release is already installed.', busy: 'An update is already running. Give it a moment.', failed: 'The update did not finish. Check the connection and try again.' }[st] || st;
     if (st === 'progress' && isFinite(progress)) m = 'Downloading verified update… ' + Math.max(0, Math.min(100, Math.round(progress))) + '%';
     if (st === 'failed' && typeof progress === 'string' && progress) m = 'Update did not finish: ' + progress;
     caption(st === 'downloading' || st === 'progress' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');

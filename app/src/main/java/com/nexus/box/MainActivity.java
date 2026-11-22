@@ -367,12 +367,44 @@ public class MainActivity extends Activity {
     private static final String NEXUS_APK_NAME = "nexus.apk";
     private static final String UPDATE_STATUS_ACTION = "com.nexus.box.UPDATE_STATUS";
     private volatile boolean updateBusy = false;
+    private volatile long updateStartedAt = 0;
+    private volatile boolean triedBackupInstall = false;
     private BroadcastReceiver updateReceiver;
 
     private void updateFailed(String why) {
         updateBusy = false;
+        // remembered so Settings can show what went wrong last time
+        try { prefs.edit().putString("lastUpdateError", why == null ? "" : why).apply(); } catch (Exception ignored) {}
         js("Nexus._update && Nexus._update('failed'," + JSONObject.quote(why == null ? "" : why) + ")");
     }
+
+    // Backup route: hand the verified APK to Android's classic install screen.
+    private boolean backupInstall(File apk) {
+        if (triedBackupInstall || apk == null || !apk.isFile()) return false;
+        triedBackupInstall = true;
+        try {
+            Intent i = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+            i.setDataAndType(ApkProvider.APK_URI, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true);
+            i.putExtra(Intent.EXTRA_RETURN_RESULT, false);
+            startActivity(i);
+            updateBusy = false;
+            js("Nexus._update && Nexus._update('ready')");
+            return true;
+        } catch (Exception e) {
+            try {
+                Intent v = new Intent(Intent.ACTION_VIEW);
+                v.setDataAndType(ApkProvider.APK_URI, "application/vnd.android.package-archive");
+                v.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(v);
+                updateBusy = false;
+                js("Nexus._update && Nexus._update('ready')");
+                return true;
+            } catch (Exception e2) { return false; }
+        }
+    }
+    private File lastApk = null;
 
     private long installedVersion() throws Exception {
         android.content.pm.PackageInfo me = getPackageManager().getPackageInfo(getPackageName(), 0);
@@ -412,15 +444,23 @@ public class MainActivity extends Activity {
     }
 
     private void startUpdate() {
-        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
-            Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
-            settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(settings);
-            js("Nexus._update && Nexus._update('allow')");
-            return;
+        // A previous attempt that never reported back (install screen closed, Android silent) must not
+        // block the button forever: after two minutes it counts as finished.
+        if (updateBusy && System.currentTimeMillis() - updateStartedAt < 120000) { js("Nexus._update && Nexus._update('busy')"); return; }
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls() && !prefs.getBoolean("askedInstallPermission", false)) {
+            // Ask once. Some car boxes have no such screen, or it doesn't stick: then just carry on,
+            // Android asks during the install itself.
+            prefs.edit().putBoolean("askedInstallPermission", true).apply();
+            try {
+                Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + getPackageName()));
+                settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(settings);
+                js("Nexus._update && Nexus._update('allow')");
+                return;
+            } catch (Exception ignored) {}
         }
-        if (updateBusy) return;
-        updateBusy = true;
+        updateBusy = true; updateStartedAt = System.currentTimeMillis(); triedBackupInstall = false;
+        try { prefs.edit().putString("lastUpdateError", "").apply(); } catch (Exception ignored) {}
         js("Nexus._update && Nexus._update('searching')");
         pool.execute(() -> {
             try {
@@ -439,6 +479,7 @@ public class MainActivity extends Activity {
                 if (!found) throw new Exception("The release has no nexus.apk file yet. Try again in a few minutes.");
                 File apk = downloadNexusApk(size);
                 verifyNexusApk(apk);
+                lastApk = apk;
                 ui.post(() -> installNexusApk(apk));
             } catch (Exception e) {
                 updateFailed(e.getMessage());
@@ -529,7 +570,7 @@ public class MainActivity extends Activity {
                             if (confirm != null) {
                                 confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                                 try { startActivity(confirm); js("Nexus._update && Nexus._update('ready')"); }
-                                catch (Exception e) { updateFailed("Android could not open the install screen."); }
+                                catch (Exception e) { if (!backupInstall(lastApk)) updateFailed("Android could not open the install screen."); }
                             }
                         } else if (status == android.content.pm.PackageInstaller.STATUS_SUCCESS) {
                             updateBusy = false;
@@ -537,7 +578,7 @@ public class MainActivity extends Activity {
                             updateFailed("The install was cancelled. Tap DOWNLOAD UPDATE to try again.");
                         } else {
                             String msg = intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE);
-                            updateFailed("Android refused the install" + (msg != null && !msg.isEmpty() ? ": " + msg : "."));
+                            if (!backupInstall(lastApk)) updateFailed("Android refused the install" + (msg != null && !msg.isEmpty() ? ": " + msg : "."));
                         }
                     }
                 };
@@ -563,7 +604,7 @@ public class MainActivity extends Activity {
             session.close();
             js("Nexus._update && Nexus._update('installing')");
         } catch (Exception e) {
-            updateFailed("Android could not start the install.");
+            if (!backupInstall(apk)) updateFailed("Android could not start the install: " + e.getClass().getSimpleName());
         }
     }
 
@@ -1662,6 +1703,8 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void updateNexus() { ui.post(MainActivity.this::startUpdate); }
+        @JavascriptInterface
+        public String lastUpdateError() { return prefs.getString("lastUpdateError", ""); }
 
         // Download a picture (webcam snapshot) natively and hand it to the page as a data URL.
         @JavascriptInterface
