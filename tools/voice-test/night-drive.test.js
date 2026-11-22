@@ -292,7 +292,12 @@ const scenario = `
  const tw=nd().travel;
  document.querySelector("[data-world=cosmic]").click();await frames(6);
  R.cosmic={world:nd().world,gl:nd().gl,moved:nd().travel-tw,saved:window.__prefs.ndWorld,
-  on:!!document.querySelector('[data-world=cosmic].on'),fade:nd().fade};
+  speedScale:nd().speedScale,on:!!document.querySelector('[data-world=cosmic].on'),fade:nd().fade};
+ // Enchanted Forest gets its own slow-motion profile; switching back must not alter the other worlds.
+ const tf=nd().travel;
+ document.querySelector('[data-world=forest]').click();await frames(6);
+ R.forest={world:nd().world,speedScale:nd().speedScale,effectiveSpeed:nd().effectiveSpeed,
+  moved:nd().travel-tf,saved:window.__prefs.ndWorld,on:!!document.querySelector('[data-world=forest].on')};
  // keep driving for a while: nothing should pile up
  const domBefore=document.querySelectorAll("#xp *").length;
  await frames(25);
@@ -325,7 +330,7 @@ const scenario = `
     'the home tile launches Night Drive ' + JSON.stringify(run.open));
   assert(run.start.gl, 'the world is running on the GPU ' + JSON.stringify(run.start));
   assert(run.start.world === 'rings', 'it opens in Celestial Rings');
-  assert(run.start.quality === 0 && run.start.glx < 1, '2 GB tier: reduced render scale and detail (' + run.start.glx + ')');
+  assert(run.start.quality === .25 && run.start.glx < 1, '2 GB tier: sharper Night Drive render scale with adaptive quality (' + run.start.glx + ')');
   assert(run.moved > 10, 'the journey moves forward on its own (' + run.moved.toFixed(1) + ' m)');
   assert(run.controlsAtStart.present && !run.controlsAtStart.idle, 'controls are there when the journey opens');
   assert(run.faded, 'controls fade away on their own');
@@ -336,8 +341,10 @@ const scenario = `
     'time, colour and music reactivity all take effect ' + JSON.stringify(run.afterSettings));
   assert(run.meterOffWithMusicOff, 'switching music reactivity off stops the audio meter');
   assert(run.reactBack === true, 'music reactivity switches back on');
-  assert(run.cosmic.world === 'cosmic' && run.cosmic.gl && run.cosmic.on && run.cosmic.saved === 'cosmic',
-    'Cosmic Highway can be picked from the WORLD row and is saved ' + JSON.stringify(run.cosmic));
+  assert(run.cosmic.world === 'cosmic' && run.cosmic.gl && run.cosmic.on && run.cosmic.saved === 'cosmic' && run.cosmic.speedScale === 1,
+    'Cosmic Highway keeps its original speed profile ' + JSON.stringify(run.cosmic));
+  assert(run.forest.world === 'forest' && run.forest.on && run.forest.saved === 'forest' && run.forest.speedScale === .2 && run.forest.effectiveSpeed < 20,
+    'Enchanted Forest switches to a genuinely slower Drift/Cruise/Fast profile ' + JSON.stringify(run.forest));
   assert(run.cosmic.moved > 0 && run.cosmic.fade > 0, 'the journey carries on through the change and the new world fades in');
   assert(run.stored.speed === 'fast' && run.stored.time === 'deep' && run.stored.palette === 'aurora', 'choices are saved');
   assert(run.longRun && run.domStable === 0, 'a long run adds nothing to the page (' + run.domStable + ' nodes)');
@@ -348,5 +355,5 @@ const scenario = `
     'the next journey remembers the settings ' + JSON.stringify(run.restored));
   assert(run.party.open && run.party.state === true, 'Party Mode still opens and runs');
   assert(run.liquid, 'Liquid Dreams still opens');
-  console.log('Night Drive: Celestial Rings and Cosmic Highway verified in pixels (planet, rings, highway, movement, music, tiers), and launched, driven, adjusted, exited and re-entered in the real app page with Party Mode and Liquid Dreams unaffected.');
+  console.log('Night Drive: Celestial Rings, Cosmic Highway and Enchanted Forest verified; forest speed is independently reduced, render quality is raised, controls/settings/exit work, and Party Mode and Liquid Dreams remain unaffected.');
 })().catch(e => { console.error(e); process.exit(1); });
