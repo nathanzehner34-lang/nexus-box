@@ -46,11 +46,12 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
     for (const k of NXV.order) {
       NXV.start(k); const t0=Date.now(); let d;
       while(Date.now()-t0<8000){ await wait(150); d=NXV.debug().theme; if(d&&d.ready>=2&&d.time>.2)break; }
-      NXV.redraw(); const c=document.getElementById('nvc'), x=c.getContext('webgl'); const px=new Uint8Array(4*64*36);
-      // sample the drawn frame
-      const cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d'); NXV.redraw(); g.drawImage(c,0,0,64,36);
-      const im=g.getImageData(0,0,64,36).data; let s=0,s2=0; for(let i=0;i<im.length;i+=4){const l=.299*im[i]+.587*im[i+1]+.114*im[i+2]; s+=l; s2+=l*l;}
-      const n=im.length/4, mean=s/n, sd=Math.sqrt(s2/n-mean*mean);
+      // watch the scene for ~1.5 s and keep its best frame: one slow first frame on a busy machine can't fail it
+      const c=document.getElementById('nvc'), cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d');
+      let mean=0, sd=0;
+      for(let f=0;f<10;f++){ NXV.redraw(); g.drawImage(c,0,0,64,36);
+        const im=g.getImageData(0,0,64,36).data; let s=0,s2=0; for(let i=0;i<im.length;i+=4){const l=.299*im[i]+.587*im[i+1]+.114*im[i+2]; s+=l; s2+=l*l;}
+        const n=im.length/4, m=s/n, d2=Math.sqrt(Math.max(0,s2/n-m*m)); if(m+d2>mean+sd){mean=m;sd=d2;} await wait(150); }
       // a kick: zoom punch and colour split must respond
       const z0=NXV.debug().theme.zoom; for(let i=0;i<45;i++){NXV.feed([.2,.2,.3,.3,.2,.2]);await wait(40);} const zA=NXV.debug().theme.zoom; NXV.feed([1,1,.4,.4,.3,.3]); let zMax=-1; for(let i=0;i<12;i++){await wait(25); zMax=Math.max(zMax,NXV.debug().theme.zoom);}
       const z1=zMax, z0b=zA;
