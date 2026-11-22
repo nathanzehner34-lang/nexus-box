@@ -13,12 +13,12 @@ const galleryIds = Array.from(gallery.matchAll(/\['([^']+)'/g), match => match[1
 
 assert(html.includes('data-act="liquiddreams"') && app.includes("case 'liquiddreams': openExperience(name);"), 'Liquid Dreams is a home-screen experience');
 assert(app.includes("pref('homeVer') === '4'") && app.includes("'liquiddreams'") && app.includes("'5'"), 'existing custom home layouts gain Liquid Dreams without resetting preferences');
-assert.deepStrictEqual(galleryIds, ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole', 'deepsea', 'robotdj', 'mushroomworld', 'ufo', 'rollercoaster', 'livingskull', 'alienparty', 'neonhighway'], 'the Visuals catalog is the thirteen experiences');
-assert(xp.includes("var VX_ORDER = ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole']") && xp.includes('if (VX_ORDER.indexOf(name) >= 0) { vxStart(name); return true; }'), 'every catalog entry dispatches to the Visuals engine');
+assert.deepStrictEqual(galleryIds, ['aliens', 'skeletons', 'psychedelic', 'cyberpunk', 'creatures', 'holograms'], 'the Visuals catalog lists the six new themes in order');
+assert(xp.includes('function isVisual(name)') && xp.includes('NXV.start(name)') && !xp.includes('VX_ORDER'), 'Visuals themes dispatch to the new engine and the old one is gone');
 assert(galleryIds.length === new Set(galleryIds).size, 'the gallery has no duplicate or stale selection entries');
 assert(xp.includes('function renderAtmosphere(now)') && xp.includes('renderAtmosphere(now);'), 'the utility experiences keep their atmospheric pass');
 for (const family of ['space','fluid','prism','organic','neon']) assert(xp.includes(family + ': ['), family + ' atmosphere family is retained');
-assert(xp.includes('HIGH_MEMORY_DEVICE ? 0.9 : 0.8') && xp.includes('HIGH_MEMORY_DEVICE ? 88 : 30') && xp.includes('VX_GLX_MAX = HIGH_MEMORY_DEVICE ? 1.25 : 1'), 'Visuals adapt resolution and detail to device memory');
+assert(xp.includes('HIGH_MEMORY_DEVICE ? 0.9 : 0.8') && xp.includes('HIGH_MEMORY_DEVICE ? 88 : 30'), 'experiences adapt resolution and detail to device memory');
 assert(xp.includes('function liquidDreams()') && xp.includes('liquiddreams: liquidDreams'), 'Liquid Dreams is independently registered');
 for (const env of ['deepflow','iridescence','ether','chrome','cosmic','organic']) assert(xp.includes("id: '" + env + "'") && xp.includes('data-env="'), env + ' Liquid Dreams environment exists and is selectable');
 for (const color of ['midnight','deepteal','violet','chrome','iridescent','aurora','obsidian','arctic','signature']) assert(xp.includes(color + ': {') || xp.includes("'" + color + "'"), color + ' colour mode exists');

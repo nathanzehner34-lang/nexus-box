@@ -126,6 +126,9 @@ public class MainActivity extends Activity {
     };
     private Thread meterThread = null;
     private Visualizer visualizer = null;
+    // Visuals asks for a finer music feed (six bands at the Visualizer's top rate). Party Mode never sets it.
+    private volatile boolean meterDetail = false;
+    private boolean visualizerDetail = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1172,16 +1175,18 @@ public class MainActivity extends Activity {
     private boolean startVisualizer() {
         // Listens to the music the box itself is playing (no microphone, so the music isn't turned down).
         try {
+            visualizerDetail = meterDetail;
             Visualizer v = new Visualizer(0);
             v.setEnabled(false);
             int[] range = Visualizer.getCaptureSizeRange();
             v.setCaptureSize(Math.max(range[0], Math.min(512, range[1])));
             v.setScalingMode(Visualizer.SCALING_MODE_NORMALIZED);
             v.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
-                long lastSend = 0;
+                long lastSend = 0, lastDetail = 0;
                 @Override public void onWaveFormDataCapture(Visualizer vis, byte[] wave, int rate) {}
                 @Override public void onFftDataCapture(Visualizer vis, byte[] fft, int rate) {
                     long now = System.currentTimeMillis();
+                    if (meterDetail && now - lastDetail >= 30) { lastDetail = now; sendDetail(fft, rate); }
                     if (now - lastSend < 80) return;
                     lastSend = now;
                     int n = fft.length / 2;
@@ -1200,7 +1205,7 @@ public class MainActivity extends Activity {
                     bass /= 6.0; mid /= Math.max(1, midBins); high /= Math.max(1, highBins); all /= 64.0;
                     js("Nexus._meter && Nexus._meter(" + String.format(Locale.US, "%.4f", all) + "," + String.format(Locale.US, "%.4f", bass) + "," + String.format(Locale.US, "%.4f", mid) + "," + String.format(Locale.US, "%.4f", high) + ")");
                 }
-            }, Math.min(Visualizer.getMaxCaptureRate(), 12000), false, true);
+            }, visualizerDetail ? Visualizer.getMaxCaptureRate() : Math.min(Visualizer.getMaxCaptureRate(), 12000), false, true);
             v.setEnabled(true);
             visualizer = v;
             return true;
@@ -1208,6 +1213,34 @@ public class MainActivity extends Activity {
             visualizer = null;
             return false;
         }
+    }
+
+    // Six bands by real frequency: sub (<120 Hz), bass (120-250), low-mid (250-700), mid (700-2500),
+    // high (2.5-7 kHz) and air (above 7 kHz). Sent only while Visuals is open.
+    private static final double[] DETAIL_EDGES = {20, 120, 250, 700, 2500, 7000, 16000};
+    private void sendDetail(byte[] fft, int rateMilliHz) {
+        int n = fft.length / 2;
+        if (n < 8) return;
+        double binHz = (rateMilliHz / 1000.0) / fft.length;
+        if (binHz <= 0) binHz = 44100.0 / fft.length;
+        double[] band = new double[6]; int[] count = new int[6];
+        for (int k = 1; k < n; k++) {
+            double f = k * binHz; int b = -1;
+            for (int j = 0; j < 6; j++) if (f >= DETAIL_EDGES[j] && f < DETAIL_EDGES[j + 1]) { b = j; break; }
+            if (b < 0) { if (f < DETAIL_EDGES[0]) b = 0; else continue; }
+            double re = fft[2 * k], im = fft[2 * k + 1];
+            band[b] += Math.sqrt(re * re + im * im) / 128.0; count[b]++;
+        }
+        StringBuilder sb = new StringBuilder("Nexus._meter6 && Nexus._meter6(");
+        for (int j = 0; j < 6; j++) { if (j > 0) sb.append(','); sb.append(String.format(Locale.US, "%.4f", count[j] > 0 ? band[j] / count[j] : 0)); }
+        js(sb.append(')').toString());
+    }
+
+    private void setMeterDetail(boolean on) {
+        if (meterDetail == on) return;
+        meterDetail = on;
+        // a running Visualizer keeps its capture rate, so restart it to pick up the faster rate
+        if (on && meterOn && visualizer != null && !visualizerDetail) { stopMeter(); startMeter(); }
     }
 
     private void startMeter() {
@@ -1825,7 +1858,9 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void meter(boolean on) { if (on) startMeter(); else stopMeter(); }
+        public void meter(boolean on) { if (on) startMeter(); else { meterDetail = false; stopMeter(); } }
+        @JavascriptInterface
+        public void meterDetail(boolean on) { setMeterDetail(on); }
 
         @JavascriptInterface
         public void partyMeter(boolean on) { if (on) startPartyMeter(); else stopMeter(); }

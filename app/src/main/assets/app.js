@@ -1528,19 +1528,12 @@
   };
   // The Visuals collection: five procedural, music-reactive experiences (rendered in experiences.js).
   var VISUALS = [
-    ['firetornado', '🌪', 'FIRE TORNADO', 'Molten vortex · embers · heat haze', 'Fire Tornado'],
-    ['bluefire', '🔥', 'BLUE FIRE', 'Rising plasma flames · energy arcs', 'Blue Fire'],
-    ['hollowhead', '👤', 'HOLLOW HEAD', 'Living holographic grid head', 'Hollow Head'],
-    ['cybereye', '👁', 'CYBER EYE', 'Mechanical iris · aperture · scanning', 'Cyber Eye'],
-    ['wormhole', '🕳', 'WORMHOLE', 'Dimensional tunnel through deep space', 'Wormhole'],
-    ['deepsea', '🪼', 'DEEP SEA EXPLORER', 'Glide through an alien ocean canyon', 'Deep Sea Explorer'],
-    ['robotdj', '🤖', 'ROBOT DJ', 'Chrome DJ performing in a neon megaclub', 'Robot DJ'],
-    ['mushroomworld', '🍄', 'ALIEN MUSHROOM WORLD', 'Living psychedelic fungal forest', 'Alien Mushroom World'],
-    ['ufo', '🛸', 'UFO ENCOUNTER', 'Mothership over an alien desert', 'UFO Encounter'],
-    ['rollercoaster', '🎢', 'COSMIC ROLLERCOASTER', 'Endless ride through impossible loops', 'Cosmic Rollercoaster'],
-    ['livingskull', '💀', 'LIVING SKULL', 'Supernatural skull alive with energy', 'Living Skull'],
-    ['alienparty', '👽', 'ALIEN DANCE PARTY', 'Five aliens, five dance styles', 'Alien Dance Party'],
-    ['neonhighway', '🌙', 'NEON HIGHWAY', 'Endless night drive toward the moon', 'Neon Highway']
+    ['aliens', '👽', 'DANCING ALIENS', 'Four alien dancers on a neon planet stage', 'Dancing Aliens'],
+    ['skeletons', '💀', 'DANCING SKELETONS', 'A bone crew dancing in perfect sync', 'Dancing Skeletons'],
+    ['psychedelic', '🌀', 'PSYCHEDELIC DIMENSIONS', 'Impossible geometry · fractal worlds', 'Psychedelic Dimensions'],
+    ['cyberpunk', '🌃', 'NEON CYBERPUNK WORLDS', 'Flying through a living neon city', 'Neon Cyberpunk Worlds'],
+    ['creatures', '🪼', 'TRIPPY 3D CREATURES', 'Surreal beings that shift with the beat', 'Trippy 3D Creatures'],
+    ['holograms', '💠', 'FUTURISTIC HOLOGRAMS', 'Wireframe entities · light · particles', 'Futuristic Holograms']
   ];
   // ---- Shared control markup (design system components) ----
   function switchHtml(attrs, label, on) {
@@ -1599,14 +1592,17 @@
 
   // ---- Visuals menu with favourites (★) and Play All / Play Favourites (auto-switches visuals) ----
   function favList() { return (pref('favVis') || '').split(',').filter(Boolean); }
-  var PLAYABLE = function () { return VISUALS.filter(function (v) { return v[0] !== 'webcams'; }).map(function (v) { return v[0]; }); };
+  var PLAYABLE = function () { return visList().filter(function (v) { return v[0] !== 'webcams'; }).map(function (v) { return v[0]; }); };
   var fromVisuals = false, visScroll = 0;
   function backToVisuals() { if (!fromVisuals) return false; fromVisuals = false; setTimeout(function () { openVisuals(); $('panelBody').scrollTop = visScroll; }, 30); return true; }
   function openVisuals() {
     // Previews are real frames of each experience, rendered once by the Visuals engine.
     loadExperiences(function () { if (window.XP && XP.previews) XP.previews(showVisuals); else showVisuals({}); });
   }
+  // Only themes the Visuals engine actually provides are listed (they arrive one by one).
+  function visList() { return VISUALS.filter(function (v) { return !window.NXV || NXV.order.indexOf(v[0]) >= 0; }); }
   function showVisuals(previews) {
+    var VISUALS = visList();
     var favs = favList(), secs = +(pref('playSecs') || 45), last = pref('lastVis') || '';
     var favRows = VISUALS.filter(function (v) { return favs.indexOf(v[0]) >= 0; });
     var html = '<div class="vis-grid">' + VISUALS.map(function (v, i) {
@@ -1677,10 +1673,11 @@
   function loadExperiences(done) {
     if (xpLoaded) return done();
     xpWaiting.push(done); if (xpWaiting.length > 1) return;
-    var sc = document.createElement('script');
-    sc.src = 'experiences.js';
-    sc.onload = function () { xpLoaded = true; var q = xpWaiting; xpWaiting = []; q.forEach(function (f) { f(); }); };
-    document.body.appendChild(sc);
+    // visuals.js (the Visuals themes) loads first so the experience engine can hand them off.
+    function add(src, next) { var sc = document.createElement('script'); sc.src = src; sc.onload = next; sc.onerror = next; document.body.appendChild(sc); }
+    add('visuals.js', function () {
+      add('experiences.js', function () { xpLoaded = true; var q = xpWaiting; xpWaiting = []; q.forEach(function (f) { f(); }); });
+    });
   }
   function openExperience(name, fromPlay) {
     if (P.on) exitParty(true);
