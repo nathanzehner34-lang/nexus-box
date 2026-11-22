@@ -35,22 +35,26 @@
   };
   var raw = [0, 0, 0, 0, 0, 0], rawAt = 0, norm = [0, 0, 0, 0, 0, 0];
   var bandMean = [.02, .02, .02, .02, .02, .02], bandPeak = [.05, .05, .05, .05, .05, .05];
-  var flux = { low: 0, lowAvg: .01, mid: 0, midAvg: .01, hi: 0, hiAvg: .01, prevLow: 0, prevMid: 0, prevHi: 0 };
   var pend = { kick: 0, snare: 0, hat: 0 }, lastKickAt = 0, lastSnareAt = 0, lastHatAt = 0, intervals = [], lastDropAt = -1e9;
   var musicOn = true, musicCheck = 0, fallbackKicks = -1;
+  // Onsets: a jump in a band's raw level relative to its own recent average (scale-free, so steady loud
+  // bass doesn't hide the kicks on top of it), compared against the typical jump size for that band.
+  var lvl = { low: .02, mid: .02, hi: .02 }, jump = { low: .05, mid: .05, hi: .05 }, prev = { low: 0, mid: 0, hi: 0 };
+  function onset(key, x, now, minGap, last, gain) {
+    var d = Math.max(0, x - prev[key]) / (lvl[key] + 1e-3); prev[key] = x;
+    var hit = d > jump[key] * 2.2 + .35 && x > lvl[key] * 1.12 && now - last > minGap;
+    jump[key] += (d - jump[key]) * .06; lvl[key] += (x - lvl[key]) * .05;
+    return hit ? clamp(.5 + d * gain, .5, 1) : 0;
+  }
   function onsets(now) {
-    // spectral flux per region against its own running average: real hits, not loudness
-    var low = norm[0] * .6 + norm[1] * .4, md = norm[2] * .4 + norm[3] * .6, hi = norm[4] * .55 + norm[5] * .45;
-    var fl = Math.max(0, low - flux.prevLow), fm = Math.max(0, md - flux.prevMid), fh = Math.max(0, hi - flux.prevHi);
-    flux.prevLow = low; flux.prevMid = md; flux.prevHi = hi;
-    if (fl > flux.lowAvg * 1.8 + .07 && low > .3 && now - lastKickAt > 230) {
-      var iv = now - lastKickAt; lastKickAt = now;
-      pend.kick = Math.max(pend.kick, clamp(.55 + fl * 1.6, .55, 1));
+    var low = raw[0] * .6 + raw[1] * .4, md = raw[2] * .4 + raw[3] * .6, hi = raw[4] * .55 + raw[5] * .45;
+    var k = onset('low', low, now, 230, lastKickAt, .35), sn = onset('mid', md, now, 170, lastSnareAt, .4), h = onset('hi', hi, now, 85, lastHatAt, .4);
+    if (k) {
+      var iv = now - lastKickAt; lastKickAt = now; pend.kick = Math.max(pend.kick, k);
       if (iv > 280 && iv < 1100) { intervals.push(iv); if (intervals.length > 10) intervals.shift(); }
     }
-    if (fm > flux.midAvg * 1.9 + .06 && md > .28 && now - lastSnareAt > 170) { lastSnareAt = now; pend.snare = Math.max(pend.snare, clamp(.5 + fm * 1.8, .5, 1)); }
-    if (fh > flux.hiAvg * 1.7 + .05 && hi > .22 && now - lastHatAt > 85) { lastHatAt = now; pend.hat = Math.max(pend.hat, clamp(.45 + fh * 2, .45, 1)); }
-    flux.lowAvg += (fl - flux.lowAvg) * .08; flux.midAvg += (fm - flux.midAvg) * .08; flux.hiAvg += (fh - flux.hiAvg) * .08;
+    if (sn) { lastSnareAt = now; pend.snare = Math.max(pend.snare, sn); }
+    if (h) { lastHatAt = now; pend.hat = Math.max(pend.hat, h); }
   }
   function feed6(v) {
     var now = performance.now(), total = 0;
@@ -1701,17 +1705,159 @@
   };
   function vxEase(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
 
+  // ==================================================================
+  // CINEMATIC CLIPS — film-quality loops by Beeple (free for any use; credited in the menu),
+  // played full screen and driven by the music:
+  //   kick   -> zoom punch, exposure pulse, colour-split shock, small camera shake
+  //   snare  -> horizontal glitch slices
+  //   hi-hat -> film-grain sparkle
+  //   energy -> playback speed (slow motion when quiet, faster when it builds), contrast and glow
+  //   bars   -> beat-synced cuts between the scene's camera angles (every beat during a build-up)
+  //   drop   -> white flash, instant cut and a big zoom
+  // Two video elements alternate so a cut is instant: the next angle is always already loaded.
+  // ==================================================================
+  var CLIPS = {"coins": ["clips/coins_0.mp4", "clips/coins_1.mp4", "clips/coins_2.mp4", "clips/coins_3.mp4", "clips/coins_4.mp4"], "skulls": ["clips/skulls_0.mp4", "clips/skulls_1.mp4"], "flag": ["clips/flag_0.mp4", "clips/flag_1.mp4"], "cityfire": ["clips/cityfire_0.mp4", "clips/cityfire_1.mp4", "clips/cityfire_2.mp4"], "inferno": ["clips/inferno_0.mp4", "clips/inferno_1.mp4"], "serpent": ["clips/serpent_0.mp4", "clips/serpent_1.mp4", "clips/serpent_2.mp4", "clips/serpent_3.mp4"], "idol": ["clips/idol_0.mp4", "clips/idol_1.mp4"], "frenzy": ["clips/frenzy_0.mp4", "clips/frenzy_1.mp4", "clips/frenzy_2.mp4", "clips/frenzy_3.mp4"], "run": ["clips/run_0.mp4", "clips/run_1.mp4", "clips/run_2.mp4"], "collapse": ["clips/collapse_0.mp4", "clips/collapse_1.mp4", "clips/collapse_2.mp4", "clips/collapse_3.mp4", "clips/collapse_4.mp4"]};
+  var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "flag": "Molten Flag", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
+  var CLIP_ORDER = ["coins", "skulls", "flag", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse"];
+  var FS_VIDEO = [
+    'precision mediump float;',
+    'uniform sampler2D uA, uB; uniform float uMix, uTime; uniform vec2 uRes, uShake;',
+    'uniform vec4 uFx;',                    // zoom punch, glitch, flash, colour split
+    'uniform vec4 uM0, uM1, uM2;',
+    'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+    'vec3 grab(sampler2D t, vec2 p, vec2 c, float ca){',
+    '  return vec3(texture2D(t, p + c * ca).r, texture2D(t, p).g, texture2D(t, p - c * ca).b);',
+    '}',
+    'void main(){',
+    '  vec2 uv = gl_FragCoord.xy / uRes;',
+    '  vec2 c = (uv - .5) * (1. - uFx.x) + uShake;',
+    '  float sl = floor(uv.y * 22.);',
+    '  float g = step(.72, hash(vec2(sl, floor(uTime * 24.)))) * uFx.y;',
+    '  c.x += (hash(vec2(sl, 3.1)) - .5) * .09 * g;',
+    '  vec2 p = clamp(c + .5, .001, .999); p.y = 1. - p.y;',
+    '  float ca = .002 + uFx.w * .022;',
+    '  vec3 col = grab(uA, p, c, ca);',
+    '  if (uMix > .001) col = mix(col, grab(uB, p, c, ca), uMix);',
+    // cheap glow: a few wide taps of the bright parts
+    '  vec3 gl = (texture2D(uA, p + vec2(.012, 0.)).rgb + texture2D(uA, p - vec2(.012, 0.)).rgb + texture2D(uA, p + vec2(0., .02)).rgb + texture2D(uA, p - vec2(0., .02)).rgb) * .25;',
+    '  col += max(gl - .6, 0.) * (.35 + uM2.y * .7 + uM1.z * .45);',
+    // grade: contrast and saturation rise with the energy, exposure pulses on the kick
+    '  float l = dot(col, vec3(.299, .587, .114));',
+    '  col = mix(vec3(l), col, 1.05 + uM2.y * .35);',
+    '  col = (col - .5) * (1.04 + uM2.y * .25) + .5;',
+    '  col *= .92 + uM1.z * .17 + uM2.w * .12;',
+    '  col += uFx.z;',
+    '  col += (hash(gl_FragCoord.xy + fract(uTime) * 91.) - .5) * (.03 + uM2.x * .07);',          // film grain, sparkling on hats
+    '  vec2 vg = uv - .5; col *= 1. - dot(vg, vg) * (.9 - uM1.z * .3);',
+    '  gl_FragColor = vec4(col, 1.);',
+    '}'].join('\n');
+  function makeVideo() {
+    var v = document.createElement('video');
+    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; v.crossOrigin = 'anonymous';
+    v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
+    v.style.cssText = 'position:absolute;width:2px;height:2px;opacity:0;pointer-events:none;left:-10px;top:-10px';
+    return v;
+  }
+  function videoTex() {
+    var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0]));
+    return t;
+  }
+  function ClipTheme(id, list, name) {
+    this.id = id; this.name = name; this.list = list; this.video = true;
+  }
+  ClipTheme.prototype.init = function () {
+    this.vids = [makeVideo(), makeVideo()]; this.tex = [videoTex(), videoTex()];
+    this.vids.forEach(function (v) { if (layer) layer.appendChild(v); });
+    this.cur = 0; this.idx = 0; this.mix = 0; this.fading = false;
+    this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, split: 0 }; this.lastCutBar = -1; this.lastCutBeat = -1; this.ready = [false, false];
+    this.load(0, this.list[0]); this.load(1, this.list[1 % this.list.length]);
+    this.play(0);
+  };
+  ClipTheme.prototype.load = function (slot, src) {
+    var v = this.vids[slot], self = this; this.ready[slot] = false;
+    v.oncanplay = function () { self.ready[slot] = true; };
+    v.src = src; try { v.load(); } catch (e) {}
+  };
+  ClipTheme.prototype.play = function (slot) { var v = this.vids[slot]; try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} };
+  ClipTheme.prototype.cut = function (fade) {
+    // the preloaded angle takes over; the old element starts loading the one after it
+    var next = 1 - this.cur; this.idx = (this.idx + 1) % this.list.length;
+    try { this.vids[next].currentTime = 0; } catch (e) {}
+    this.play(next);
+    if (fade) { this.fading = true; this.mix = 0.0001; this.fadeFrom = this.cur; }
+    this.cur = next;
+    var self = this, old = 1 - next;
+    if (!fade) { try { this.vids[old].pause(); } catch (e) {} this.load(old, this.list[(this.idx + 1) % this.list.length]); }
+    this.pendingLoad = fade ? old : -1;
+  };
+  ClipTheme.prototype.free = function () {
+    this.vids.forEach(function (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} if (v.parentNode) v.parentNode.removeChild(v); });
+    if (gl) this.tex.forEach(function (t) { gl.deleteTexture(t); });
+  };
+  ClipTheme.prototype.upload = function (slot, unit) {
+    var v = this.vids[slot];
+    gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, this.tex[slot]);
+    if (v.readyState >= 2 && v.videoWidth) { try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, v); } catch (e) {} }
+  };
+  ClipTheme.prototype.frame = function (dt, t) {
+    var m = M, s = dt / 1000, fx = this.fx, cutNow = false, fade = false;
+    // when do we cut to the next angle? (single-angle scenes simply keep playing)
+    if (this.list.length > 1 && m.live) {
+      var every = m.build > .6 ? 0 : m.energy > .45 ? 2 : 4;
+      if (m.drop) { cutNow = true; }
+      else if (every === 0 && m.kickHit && m.beat !== this.lastCutBeat) { cutNow = true; this.lastCutBeat = m.beat; }
+      else if (every && m.kickHit && m.bar !== this.lastCutBar && m.bar % every === 0 && m.frac < .3) { cutNow = true; }
+    } else if (this.list.length > 1 && !m.live && t - (this.idleCut || 0) > 9) { cutNow = true; fade = true; this.idleCut = t; }
+    if (cutNow && !this.fading && this.ready[1 - this.cur]) { this.lastCutBar = m.bar; this.cut(fade); if (!fade) fx.flash = Math.max(fx.flash, m.drop ? .4 : .05); }
+    // music -> effects
+    if (m.kickHit) { fx.zv += .9 * m.strength; fx.split = Math.max(fx.split, m.strength); }
+    if (m.drop) { fx.zv += 2.2; fx.flash = .5; }
+    fx.zv += (-fx.zoom * 60 - fx.zv * 9) * s; fx.zoom = Math.max(-.02, fx.zoom + fx.zv * s);
+    fx.split *= Math.exp(-dt / 160); fx.flash *= Math.exp(-dt / 140);
+    fx.glitch = Math.max(fx.glitch * Math.exp(-dt / 110), m.snareHit ? m.snare : 0);
+    var rate = m.live ? clamp(.65 + m.energy * .75 + m.build * .2, .6, 1.35) : .55;
+    var v = this.vids[this.cur]; if (Math.abs((v.playbackRate || 1) - rate) > .04) try { v.playbackRate = rate; } catch (e) {}
+    if (v.paused && v.readyState >= 2) this.play(this.cur);
+    if (this.fading) { this.mix += s / .35; if (this.mix >= 1) { this.fading = false; this.mix = 0; try { this.vids[this.fadeFrom].pause(); } catch (e) {} this.load(this.fadeFrom, this.list[(this.idx + 1) % this.list.length]); } }
+    var p = compile('video', 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }', FS_VIDEO);
+    gl.useProgram(p); gl.disable(gl.DEPTH_TEST); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
+    // while fading, the outgoing angle stays the base image and the incoming one dissolves in
+    var base = this.fading ? this.fadeFrom : this.cur, over = this.fading ? this.cur : 1 - this.cur;
+    this.upload(base, 0); if (this.fading) this.upload(over, 1); else { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.tex[over]); }
+    gl.uniform1i(p.u('uA'), 0); gl.uniform1i(p.u('uB'), 1); gl.uniform1f(p.u('uMix'), this.fading ? vxEase(this.mix) : 0);
+    gl.uniform2f(p.u('uRes'), F.w, F.h); gl.uniform1f(p.u('uTime'), t);
+    var sh = m.kick * .006; gl.uniform2f(p.u('uShake'), Math.sin(t * 37) * sh, Math.cos(t * 41) * sh);
+    gl.uniform4f(p.u('uFx'), clamp(fx.zoom * .32, -.01, .16), fx.glitch, fx.flash, fx.split);
+    gl.uniform4f(p.u('uM0'), M.sub, M.bass, M.lowmid, M.mid); gl.uniform4f(p.u('uM1'), M.high, M.air, M.kick, M.snare); gl.uniform4f(p.u('uM2'), M.hat, M.energy, M.build, M.dropEnv);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad); var pa = p.a('p'); attribs([pa]); gl.vertexAttribPointer(pa, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.activeTexture(gl.TEXTURE0);
+  };
+  ClipTheme.prototype.debug = function () {
+    var v = this.vids[this.cur];
+    return { angle: this.idx, src: this.list[this.idx], ready: v.readyState, playing: !v.paused, rate: v.playbackRate, time: v.currentTime, zoom: this.fx.zoom, glitch: this.fx.glitch, flash: this.fx.flash };
+  };
+  CLIP_ORDER.forEach(function (k) { THEMES['clip_' + k] = new ClipTheme('clip_' + k, CLIPS[k], CLIP_NAMES[k]); });
+  // the mix: every scene, every angle, cut on the beat
+  (function () { var all = []; var n = 0, more = true; while (more) { more = false; CLIP_ORDER.forEach(function (k) { if (CLIPS[k][n]) { all.push(CLIPS[k][n]); more = true; } }); n++; }
+    THEMES.clip_mix = new ClipTheme('clip_mix', all, 'Cinematic Mix'); })();
+
   function mix3(a, b, t) { return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; }
   function scale3(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
 
   // ==================================================================
   // LIFECYCLE
   // ==================================================================
-  var ORDER = ['aliens', 'skeletons', 'psychedelic', 'cyberpunk', 'creatures', 'holograms'];
+  var ORDER = ['clip_mix'].concat(CLIP_ORDER.map(function (k) { return 'clip_' + k; }));
   var cur = null, theme = null, built = {}, frames = 0, tStart = 0, tPrev = 0, perf = { n: 0, sum: 0, since: 0, good: 0 };
   var bar = null, barTimer = 0, snap = null;
   function sizeCanvas() {
-    var w = Math.max(64, Math.round(layer.clientWidth * Q)), h = Math.max(36, Math.round(layer.clientHeight * Q));
+    // film clips are cheap to draw, so they keep near-full sharpness; the 3D themes use the adaptive scale
+    var q = theme && theme.video ? clamp(Q + .3, .72, 1) : Q;
+    var w = Math.max(64, Math.round(layer.clientWidth * q)), h = Math.max(36, Math.round(layer.clientHeight * q));
     if (glc.width !== w || glc.height !== h) { glc.width = w; glc.height = h; }
     F.w = glc.width; F.h = glc.height;
   }
@@ -1845,7 +1991,7 @@
     if (!was) glc.style.display = 'none';
     return out;
   }
-  var previewCache = null, PREVIEW_VERSION = 'nxv-1';
+  var previewCache = null, PREVIEW_VERSION = 'nxv-2';
   function previews(cb) {
     if (previewCache) { cb(previewCache); return; }
     var key = 'nexus.nvPreviews.' + PREVIEW_VERSION;
@@ -1853,6 +1999,7 @@
     if (!ensureGl()) { cb({}); return; }
     var out = {};
     ORDER.forEach(function (k) {
+      if (THEMES[k].video) { out[k] = k === 'clip_mix' ? 'clips/collapse.jpg' : 'clips/' + k.slice(5) + '.jpg'; return; }   // film stills
       try {
         var keepW = glc.width, keepH = glc.height, th = getTheme(k), prev = theme;
         theme = th; glc.width = 320; glc.height = 180; F.w = 320; F.h = 180;

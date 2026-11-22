@@ -1528,12 +1528,17 @@
   };
   // The Visuals collection: five procedural, music-reactive experiences (rendered in experiences.js).
   var VISUALS = [
-    ['aliens', '👽', 'DANCING ALIENS', 'Four alien dancers on a neon planet stage', 'Dancing Aliens'],
-    ['skeletons', '💀', 'DANCING SKELETONS', 'A bone crew dancing in perfect sync', 'Dancing Skeletons'],
-    ['psychedelic', '🌀', 'PSYCHEDELIC DIMENSIONS', 'Impossible geometry · fractal worlds', 'Psychedelic Dimensions'],
-    ['cyberpunk', '🌃', 'NEON CYBERPUNK WORLDS', 'Flying through a living neon city', 'Neon Cyberpunk Worlds'],
-    ['creatures', '🪼', 'TRIPPY 3D CREATURES', 'Surreal beings that shift with the beat', 'Trippy 3D Creatures'],
-    ['holograms', '💠', 'FUTURISTIC HOLOGRAMS', 'Wireframe entities · light · particles', 'Futuristic Holograms']
+    ['clip_mix', '🎬', 'CINEMATIC MIX', 'Every scene, cut to the beat', 'Cinematic Mix'],
+    ['clip_coins', '🪙', 'COIN AVALANCHE', 'An endless storm of gold', 'Coin Avalanche'],
+    ['clip_skulls', '💀', 'SKULL MOUNTAIN', 'A mountain of golden skulls', 'Skull Mountain'],
+    ['clip_flag', '🔥', 'MOLTEN FLAG', 'Rippling metal, fire bursting through', 'Molten Flag'],
+    ['clip_cityfire', '🌆', 'CITY ON FIRE', 'Watching the whole city burn', 'City on Fire'],
+    ['clip_inferno', '🔥', 'INFERNO', 'A wall of flame and embers', 'Inferno'],
+    ['clip_serpent', '🐍', 'GOLDEN SERPENT', 'A gold snake through scattered coins', 'Golden Serpent'],
+    ['clip_idol', '🗿', 'THE IDOL', 'A crowd before a giant glowing statue', 'The Idol'],
+    ['clip_frenzy', '🙌', 'IDOL FRENZY', 'Arms raised, confetti flying', 'Idol Frenzy'],
+    ['clip_run', '🏃', 'THE RUN', 'Sprinting through flying debris', 'The Run'],
+    ['clip_collapse', '🏙', 'CITY COLLAPSE', 'A city breaking into glittering debris', 'City Collapse']
   ];
   // ---- Shared control markup (design system components) ----
   function switchHtml(attrs, label, on) {
@@ -1616,7 +1621,8 @@
       '<span class="btn' + (favRows.length ? ' go' : ' off') + '" id="vPlayFav">★ PLAY FAVORITES</span>' +
       '<span class="hint" style="margin:0 1vmin">SWITCH EVERY</span>' +
       [[5, '5s'], [10, '10s'], [30, '30s'], [60, '1 MIN'], [120, '2 MIN']].map(function (o) { return '<span class="btn sm' + (secs === o[0] ? ' go' : '') + '" data-secs="' + o[0] + '">' + o[1] + '</span>'; }).join('') + '</div>' +
-      '<div class="hint">Tap a visual to start it. While it plays, tap the screen to switch visuals or exit. Music keeps playing.</div>';
+      '<div class="hint">Tap a visual to start it. While it plays, tap the screen to switch visuals or exit. Music keeps playing.</div>' +
+      '<div class="hint" style="opacity:.6">Film visuals by Beeple (beeple-crap.com), shared free for any use.</div>';
     var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
     openPanel('VISUALS', html);
     $('panelBody').scrollTop = keep;

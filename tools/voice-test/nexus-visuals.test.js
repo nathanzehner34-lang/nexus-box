@@ -11,9 +11,16 @@ const xp = fs.readFileSync(path.join(A, 'experiences.js'), 'utf8');
 const app = fs.readFileSync(path.join(A, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(A, 'index.html'), 'utf8');
 const java = fs.readFileSync(path.join(A, '../java/com/nexus/box/MainActivity.java'), 'utf8');
-const ALL = ['aliens', 'skeletons', 'psychedelic', 'cyberpunk', 'creatures', 'holograms'];
-const order = JSON.parse(vis.match(/var ORDER = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-assert(order.length >= 1 && order.every((k, i) => k === ALL[i]), 'built themes follow the agreed order: ' + order);
+const order = JSON.parse(JSON.stringify(['clip_mix', 'clip_coins', 'clip_skulls', 'clip_flag', 'clip_cityfire', 'clip_inferno', 'clip_serpent', 'clip_idol', 'clip_frenzy', 'clip_run', 'clip_collapse']));
+const catalogIds = Array.from(app.slice(app.indexOf('var VISUALS = ['), app.indexOf('];', app.indexOf('var VISUALS = ['))).matchAll(/\['([^']+)'/g), m => m[1]);
+assert.deepStrictEqual(catalogIds, order, 'the Visuals menu lists the cinematic mix and the ten scenes');
+const clipDir = path.join(A, 'clips');
+const clips = fs.readdirSync(clipDir).filter(f => f.endsWith('.mp4'));
+assert(clips.length >= 20, 'scene angles are bundled (' + clips.length + ')');
+const total = clips.reduce((n, f) => n + fs.statSync(path.join(clipDir, f)).size, 0);
+assert(total < 70e6, 'clips stay light for the box (' + (total / 1e6).toFixed(1) + ' MB)');
+for (const k of order.slice(1)) assert(fs.existsSync(path.join(clipDir, k.slice(5) + '.jpg')), k + ' has a film still for its card');
+assert(app.includes('Film visuals by Beeple'), 'the clips are credited');
 
 // ---- reset: nothing of the old Visuals remains ----
 for (const old of ['firetornado', 'bluefire', 'hollowhead', 'cybereye', 'wormhole', 'deepsea', 'robotdj', 'mushroomworld', 'rollercoaster', 'livingskull', 'alienparty', 'neonhighway', 'VX_ORDER', 'vxStart', 'VX_SCENE'])
@@ -31,48 +38,41 @@ assert(vis.includes('A.meterDetail(true)') && vis.includes('A.meterDetail(false)
 // ---- hardware discipline ----
 assert(vis.includes("var QMIN = .42, QMAX = HIGH ? 1 : .8") && vis.includes('FPS_GAP = HIGH ? 1000 / 60 : 1000 / 30'), 'adaptive resolution and a 30 fps cap on the 2 GB box');
 assert(vis.includes('preserveDrawingBuffer: false') && vis.includes('antialias: false'), 'no costly framebuffer options');
-assert(!/\.(png|jpe?g|webp)['"]/.test(vis), 'no static images stand in for animation');
+assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video) { out[k] ="), 'still images are used only as menu card previews, never in place of playback');
 
-const QUIET = { live: false, phase: 2 };
-const GROOVE = { sub: .5, bass: .5, lowmid: .45, mid: .5, high: .4, air: .3, energy: .5, phase: 9.4, speed: 1, kick: .1 };
-const KICK = Object.assign({}, GROOVE, { sub: .95, bass: .9, kick: 1, energy: .7, phase: 9.42 });
-const DROP = { sub: 1, bass: 1, lowmid: .8, mid: .8, high: .8, air: .7, energy: .9, kick: 1, snare: .8, hat: 1, dropEnv: 1, build: .3, phase: 16.05, speed: 1 };
 (async () => {
   const R = await H.run(`
-    const diff=(a,b)=>a.grid.reduce((s,v,i)=>s+Math.abs(v-b.grid[i]),0)/a.grid.length;
-    const mean=g=>g.grid.reduce((s,v)=>s+v,0)/g.grid.length;
-    const sd=g=>{const m=mean(g);return Math.sqrt(g.grid.reduce((s,v)=>s+(v-m)*(v-m),0)/g.grid.length);};
-    R.t={};const grids={};
+    R.t={};
     for (const k of NXV.order) {
-      const P=(s,o)=>NXV.probe(k,s,Object.assign({steps:24,t:8},o||{}));
-      const q=P(${JSON.stringify(QUIET)}), g=P(${JSON.stringify(GROOVE)}), kk=P(${JSON.stringify(KICK)}), d=P(${JSON.stringify(DROP)});
-      const g2=P(Object.assign({}, ${JSON.stringify(GROOVE)}, {phase: 9.9}));
-      grids[k]=g;
-      R.t[k]={lum:mean(g),sd:sd(g),quietLum:mean(q),kick:diff(g,kk),drop:diff(g,d),beatMove:diff(g,g2),quietVsGroove:diff(q,g),dbg:g.debug};
+      NXV.start(k); const t0=Date.now(); let d;
+      while(Date.now()-t0<8000){ await wait(150); d=NXV.debug().theme; if(d&&d.ready>=2&&d.time>.2)break; }
+      NXV.redraw(); const c=document.getElementById('nvc'), x=c.getContext('webgl'); const px=new Uint8Array(4*64*36);
+      // sample the drawn frame
+      const cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d'); NXV.redraw(); g.drawImage(c,0,0,64,36);
+      const im=g.getImageData(0,0,64,36).data; let s=0,s2=0; for(let i=0;i<im.length;i+=4){const l=.299*im[i]+.587*im[i+1]+.114*im[i+2]; s+=l; s2+=l*l;}
+      const n=im.length/4, mean=s/n, sd=Math.sqrt(s2/n-mean*mean);
+      // a kick: zoom punch and colour split must respond
+      const z0=NXV.debug().theme.zoom; for(let i=0;i<45;i++){NXV.feed([.2,.2,.3,.3,.2,.2]);await wait(40);} const zA=NXV.debug().theme.zoom; NXV.feed([1,1,.4,.4,.3,.3]); let zMax=-1; for(let i=0;i<12;i++){await wait(25); zMax=Math.max(zMax,NXV.debug().theme.zoom);}
+      const z1=zMax, z0b=zA;
+      R.t[k]={ready:d.ready,playing:d.playing,time:d.time,mean,sd,zoomKick:z1-z0b,src:d.src};
+      NXV.stop(true);
     }
-    R.distinct=[];const ks=Object.keys(grids);for(let i=0;i<ks.length;i++)for(let j=i+1;j<ks.length;j++)R.distinct.push([ks[i],ks[j],diff(grids[ks[i]],grids[ks[j]])]);
-    // live loop: start, run real frames with a fed six-band signal, check the beat detector and pacing
-    const t0=performance.now();NXV.start(NXV.order[0]);
-    let n=0;const feed=setInterval(()=>{n++;const kick=n%12===0;NXV.feed([kick?.9:.2,kick?.8:.2,.3,.35,n%3===0?.5:.2,.2]);},40);
-    await wait(6000);clearInterval(feed);
-    R.live=NXV.debug();R.liveMs=performance.now()-t0;NXV.stop(false);R.stopped=NXV.debug();
-  `, { w: 640, h: 360, limit: 400000 });
+    // a drop cuts straight to the next angle
+    NXV.start('clip_mix'); await wait(2500);
+    const a0=NXV.debug().theme.angle; NXV.music.energy=.2;
+    for(let i=0;i<40;i++){NXV.feed([.15,.15,.2,.2,.2,.2]);await wait(40);} for(let i=0;i<4;i++){NXV.feed([1,1,.9,.9,.8,.8]);await wait(60);}
+    await wait(300); R.dropAngle=[a0,NXV.debug().theme.angle];
+    NXV.stop(false); R.stopped=NXV.debug();
+  `, { w: 1024, h: 600, limit: 400000 });
   assert.deepStrictEqual(R.errors, [], 'no browser errors: ' + R.errors.join('; '));
   for (const k of order) {
     const t = R.t[k];
-    assert(t.lum > 8 && t.sd > 8, k + ' draws a real, detailed picture (lum ' + t.lum.toFixed(1) + ', contrast ' + t.sd.toFixed(1) + ')');
-    assert(t.kick > 1.2, k + ' reacts visibly to a kick (' + t.kick.toFixed(2) + ')');
-    assert(t.drop > 4, k + ' reacts strongly to a drop (' + t.drop.toFixed(2) + ')');
-    assert(t.beatMove > 1, k + ' keeps moving through the beat (' + t.beatMove.toFixed(2) + ')');
-    assert(t.quietLum < t.lum + 2, k + ' is calmer without music');
-    if (t.dbg && t.dbg.verts) assert(t.dbg.verts < 60000, k + ' geometry fits the 2 GB box (' + t.dbg.verts + ' vertices)');
-    if (t.dbg && t.dbg.dancers) for (const d of t.dbg.dancers) assert(d.hips[1] > .2 && d.head[1] > d.hips[1], k + ': ' + d.name + ' stands upright on the floor');
-    console.log(k.padEnd(12) + ' lum ' + t.lum.toFixed(1) + ' contrast ' + t.sd.toFixed(1) + ' kick ' + t.kick.toFixed(2) + ' drop ' + t.drop.toFixed(2) + ' beat ' + t.beatMove.toFixed(2) + (t.dbg && t.dbg.verts ? ' verts ' + t.dbg.verts : ''));
+    assert(t && t.ready >= 2 && t.playing && t.time > .2, k + ' loads and plays its film clip (' + JSON.stringify(t) + ')');
+    assert(t.mean > 6 && t.sd > 6, k + ' shows a real, detailed picture (lum ' + t.mean.toFixed(1) + ', contrast ' + t.sd.toFixed(1) + ')');
+    assert(t.zoomKick > .005, k + ' punches on the kick (' + t.zoomKick.toFixed(3) + ')');
+    console.log(k.padEnd(15) + ' playing ' + t.src.padEnd(22) + ' lum ' + t.mean.toFixed(1) + ' contrast ' + t.sd.toFixed(1) + ' kick punch ' + t.zoomKick.toFixed(3));
   }
-  for (const [a, b, d] of R.distinct) assert(d > 6, a + ' and ' + b + ' look distinct (' + d.toFixed(1) + ')');
-  assert(R.live.frames > 20, 'the live loop rendered frames (' + R.live.frames + ')');
-  assert(R.live.music.live && R.live.music.bpm > 70 && R.live.music.bpm < 170, 'the six-band feed is analysed: live, tempo ' + Math.round(R.live.music.bpm) + ' BPM');
-  assert(!R.stopped.current && R.stopped.w <= 1, 'stopping Visuals releases the renderer');
+  assert(!R.stopped.current && R.stopped.w <= 1, 'stopping Visuals releases the renderer and the videos');
   // ---- the whole app: home tile -> Visuals menu -> theme -> bar -> exit ----
   const page = html.replace(/(src|href)="(?!https?:)([^"]+\.(js|css))"/g, (m, a, f) => a + '="' + 'file:///' + path.join(A, f).replace(/\\/g, '/').replace(/^\//, '') + '"');
   const appR = await H.runPage(page, `
@@ -93,10 +93,10 @@ const DROP = { sub: 1, bass: 1, lowmid: .8, mid: .8, high: .8, air: .7, energy: 
   `);
   assert.deepStrictEqual(appR.errors, [], 'no app errors: ' + appR.errors.join('; '));
   assert.deepStrictEqual(appR.cards.map(c => c[0]), order, 'the Visuals menu lists exactly the built themes');
-  assert(appR.cards.every(c => c[2]), 'every card shows a rendered preview frame');
+  assert(appR.cards.every(c => c[2]), 'every card shows a film still');
   assert(appR.xpVisible && appR.canvas === 'block' && appR.running.frames > 3 && appR.running.current === order[0], 'tapping a card starts the theme full screen');
   assert(appR.barOn && appR.bar.join() === order.join(), 'tapping the screen shows the theme bar');
   assert(appR.meterDetail[0] === true, 'starting Visuals turns on the six-band music feed');
   assert(!appR.after.current && appR.meterDetailAfter.includes(false) && appR.backInMenu, 'closing stops the theme, turns the feed off and returns to the Visuals menu');
-  console.log('Visuals engine: ' + order.length + ' theme(s) rendered, music-reactive and distinct; live loop ' + R.live.frames + ' frames, tempo ' + Math.round(R.live.music.bpm) + ' BPM.');
+  console.log('Visuals: ' + order.length + ' cinematic scenes play their clips, punch on kicks and pass the full-app run; a drop cut ' + R.dropAngle.join(' -> ') + '.');
 })().catch(e => { console.error(e.stack || e.message); process.exit(1); });

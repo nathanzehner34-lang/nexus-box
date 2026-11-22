@@ -88,7 +88,7 @@ document.getElementById('out').textContent='SHADER='+JSON.stringify({out,maxCorr
 
 // ---- 3. the real app page ----
 const appDir = path.join(temp, 'app'); fs.mkdirSync(appDir);
-for (const f of fs.readdirSync(assets)) fs.copyFileSync(path.join(assets, f), path.join(appDir, f));
+for (const f of fs.readdirSync(assets)) fs.cpSync(path.join(assets, f), path.join(appDir, f), { recursive: true });
 function appPage(setup, scenario) {
   let h = fs.readFileSync(path.join(appDir, 'index.html'), 'utf8');
   h = h.replace('<head>', '<head><script>window.__errors=[];addEventListener("error",e=>__errors.push(String(e.message)));Object.defineProperty(navigator,"deviceMemory",{get:()=>2});localStorage.clear();' + setup + '</script>');
@@ -109,7 +109,7 @@ const scenario = `
  r.saved=JSON.parse(localStorage.getItem('p_envSettings'));
  r.switchOn=document.querySelector('[data-envsw=reducedMotion]').getAttribute('aria-checked');
  document.getElementById('panelClose').click();await wait(3500);r.programsAfterClose=E.status().programs;
- Nexus.openExperience('aliens');await wait(1500);r.underVisual=E.status().running;
+ Nexus.openExperience('clip_coins');await wait(1500);r.underVisual=E.status().running;
  XP.close();await wait(700);r.afterVisual=E.status().running;
  document.querySelector('[data-act=party]').click();await wait(700);r.underParty=E.status().running;
  document.querySelector('[data-act=party]')&&window.Nexus.home();await wait(700);r.afterParty=E.status().running;

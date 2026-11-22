@@ -18,7 +18,7 @@ async function run(scenario, opts) {
   opts = opts || {};
   assert(browser, 'Edge or Chrome is required for the real WebGL render check');
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'nxv-'));
-  const page = opts.page || `<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#000;overflow:hidden}#xp{position:absolute;inset:0;width:${opts.w || 640}px;height:${opts.h || 360}px}#xpc{position:absolute;inset:0}</style>
+  const page = opts.page || `<!doctype html><meta charset="utf-8"><base href="${fileUrl(assets)}/"><style>html,body{margin:0;background:#000;overflow:hidden}#xp{position:absolute;inset:0;width:${opts.w || 640}px;height:${opts.h || 360}px}#xpc{position:absolute;inset:0}</style>
 <div id="xp"><canvas id="xpc"></canvas></div><pre id="__out">WAITING</pre>
 <script>window.__errors=[];addEventListener('error',e=>__errors.push(String(e.message)));
 Object.defineProperty(navigator,'deviceMemory',{configurable:true,get:()=>${opts.mem || 2}});

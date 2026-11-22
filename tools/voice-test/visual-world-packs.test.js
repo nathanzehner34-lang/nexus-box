@@ -7,7 +7,7 @@ const app = fs.readFileSync(root + '/app/src/main/assets/app.js', 'utf8');
 const schema = JSON.parse(fs.readFileSync(root + '/app/src/main/assets/visual-world-pack.schema.json', 'utf8'));
 const catalog = app.slice(app.indexOf('var VISUALS = ['), app.indexOf('];', app.indexOf('var VISUALS = [')) + 2);
 const ids = Array.from(catalog.matchAll(/\['([^']+)'/g), match => match[1]);
-assert.deepStrictEqual(ids, ['aliens', 'skeletons', 'psychedelic', 'cyberpunk', 'creatures', 'holograms'], 'the Visuals catalog holds the six themes');
+assert.deepStrictEqual(ids, ['clip_mix', 'clip_coins', 'clip_skulls', 'clip_flag', 'clip_cityfire', 'clip_inferno', 'clip_serpent', 'clip_idol', 'clip_frenzy', 'clip_run', 'clip_collapse'], 'the Visuals catalog holds the six themes');
 assert(!source.includes('VISUAL_WORLD_PROFILES') && !source.includes('drawVisualWorldFinish'), 'the old per-scene finishing profiles are removed with the old collection');
 assert(schema.required.includes('id') && schema.required.includes('version') && schema.required.includes('variants'), 'pack manifests define identity, version and hardware variants');
 assert(schema.properties.variants.items.properties.assets.items.required.includes('sha256'), 'every downloaded asset requires an integrity digest');
