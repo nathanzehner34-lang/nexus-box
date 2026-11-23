@@ -706,6 +706,7 @@
     switch (name) {
       case 'youtube': case 'stremio': case 'music': case 'maps': case 'messages': launchNamed(name); break;
       case 'party': toggleParty(); break;
+      case 'cinema': if (window.NexusCinema) NexusCinema.open(); break;
       case 'holo': case 'liquiddreams': openExperience(name); break;
       case 'env': openEnvironments(); break;
       case 'phones': openPhones(); break;
@@ -830,7 +831,7 @@
 
   // ================= NEXUS TALKS FIRST, DJ INTROS, SCREENSAVER, SECRETS =================
   var lastRemark = Date.now(), lastDJ = 0, djSongs = 0, saverOn = false;
-  function homeIdle() { return $('panel').classList.contains('hidden') && !(window.XP && XP.active) && !P.on && !awaySince && !booting; }
+  function homeIdle() { return $('panel').classList.contains('hidden') && !(window.XP && XP.active) && !P.on && !awaySince && !booting && !(window.NexusCinema && NexusCinema.isOpen()); }
   function unprompted(what, tokens) {
     if (!aiKey() || Nexus.speaking || heardResolve || booting || awaySince) return;
     var sys = aiContext() + ' You are speaking first, without being asked. ' + what + ' One short sentence, two at the very most. Do not ask a question that needs an answer.';
@@ -855,7 +856,7 @@
     CATALOG.push([el.getAttribute('data-act'), el.querySelector('.ic').innerHTML, el.querySelector('.lb').textContent]);
   });
   var DEFAULT_TILES = CATALOG.map(function (c) { return c[0]; });
-  if (['2', '3', '4', '5', '6'].indexOf(pref('homeVer')) < 0) { setPref('homeTiles', ''); setPref('homeVer', '6'); }
+  if (['2', '3', '4', '5', '6', '7'].indexOf(pref('homeVer')) < 0) { setPref('homeTiles', ''); setPref('homeVer', '6'); }
   if (pref('homeVer') === '2') {
     var oldT = (pref('homeTiles') || '').split(',').filter(Boolean);
     if (oldT.length) {
@@ -884,6 +885,12 @@
     if (t6.length && t6.indexOf('env') < 0) t6.splice(Math.max(0, t6.indexOf('settings')), 0, 'env');
     setPref('homeTiles', t6.join(','));
     setPref('homeVer', '6');
+  }
+  if (pref('homeVer') === '6') {
+    // Nexus Cinema arrived: add its button to a custom layout, next to Party Mode
+    var t7 = (pref('homeTiles') || '').split(',').filter(Boolean);
+    if (t7.length && t7.indexOf('cinema') < 0) { var pi = t7.indexOf('party'); t7.splice(pi >= 0 ? pi : Math.max(0, t7.indexOf('settings')), 0, 'cinema'); setPref('homeTiles', t7.join(',')); }
+    setPref('homeVer', '7');
   }
   var VIS_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12c2.5-3 5.5-3 8.5 0s6 3 8.5 0"/></svg>';
   function fullCatalog() {
@@ -1712,11 +1719,12 @@
     caption(st === 'downloading' || st === 'progress' ? 'DOWNLOADING UPDATE…' : st === 'ready' ? 'PRESS INSTALL' : 'UPDATE');
     var el = $('sUpdateMsg'); if (el) el.textContent = m;
   };
-  Nexus.back = function () { if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
-  Nexus.home = function () { stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
+  Nexus.back = function () { if (window.NexusCinema && NexusCinema.isOpen()) { NexusCinema.back(); return; } if (window.XP && XP.active) { stopPlaythrough(); XP.close(); backToVisuals(); return; } if (P.on) { exitParty(); return; } if (!closePanel()) { stopTalking(); } };
+  Nexus.home = function () { if (window.NexusCinema) NexusCinema.close(); stopPlaythrough(); fromVisuals = false; if (P.on) exitParty(true); if (window.XP && XP.active) XP.close(); closePanel(); };
   var awaySince = 0;
   Nexus.paused = function () { stopPlaythrough(); fromVisuals = false; awaySince = Date.now(); if (window.XP && XP.active) XP.close(); try { if (A && P.on) A.partyMeter(false); } catch (e) {} };
   Nexus.resumed = function () {
+    try { if (window.NexusCinema) NexusCinema._resumed(); } catch (e) {}
     // back from Android's permission screen: the Spotify exit button is now allowed
     try { var ea = $('sExitAllow'); if (ea && A && A.exitBubbleAllowed && A.exitBubbleAllowed()) { var hint = ea.nextElementSibling; if (hint) hint.textContent = 'Allowed. The exit button will show over Spotify.'; ea.remove(); } } catch (e) {}
     awaySince = 0; lastTouchAt = Date.now(); if ($('launching')) $('launching').classList.remove('on'); try { if (A && P.on) A.partyMeter(true); } catch (e) {} redraw(); tickClock(); try { if (A) A.refreshApps(); } catch (e) {} };

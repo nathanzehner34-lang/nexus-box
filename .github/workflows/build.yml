@@ -58,6 +58,7 @@ jobs:
           node --check app/src/main/assets/env.js
           node --check app/src/main/assets/visuals.js
           node --check app/src/main/assets/intro.js
+          node --check app/src/main/assets/cinema.js
           node tools/voice-test/production-visual-upgrade.test.js
           node tools/voice-test/visual-world-packs.test.js
           node tools/voice-test/nexus-visuals.test.js
@@ -69,6 +70,7 @@ jobs:
           node --check tools/voice-test/liquid-dreams-music.test.js
           node tools/voice-test/party-mode-render.test.js
           node tools/voice-test/party-premium.test.js
+          node tools/voice-test/cinema.test.js
           node --check tools/voice-test/party-experiences-render.test.js
           node --check tools/voice-test/energy-flow-music.test.js
           node tools/voice-test/night-drive.test.js

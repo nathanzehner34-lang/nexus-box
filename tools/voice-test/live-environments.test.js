@@ -134,7 +134,7 @@ try {
   const A = run('app', appPage(`localStorage.setItem('p_homeVer','5');localStorage.setItem('p_homeTiles','youtube,ego,bgs,party,settings');`, scenario), 'APP', 30000, appDir);
   assert.deepStrictEqual(A.errors, [], 'the Nexus page raised no errors');
   assert(A.start.active && A.start.gl && A.start.quality === 'smooth', 'the engine runs on the GPU in Smooth quality on a 2 GB box');
-  assert.deepStrictEqual(A.tiles, ['youtube', 'env', 'party', 'settings'], 'an old custom layout loses Alter Ego and gains Environments in place of Backgrounds');
+  assert.deepStrictEqual(A.tiles, ['youtube', 'env', 'cinema', 'party', 'settings'], 'an old custom layout loses Alter Ego, gains Environments in place of Backgrounds, and gains Cinema beside Party Mode');
   assert.strictEqual(A.cards, 5, 'five environment cards');
   assert(A.previews.every(n => n > 20), 'every card shows a live rendered preview of its world');
   assert(A.afterSelect.env === 'neural' && A.afterSelect.transitioning, 'selecting a world starts a dissolve transition from the current one');
