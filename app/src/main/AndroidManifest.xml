@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Nexus Cinema: read (never write) movies on an external USB drive -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <!-- floating "back to Nexus" button over Spotify; the user grants it once in Android settings -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
@@ -19,6 +21,7 @@
         android:usesCleartextTraffic="false"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
         <activity
@@ -48,6 +51,17 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|screenLayout|smallestScreenSize|uiMode"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+        <provider
+            android:name=".MovieProvider"
+            android:authorities="com.nexus.box.movies"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <provider
             android:name=".ApkProvider"
             android:authorities="com.nexus.box.apk"

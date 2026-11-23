@@ -28,20 +28,12 @@ jobs:
           path: ~/nexus-signing/nexus.keystore
           key: nexus-signing-key-v2
 
-      - name: Create the signing key (first build only)
+      - name: Stop if the signing key is missing
         if: steps.keycache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/nexus-signing
-          keytool -genkeypair -keystore ~/nexus-signing/nexus.keystore -alias androiddebugkey \
-            -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 20000 \
-            -dname "CN=Nexus Box, O=Nexus, C=CA"
-
-      - name: Save the signing key for future builds
-        if: steps.keycache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/nexus-signing/nexus.keystore
-          key: nexus-signing-key-v2
+          echo "The Nexus signing key was not found. A new key would make an APK that can't install over the"
+          echo "existing app (it would need an uninstall and lose its data), so this build stops here."
+          exit 1
 
       - name: Add AI key
         env:

@@ -89,6 +89,17 @@ public class MainActivity extends Activity {
     // The AI gets its own lines to Google, so news/weather/camera downloads can never make it wait in line.
     private final ExecutorService aiPool = Executors.newCachedThreadPool();
     private SharedPreferences prefs;
+    // Nexus Cinema: movie library on external USB drives (read only)
+    private CinemaLibrary cinema;
+    private Object cinemaVolumeCallback;
+    private final BroadcastReceiver driveReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            // let Android finish mounting / unmounting before looking at the drives
+            ui.removeCallbacks(drivesChanged);
+            ui.postDelayed(drivesChanged, 900);
+        }
+    };
+    private final Runnable drivesChanged = () -> { if (cinema != null) cinema.volumesChanged(); };
     private String appsCache = null;
     private volatile boolean meterOn = false;
     // ---- Audio focus: while Nexus talks or listens it holds "transient" focus, which makes Spotify & co
@@ -154,10 +165,47 @@ public class MainActivity extends Activity {
         // as one origin so the clips can be drawn through WebGL for the music effects. No remote content.
         s.setAllowFileAccessFromFileURLs(true);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(new WebViewClient() {
+            // Nexus Cinema's film stills come from the box itself (made on demand, cached), never the internet
+            @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest req) {
+                Uri u = req.getUrl();
+                if (u == null || !"cinema.nexus".equals(u.getHost())) return null;
+                java.util.Map<String, String> headers = new java.util.HashMap<>();
+                headers.put("Access-Control-Allow-Origin", "*");
+                headers.put("Cache-Control", "max-age=86400");
+                byte[] jpg = null;
+                try {
+                    if (cinema != null && "/thumb".equals(u.getPath()))
+                        jpg = cinema.thumb(u.getQueryParameter("u"), u.getQueryParameter("r"), u.getQueryParameter("p"));
+                } catch (Throwable ignored) {}
+                if (jpg == null) return new android.webkit.WebResourceResponse("image/jpeg", null, 404, "Not found", headers, new java.io.ByteArrayInputStream(new byte[0]));
+                return new android.webkit.WebResourceResponse("image/jpeg", null, 200, "OK", headers, new java.io.ByteArrayInputStream(jpg));
+            }
+        });
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Bridge(), "Android");
         setContentView(web);
+        cinema = new CinemaLibrary(this, this::js);
+        try {
+            IntentFilter df = new IntentFilter();
+            df.addAction(Intent.ACTION_MEDIA_MOUNTED);
+            df.addAction(Intent.ACTION_MEDIA_UNMOUNTED);
+            df.addAction(Intent.ACTION_MEDIA_EJECT);
+            df.addAction(Intent.ACTION_MEDIA_REMOVED);
+            df.addAction(Intent.ACTION_MEDIA_BAD_REMOVAL);
+            df.addDataScheme("file");
+            registerReceiver(driveReceiver, df);
+        } catch (Exception ignored) {}
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                android.os.storage.StorageManager sm = (android.os.storage.StorageManager) getSystemService(Context.STORAGE_SERVICE);
+                android.os.storage.StorageManager.StorageVolumeCallback cb = new android.os.storage.StorageManager.StorageVolumeCallback() {
+                    @Override public void onStateChanged(android.os.storage.StorageVolume v) { ui.removeCallbacks(drivesChanged); ui.postDelayed(drivesChanged, 900); }
+                };
+                sm.registerStorageVolumeCallback(getMainExecutor(), cb);
+                cinemaVolumeCallback = cb;
+            } catch (Exception ignored) {}
+        }
         hideSystemUi();
 
         startTts();
@@ -881,6 +929,18 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == CinemaLibrary.REQ_PERMISSION && cinema != null) cinema.onPermissionResult();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == CinemaLibrary.REQ_TREE && cinema != null) cinema.onTreeResult(resultCode, data);
+    }
+
+    @Override
     public void onBackPressed() {
         js("Nexus.back && Nexus.back()");
     }
@@ -894,6 +954,11 @@ public class MainActivity extends Activity {
         stopMeter();
         try { unregisterReceiver(spotifyReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(packageReceiver); } catch (Exception ignored) {}
+        try { unregisterReceiver(driveReceiver); } catch (Exception ignored) {}
+        if (Build.VERSION.SDK_INT >= 30 && cinemaVolumeCallback != null) {
+            try { ((android.os.storage.StorageManager) getSystemService(Context.STORAGE_SERVICE)).unregisterStorageVolumeCallback((android.os.storage.StorageManager.StorageVolumeCallback) cinemaVolumeCallback); } catch (Exception ignored) {}
+        }
+        if (cinema != null) cinema.shutdown();
         if (recognizer != null) recognizer.destroy();
         try { if (spotifyWarm != null) spotifyWarm.disconnect(); } catch (Exception ignored) {}
         pool.shutdownNow();
@@ -1462,6 +1527,47 @@ public class MainActivity extends Activity {
     // ---------- JS bridge ----------
 
     private class Bridge {
+        // ---------- Nexus Cinema (read only: nothing here changes anything on a drive) ----------
+        @JavascriptInterface public String cinemaDrives() { return cinema == null ? "[]" : cinema.drivesJson(); }
+        @JavascriptInterface public String cinemaLibrary() { return cinema == null ? "[]" : cinema.libraryJson(); }
+        @JavascriptInterface public String cinemaProgress() { return cinema == null ? "{}" : cinema.progressJson(); }
+        @JavascriptInterface public void cinemaGrant(String uuid) { if (cinema != null && uuid != null) ui.post(() -> cinema.grant(uuid)); }
+        @JavascriptInterface public void cinemaScan(String uuid) { if (cinema != null && uuid != null) cinema.scan(uuid); }
+        @JavascriptInterface public void cinemaInfo(String uuid, String rel) { if (cinema != null && uuid != null && rel != null) cinema.info(uuid, rel); }
+        @JavascriptInterface
+        public boolean cinemaPlay(String uuid, String rel, String title, double startMs, String subsJson) {
+            if (cinema == null || uuid == null || rel == null) return false;
+            Uri u = cinema.uriFor(uuid, rel);
+            if (u == null) return false;
+            try {
+                JSONArray subs = new JSONArray();
+                JSONArray in = new JSONArray(subsJson == null || subsJson.isEmpty() ? "[]" : subsJson);
+                for (int i = 0; i < in.length(); i++) {
+                    String sr = in.getString(i);
+                    Uri su = cinema.uriFor(uuid, sr);
+                    if (su == null) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("uri", su.toString());
+                    String nm = sr.substring(sr.lastIndexOf('/') + 1);
+                    o.put("name", nm);
+                    o.put("label", nm);
+                    subs.put(o);
+                }
+                Uri share = "file".equals(u.getScheme()) ? MovieProvider.uriFor(new File(u.getPath())) : u;
+                Intent i = new Intent(MainActivity.this, PlayerActivity.class);
+                i.putExtra(PlayerActivity.EXTRA_URI, u.toString());
+                i.putExtra(PlayerActivity.EXTRA_SHARE_URI, share.toString());
+                i.putExtra(PlayerActivity.EXTRA_TITLE, title);
+                i.putExtra(PlayerActivity.EXTRA_KEY, uuid + "|" + rel);
+                i.putExtra(PlayerActivity.EXTRA_START, (long) Math.max(0, startMs));
+                i.putExtra(PlayerActivity.EXTRA_SUBS, subs.toString());
+                i.putExtra(PlayerActivity.EXTRA_DRIVE_PATH, cinema.pathFor(uuid));
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                ui.post(() -> { try { startActivity(i); } catch (Exception e) { js("window.NexusCinema && NexusCinema._error('The player could not start.')"); } });
+                return true;
+            } catch (Exception e) { return false; }
+        }
+
         @JavascriptInterface
         public int deviceMemoryGb() {
             try {
