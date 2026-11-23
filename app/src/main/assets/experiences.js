@@ -1030,7 +1030,7 @@ uniform float travel, night, react, mids, highs, q, fadeIn;
 //   pulseT / pulseS — seconds since, and strength of, the last four kicks: each one becomes a pulse of
 //   light that travels away down the road or outward through the rings
 //   burst — seconds since the last snare (particle bursts)   drift — particle travel, faster on the beat
-uniform float bass, snare, hat, burst, drift;
+uniform float bass, snare, hat, burst, drift, flip;
 uniform vec4 pulseT, pulseS;
 uniform vec4 mA0, mB0, mA1, mB1, mA2, mB2;   // up to three shooting stars in flight
 uniform vec3 cA, cB, cC, cD;
@@ -1096,6 +1096,41 @@ vec3 ndMeteor(vec2 p, vec4 a, vec4 b){
  return c*(exp(-d*d/(w*w))*tail + exp(-dot(rel,rel)*26000.)*1.6)*sin(a.w*3.14159)*b.z*(1. + highs*react*.35);
 }
 vec3 ndMeteors(vec2 p){ return ndMeteor(p, mA0, mB0) + ndMeteor(p, mA1, mB1) + ndMeteor(p, mA2, mB2); }
+#ifdef ND_SKYTEX
+uniform sampler2D skyTex;
+// The sky as a mirror sees it from this pixel (for wet road, glassy plains, still water): the sky
+// texture read at the mirrored screen position, with a small jitter for ripples or roughness. It fades
+// out where the mirrored point would lie above the top of the screen.
+// returns the reflected colour and how much of it is on screen (a)
+vec4 ndMirror(vec2 jit){
+ vec2 uv = (gl_FragCoord.xy - .5*res)/res.y;
+ vec2 mp = vec2(uv.x + jit.x, (-(uv.y*1.12 + .085) - .085)/1.12 + jit.y);
+ vec2 mf = mp*res.y + .5*res;
+ vec4 s = texture2D(skyTex, clamp(mf/res, 0., 1.));
+ return vec4(s.rgb*s.rgb*4., 1. - smoothstep(res.y*.9, res.y, mf.y));
+}
+#else
+vec4 ndMirror(vec2 jit){ return vec4(0.); }
+#endif
+// A distant spiral galaxy seen at an angle: a bright core, two arms winding out with dust between them.
+// c = centre (sky coordinates), s = size, tilt = how flat it looks, rot = its turn on the sky.
+vec3 ndGalaxy(vec2 p, vec2 c, float s, float tilt, float rot, vec3 tint){
+ vec2 d = (p - c)/s;
+ if(dot(d, d) > 1.6) return vec3(0.);
+ float cr = cos(rot), sr = sin(rot);
+ d = vec2(d.x*cr - d.y*sr, (d.x*sr + d.y*cr)/tilt);
+ float r = length(d), a = atan(d.y, d.x);
+ float arms = pow(.5 + .5*sin(2.*a - log(r + .02)*5.2), 2.2);
+ float body = exp(-r*3.2)*(.35 + .65*arms);
+ float grain = .6 + .4*noise(d*14. + c*9.);
+ float lane = 1. - .5*smoothstep(.55, .9, sin(2.*a - log(r + .02)*5.2 + 1.3))*smoothstep(.15, .5, r);
+ return (mix(tint, vec3(1.,.92,.85), exp(-r*9.))*body*grain*lane*.55 + vec3(1.,.95,.9)*exp(-r*r*160.)*.9)*(1. - smoothstep(.6, 1.25, r*r));
+}
+// The sky's own coordinates (azimuth, elevation), shared by every world.
+vec2 ndSkyP(vec3 rd){ return vec2(atan(rd.x, -rd.z), rd.y/max(length(rd.xz), 1e-4)); }
+// How much open sky a pixel shows (1) rather than a planet, moon, hill or tree line (0); each world's
+// ndSky sets it. Shooting stars are drawn only where the sky is open.
+float gSkyOpen = 1.;
 `;
 
   // Every world implements these three, and nothing else.
@@ -1105,6 +1140,9 @@ vec3 ndMeteors(vec2 p){ return ndMeteor(p, mA0, mB0) + ndMeteor(p, mA1, mB1) + n
   //   ndRoadFx— light the world adds on top of the asphalt (return the road unchanged for none)
   //   optional: #define ND_OVERLAY and ndOverlay(col, rd, uv, t) for standing objects drawn last
   var ND_MAIN = `
+// With ND_SKYTEX the sky is drawn by its own pass into a texture every other frame (it changes slowly)
+// and read back here, so the frame's budget goes to resolution and to the moving scenery. Stored as
+// sqrt(c/4): HDR up to 4 and fine steps in the darks; alpha carries how open the sky is (shooting stars).
 void main(){
  vec2 uv = (gl_FragCoord.xy - .5*res)/res.y;
  float t = time, tr = travel;
@@ -1112,7 +1150,16 @@ void main(){
  vec3 rd = normalize(vec3(uv.x*1.12, uv.y*1.12 + .085, -1.));
  // how much of this pixel is ground; the sky is only drawn where some of it can be seen
  float groundMix = 1. - smoothstep(-.02, -.0015, rd.y);
- vec3 col = groundMix < 1. ? ndSky(rd, t) : vec3(0.);
+ vec3 col = vec3(0.);
+ if(groundMix < 1.){
+  #ifdef ND_SKYTEX
+  vec4 sk = texture2D(skyTex, gl_FragCoord.xy/res);
+  col = sk.rgb*sk.rgb*4.; gSkyOpen = sk.a;
+  #else
+  col = ndSky(rd, t);
+  #endif
+  col += ndMeteors(ndSkyP(rd))*gSkyOpen;
+ }
  float camH = 2.35;
  if(rd.y < -.0015){
   // Hills are measured relative to the road under the camera, so the camera always rides the
@@ -1130,6 +1177,13 @@ void main(){
   if(edge < HALF+1.6){
    float grain = noise(vec2(xr*2.4, wz*2.4))*.5 + noise(vec2(xr*9., wz*9.))*.25;
    vec3 road = vec3(.034,.035,.052) + grain*.022;
+   // asphalt up close: worn, darker and glossier wheel tracks in every lane, and the aggregate's
+   // tiny stones catching the light; both fade with distance before they could shimmer
+   float lanePos = fract(edge/3.7);
+   float track = (exp(-pow((lanePos - .27)*8., 2.)) + exp(-pow((lanePos - .73)*8., 2.)))*smoothstep(.0, .4, fade);
+   road *= 1. - .16*track;
+   float stone = step(.94, hash(floor(vec2(xr*7., wz*7.))))*fade*fade*fade;
+   road += vec3(.55,.6,.75)*stone*.035;
    // wet sheen: the sky smeared down the asphalt
    float wet = (1.-smoothstep(.1,1.05,edge/HALF));
    road += mix(cB, cC, .45) * .042 * wet * (1.-night*.45);
@@ -1159,10 +1213,22 @@ void main(){
    road += mix(neon, cD, .5)*exp(-abs(edge-HALF)*.9)*.16*(1.-fade)*(.8 + bass*react*.6);
    // wet asphalt: glossy patches mirror the world's own horizon (strongest at a grazing angle,
    // far down the road), the neon shoulders reflect as soft streaks, and the lane paint glows
-   float gloss = .55 + .45*smoothstep(.3, .75, noise(vec2(xr*.22, wz*.035)));
+   float gloss = .55 + .45*smoothstep(.3, .75, noise(vec2(xr*.22, wz*.035))) + .25*track;
    float fres = pow(1. - clamp(-rd.y*5.5, 0., 1.), 3.);
    vec3 mirror = ndHaze(vec3(rd.x, -rd.y, rd.z), t);
+   #ifdef ND_SKYTEX
+   // the wet road mirrors the actual sky (moon, planet, galaxy, clouds), rippled a little
+   {
+    vec2 rip = vec2((noise(vec2(xr*.6, wz*.25)) - .5)*.006*fade, 0.);
+    vec4 refl = (ndMirror(rip) + ndMirror(rip + vec2(0., 2./res.y)))*.5;
+    mirror = mix(mirror, refl.rgb*.9 + mirror*.15, refl.a);
+   }
+   #endif
    road += mirror * fres * gloss * .30 * (1. - .35*night);
+   // reflective studs along the lane lines glint as they come toward you
+   float sz = abs(fract(wz/9. + .5) - .5)*9.;
+   float studs = exp(-(pow(abs(edge - 3.7), 2.) + sz*sz)*30.) + exp(-(pow(abs(edge - 7.4), 2.) + sz*sz)*30.);
+   road += mix(neon, vec3(1.), .55) * studs * smoothstep(.15, .6, fade) * .9;
    road += neon * exp(-abs(edge - (HALF - 1.6))*.75) * (.05 + .10*fres) * gloss * (1. + run*.9);
    road += vec3(.85,.88,.98) * (lane1*.55 + lane2*.45) * .25 * fres * gloss;
    road += vec3(.75,.82,1.) * (1.-smoothstep(.0, .9+aa*2., abs(edge-3.7)))*dash * .05 * fade;
@@ -1188,6 +1254,18 @@ void main(){
 }
 `;
 
+  // The sky pass: the world's ndSky alone, written to the sky texture (see ND_MAIN).
+  var ND_SKYPASS = `
+void main(){
+ vec2 uv = (gl_FragCoord.xy - .5*res)/res.y;
+ vec3 rd = normalize(vec3(uv.x*1.12, uv.y*1.12 + .085, -1.));
+ if(rd.y < -.022){ gl_FragColor = vec4(0.); return; }
+ vec3 c = sqrt(clamp(ndSky(rd, time)/4., 0., 1.));
+ c += (hash(gl_FragCoord.xy + fract(time*7.3)) - .5)/255.;
+ gl_FragColor = vec4(c, gSkyOpen);
+}
+`;
+
   // ---- World 1: CELESTIAL RINGS ----
   var ND_CELESTIAL_RINGS = `
 const vec3 PC = vec3(-430., 300., -1150.);   // planet centre, held in camera space so it
@@ -1202,19 +1280,26 @@ vec2 rgSky(vec3 rd){ return vec2(atan(rd.x, -rd.z), rd.y/max(length(rd.xz), 1e-4
 // It drifts very slowly and never pulses: the sky stays a sky, not a light show.
 vec3 ndNebula(vec3 rd, float t){
  vec2 p = vec2(atan(rd.x,-rd.z)*1.25, rd.y*1.9);
- vec2 w = vec2(fbm(p*1.3+vec2(t*.006,0.),2.), fbm(p*1.3+vec2(4.2,-t*.005),2.))-.5;
- float n = fbm(p*1.7+w*1.9+vec2(t*.003,t*.002), 3.+q);
- float m = smoothstep(.30,.84,n);
- float zone = fbm(p*.42+vec2(t*.002,1.7), 2.);
- vec3 c = mix(cC, cB, smoothstep(.30,.72,zone));
- c = mix(c, cD, smoothstep(.62,.95,zone)*.6);
- c = mix(c, mix(c, vec3(1.), .6), smoothstep(.68,.97,n)*.4);
- // filaments: thin bright ridges where the warped noise crosses its middle value
- float fil = pow(1. - abs(noise(p*6.5 + w*4.) - .5)*2., 7.) * m;
- // dust: dark lanes cutting through the bright gas
- float dust = smoothstep(.55, .78, noise(p*3.1 - w*2.3 + 11.)) * smoothstep(.2, .6, n);
- vec3 o = c*m*.34 + mix(c,cB,.4)*smoothstep(.18,.7,n)*.07 + mix(c, vec3(1.,.9,1.), .4)*fil*.16;
- return o * (1. - dust*.75) * (1.-night*.30);
+ // two levels of warping fold the gas into sheets and filaments (drawn in the sky pass, every other frame)
+ vec2 w1 = vec2(fbm(p*1.2 + vec2(t*.004, 0.), 4.), fbm(p*1.2 + vec2(5.2, -t*.003), 4.)) - .5;
+ vec2 w2 = vec2(fbm(p*2.4 + w1*2.2 + 1.7, 3.), fbm(p*2.4 + w1*2.2 + 8.3, 3.)) - .5;
+ float n = fbm(p*1.6 + w2*2.3 + w1*.8, 5.);
+ float m = smoothstep(.32, .86, n);
+ // large slow zones decide whether a stretch of sky runs magenta, violet or turquoise
+ float zone = fbm(p*.42 + vec2(t*.002, 1.7), 2.);
+ vec3 c = mix(cC, cB, smoothstep(.30, .72, zone));
+ c = mix(c, cD, smoothstep(.62, .95, zone)*.6);
+ c = mix(c, mix(c, vec3(1.), .55), smoothstep(.70, .97, n)*.4);
+ // bright ridges where the density crosses a level: the fine, lit edges of the folds
+ float fil = pow(max(1. - abs(n - .56)*9., 0.), 3.)*smoothstep(.3, .6, n);
+ float fil2 = pow(1. - abs(noise(p*7.5 + w2*5.) - .5)*2., 9.)*m;
+ // dust: dark, sharp-edged lanes in front of the glow
+ float dust = smoothstep(.50, .66, fbm(p*3.3 - w2*3. + 11., 4.))*smoothstep(.22, .6, n);
+ // star-forming knots: a few small bright clumps buried in the brightest gas
+ float knot = smoothstep(.78, .95, noise(p*9. + w1*3.))*smoothstep(.6, .85, n);
+ vec3 o = c*m*.30 + mix(c, cB, .4)*smoothstep(.18, .7, n)*.07 + mix(c, vec3(1.,.9,1.), .45)*(fil*.10 + fil2*.12)
+        + mix(c, vec3(1.), .6)*knot*.22;
+ return o*(1. - dust*.82)*(1. - night*.30);
 }
 // How much of the main rings lies at radius r (in planet radii): three rings, two clear gaps.
 float ringMask(float r){
@@ -1345,6 +1430,13 @@ vec4 ndRings(vec3 ro, vec3 rd, vec3 rn, vec3 L, float t, out float tRing, out ve
  o += mix(cA, cC, .35 + mids*react*.4) * wave * (.55 + dens*1.2) * mask;
  // highs: the finest ringlets glitter
  o += mix(col, vec3(1.), .6) * highs*react * pow(fineR, 6.) * mask * .45;
+ // energy flowing round the rings: long soft arcs of light travelling along the brightest bands
+ float flowA = pow(.5 + .5*sin(ang*3. - t*.32 + r*7.), 8.)*smoothstep(.45, .95, ringlets) + pow(.5 + .5*sin(ang*5. + t*.21 - r*11.), 10.)*.6*fineR;
+ o += mix(col, vec3(1.), .35)*flowA*mask*zones*.20*light;
+ // ice in the rings catching the light: tiny glints that come and go
+ vec2 gq = vec2(r*240., ang*80.);
+ float gh = hash(floor(gq));
+ o += vec3(.9,.95,1.)*step(.982, gh)*exp(-dot(fract(gq) - .5, fract(gq) - .5)*18.)*mask*(.4 + .6*sin(t*1.7 + gh*60.))*.45*light;
  float alpha = clamp(dens*1.35 + lines*.6 + wave*.25*mask, 0., .97);
  return vec4(o, alpha);
 }
@@ -1353,17 +1445,25 @@ vec4 ndRings(vec3 ro, vec3 rd, vec3 rn, vec3 L, float t, out float tRing, out ve
 // swells the big outer row. Without music they glow steadily with a slow idle shimmer.
 vec3 ndLamp(float ax, float side, float wz, float zd, float t, float fr, float X, float sp, float cz, float pulse){
  float zc = max(zd + (cz*sp - wz), .5);
- float d = length(vec2(ax/zd - X/zc, 2.35/zc - 2.35/zd));
+ // each light is a bright lens set in the ground with a soft halo, throwing a pool of light around it
+ float sx = ax/zd - X/zc, sy = 2.35/zd;
+ float d = length(vec2(sx, 2.35/zc - sy));
+ float pool = exp(-(pow(ax - X, 2.)/2.2 + pow(wz - cz*sp, 2.)/7.));
  float rad = (.0032 + .16/zc)*(1. + fr*.35);
  float h = hash(vec2(cz*1.7 + side*13. + fr*31., 4.2));
  float swell = .5+.5*sin(cz*.21 - t*.6 + h*6.28);
  float tw = .82 + .18*sin(t*(1.6+h*3.) + h*40.);
  float b = (.55 + .25*swell + mids*react*.55 + pulse*1.6*(.7+.3*h)
-           + hat*react*1.6*step(.78, h) + bass*react*.9*fr) * tw;
+           + hat*react*1.6*step(.78, h) + bass*react*.9*fr
+           + snare*react*1.4*step(0., side*flip)) * tw;
  vec3 c = mix(GREEN, mix(GREEN, vec3(.6,1.,.85), .5), h);
  c = mix(c, cA, step(.88, h)*.55);
  c = mix(c, mix(GREEN, cD, .5), fr*.45);
- return c * b * (exp(-d*d/(rad*rad))*3.4 + exp(-d/(rad*1.5))*.8 + exp(-d/(rad*3.2))*.14);
+ // a white-hot core inside the coloured glow, and a faint horizontal glint across the lens
+ vec3 o = c * b * (exp(-d*d/(rad*rad))*3.0 + exp(-d/(rad*1.5))*.6 + exp(-d/(rad*3.2))*.10);
+ o += mix(c, vec3(1.), .7) * b * exp(-d*d/(rad*rad*.12))*1.2;
+ o += c * b * exp(-abs(sx)/(rad*2.2) - pow((2.35/zc - sy)/(rad*.2), 2.))*.08;
+ return o + c*b*pool*.09;
 }
 vec3 ndLights(float xr, float wz, float zd, float t){
  float ax = abs(xr), side = sign(xr);
@@ -1398,6 +1498,12 @@ vec3 ndGround(float xr, float wz, float fade){
  vec3 c = mix(vec3(.012,.012,.030), vec3(.030,.026,.062), gn) * (1.-night*.35);
  c += mix(cB, horizonTint(), .5) * seam * .04 * fade * fade;
  c += horizonTint() * (.05*(1.-fade) + .22*pow(1.-fade, 2.5)) * (1.-night*.4);
+ // the plain is dark glass in broken plates: each plate mirrors the sky at its own slight tilt
+ vec2 pg = vec2(xr*.11, wz*.06); vec2 pid = floor(pg + .5*noise(pg*.7));
+ vec2 tilt = (vec2(hash(pid), hash(pid + 3.1)) - .5)*.012;
+ vec4 mir = ndMirror(tilt);
+ float pf = pow(1. - fade, .6);
+ c += mir.rgb*mir.a*(.10 + .30*pf)*(.7 + .3*hash(pid + 7.)) * (1. - seam*.6);
  // frost crystals catching the light, sparkling with the highs
  vec2 g = vec2(xr, wz)*vec2(1.3, .55); vec2 gi = floor(g); float gh = hash(gi);
  float crys = step(.86, gh) * exp(-dot(fract(g)-.5, fract(g)-.5)*55.) * fade;
@@ -1419,7 +1525,10 @@ vec3 ndSky(vec3 rd, float t){
   col += ndNebula(rd, t);
   // stars thin out toward the horizon, where the air is thickest
   if(sp.y > -.01) col += ndStarField(sp, t, .25) * (.5+night*.6) * smoothstep(-.01, .12, sp.y);
-  col += ndMeteors(sp);
+  // a far spiral galaxy and a smaller one beyond it
+  col += ndGalaxy(sp, vec2(.60, .50), .075, .42, .5, mix(cB, cA, .5))*(.8 + .2*night);
+  col += ndGalaxy(sp, vec2(-.78, .58), .035, .7, 2.1, mix(cC, cB, .5))*.7;
+
  }
  if(miss > 1.) col += mix(cB, cA, .35) * exp(-(miss-1.)*7.) * (.22 + bass*react*.10);
  col += mix(cB, cC, .4) * exp(-max(miss-1.,0.)*1.6) * .05;
@@ -1437,6 +1546,7 @@ vec3 ndSky(vec3 rd, float t){
  if(front) col = mix(col, Rg.rgb, Rg.a);
  vec4 m2 = rgMoon(rd, M2C, M2R, L, vec3(.62,.56,.72), 8.7, tM2, mM2);
  col = mix(col, m2.rgb, m2.a);
+ gSkyOpen = (1. - P.a)*(1. - Rg.a)*(1. - m1.a)*(1. - m2.a);
  // an open horizon: a luminous band where sky meets the plain and thin haze strata for distance
  float az = sp.x, el = sp.y;
  float lowSky = exp(-max(el, 0.)*9.);
@@ -1506,8 +1616,10 @@ vec3 chGalaxy(vec2 p, float t, out float mask){
  if(abs(d) > w*3.6 && coreD > .85) return halo;
  // clumpy star clouds and dark dust lanes along the band
  vec2 bp = vec2(along*9., d*26.);
- float cloud = fbm(bp + vec2(t*.01, 0.), 3.+q);
- float lanes = smoothstep(.50,.78, fbm(vec2(along*5.5+9., d*40.+wob*6.), 3.));
+ float cloud = fbm(bp + vec2(t*.01, 0.), 5.);
+ // dust lanes in two scales: broad dark rifts and fine filaments of dust across the star clouds
+ float lanes = smoothstep(.50,.74, fbm(vec2(along*5.5+9., d*40.+wob*6.), 4.));
+ lanes = max(lanes, smoothstep(.62, .8, fbm(vec2(along*16. + 2., d*90. + wob*9.), 3.))*.7);
  // the galaxy's core swells with the bass: one big element, not the whole band
  float core = exp(-coreD*7.5) + exp(-coreD*20.)*bass*react*.8;
  float lum = body*(.30 + cloud*.85)*(1.-lanes*.62) + core*(.9 + cloud*.6);
@@ -1543,22 +1655,27 @@ float chHill(float az, float lay, float tr){
  // the road runs out through a low gap between the hills
  return h*mix(.35, 1., smoothstep(.04,.30, abs(az + .02))) - lay*.008 + step(1.5, lay)*.03;
 }
-// Coloured dust clouds drifting either side of the galaxy, glowing brighter as the music swells.
+// Great clouds of gas either side of the galaxy (drawn in the sky pass): folded by two levels of
+// warping into sheets and filaments, lit along their ridges, cut by dark dust, deepening from magenta
+// to violet and teal across their width.
 vec3 chNebula(vec2 p, float t){
+ float cl = exp(-pow((p.x+.62)/.36, 2.) - pow((p.y-.30)/.30, 2.)) + exp(-pow((p.x-.70)/.32, 2.) - pow((p.y-.22)/.26, 2.))*.9
+          + exp(-pow((p.x-.15)/.5, 2.) - pow((p.y-.55)/.2, 2.))*.35;
+ if(cl < .03) return vec3(0.);
  vec2 q = p*vec2(2.1, 3.2);
- float w0 = fbm(q + vec2(t*.006, 0.), 2.);
- vec2 w = vec2(w0, fract(w0*3.7));
- float n = fbm(q*1.15 + vec2(w0*1.8, w0*1.3) + vec2(t*.003, 0.), 3.);
- float cl = exp(-pow((p.x+.62)/.32, 2.) - pow((p.y-.30)/.26, 2.)) + exp(-pow((p.x-.70)/.28, 2.) - pow((p.y-.20)/.22, 2.))*.85;
- float m = smoothstep(.36, .78, n) * cl;
- vec3 c = mix(cC, cD, smoothstep(.3, .7, w.x));
- c = mix(c, vec3(1.,.9,1.), smoothstep(.72, .95, n)*.35);
- // fine glowing filaments through the bright gas and darker dust at its edges
- float fil = noise(q*5.2 + vec2(w0*3., n*2.) + vec2(t*.004, 0.));
- vec3 o = c * m * (.72 + .56*fil);
- o += mix(c, vec3(1.), .4) * pow(1. - abs(fil - .5)*2., 6.) * m * .6;
- o *= 1. - .35*smoothstep(.36, .5, n)*(1. - smoothstep(.5, .62, n))*cl;
- return o * .7;
+ vec2 w1 = vec2(fbm(q + vec2(t*.005, 0.), 4.), fbm(q + vec2(4.7, -t*.004), 4.)) - .5;
+ vec2 w2 = vec2(fbm(q*1.9 + w1*2.4 + 2.3, 3.), fbm(q*1.9 + w1*2.4 + 7.1, 3.)) - .5;
+ float n = fbm(q*1.15 + w2*2.6 + w1, 5.);
+ float m = smoothstep(.34, .80, n)*cl;
+ float zone = fbm(q*.35 + 3.3, 2.);
+ vec3 c = mix(cC, cD, smoothstep(.3, .7, zone + (n - .5)*.6));
+ c = mix(c, cB, smoothstep(.55, .9, zone)*.5);
+ c = mix(c, vec3(1.,.9,1.), smoothstep(.74, .97, n)*.35);
+ float ridge = pow(max(1. - abs(n - .58)*8., 0.), 3.)*cl;
+ float fil = pow(1. - abs(noise(q*5.6 + w2*4.) - .5)*2., 8.)*m;
+ float dust = smoothstep(.5, .68, fbm(q*2.6 - w2*3.2 + 9., 4.))*smoothstep(.2, .55, n)*cl;
+ vec3 o = c*m*.75 + mix(c, vec3(1.), .45)*(ridge*.22 + fil*.35);
+ return o*(1. - dust*.8)*.75;
 }
 vec3 horizonGlow(){ return mix(cC, cB, .35); }
 // A planetary nebula far off to the right: a glowing shell around a white dwarf, with a pulsar's twin
@@ -1596,6 +1713,15 @@ vec3 ndGround(float xr, float wz, float fade){
  // a still lake off to the left catching the galaxy and the horizon glow
  float lake = smoothstep(.52,.6, fbm(vec2(xr*.012+3., wz*.0016), 3.)) * (1.-smoothstep(-40.,-24., xr));
  vec3 water = mix(vec3(.03,.05,.14), mix(cB, cA, .5)*.32, .5+.5*sin(wz*.06 + xr*.2 + time*.6)) ;
+ // the still lake mirrors the galaxy above it, broken by slow ripples
+ vec4 lm = ndMirror(vec2(.004*sin(wz*.05 + time*.8 + xr*.1), .003*sin(xr*.3 + time*.6)));
+ water = mix(water, lm.rgb*.85 + water*.3, lm.a*.9);
+ // dew on the fields: a soft, rough sheen of the sky over the whole plain, stronger toward the horizon
+ vec4 dm = ndMirror(vec2(noise(vec2(xr*.4, wz*.12)) - .5, noise(vec2(xr*.3 + 5., wz*.1)) - .5)*.02);
+ c += dm.rgb*dm.a*(.05 + .16*pow(1. - fade, 1.5))*(.6 + .4*gx);
+ // grass close by: fine streaks running along the ground, catching the galaxy's light
+ float blade = noise(vec2(xr*3.5, wz*.9))*noise(vec2(xr*9., wz*2.2));
+ c *= .85 + .45*blade*smoothstep(.3, .8, fade);
  water += mix(cC, cB, .5) * (.08 + bass*react*.07) * (1.-fade);
  c = mix(c, water, lake);
  // distant settlement lights near the horizon
@@ -1649,8 +1775,10 @@ vec3 ndSky(vec3 rd, float t){
  col += chNebula(p, t) * (1.-night*.2);
  col += chGalaxy(p, t, gmask) * (1.-night*.15);
  col += chStars(p, gmask, t) * (.55 + night*.45);
- col += ndMeteors(p);
  col += chEye(p);
+ col += ndGalaxy(p, vec2(.36, .40), .06, .38, -.4, mix(cB, cD, .4));
+ col += ndGalaxy(p, vec2(-.25, .48), .03, .8, 1.2, mix(cC, cB, .3))*.8;
+ col += ndGalaxy(p, vec2(.86, .62), .025, .5, .9, cB)*.6;
  // a handful of brilliant stars with long diffraction spikes, placed like a composed shot
  for(int i=0;i<5;i++){ float fi=float(i);
   vec2 sp = i==0 ? vec2(-.50,.48) : (i==1 ? vec2(.32,.56) : (i==2 ? vec2(.44,.27) : (i==3 ? vec2(-.24,.62) : vec2(.66,.47))));
@@ -1675,10 +1803,14 @@ vec3 ndSky(vec3 rd, float t){
  if(p.y < .16) for(int i=2;i>=0;i--){ float lay=float(i);
   float h = chHill(p.x, lay, travel);
   if(p.y < h){
+   gSkyOpen = 0.;
    float sh = smoothstep(.0,.06, h-p.y);
    vec3 hill = mix(vec3(.075,.10,.27), vec3(.030,.042,.12), lay*.0 + max(1.-lay,0.)*.55) * (1.-night*.3);
    hill = mix(hill, mix(skyLow, horizonGlow(), .35), step(1.5, lay)*.55);
    hill = mix(hill, hill*.55, sh);
+   // the slopes are not flat colour: folds and gullies across each range
+   float fold = fbm(vec2(p.x*(9. + lay*6.) + lay*3., (h - p.y)*(40. + lay*20.)), 3.);
+   hill *= .72 + .56*fold;
    hill += mix(cB, cA, .3) * .06 * (1.-sh);
    col = mix(col, hill, .92);
    // moonlit ridges: the crest of each range catches the light; mist pools in the valleys behind it
@@ -1701,11 +1833,11 @@ vec3 ndSky(vec3 rd, float t){
   // ---- World 3: ENCHANTED FOREST ----
   var ND_ENCHANTED_FOREST = `
 #define ND_OVERLAY
-// ENCHANTED FOREST: a moonlit old forest either side of the highway. Real trees (broadleaf giants and
-// tall conifers) with bark, limbs and layered crowns, ranks of further trees fading into mist, ferns,
-// rocks, glowing flowers and a scattering of luminous mushrooms along the verges, under an open,
-// detailed night sky with a bright moon. Light is selective: the moon does most of the lighting and
-// only a few things glow from within.
+// ENCHANTED FOREST: an old, enormous woodland at night. The highway runs straight through it; trees stand
+// in many ranks either side, each rank further into the mist: near trees with furrowed bark, limbs and
+// lacy crowns of leaves or drooping needles, then ranks that fade to silhouettes and finally to haze.
+// The moon hangs over the road; its light silvers the edges of leaves and bark, falls in faint shafts
+// and lights the mist. Magic is an accent: a few glowing fungi, flowers, fern tips and fireflies.
 const float CAMH = 2.35;
 // Forest scale: everything is built FS times larger than human scale so it passes at the same calm
 // rate as the scenery of the other worlds. The road is untouched.
@@ -1722,261 +1854,259 @@ vec2 gL = vec2(0., 1.);
 vec2 efL(){ return gL; }
 float efRoadX(float zd){ return curveAt(travel+zd)*min(1., zd*.0026); }
 float efGroundH(float zd, float h0){ return max(CAMH + (hillAt(travel+zd)-h0)*.26, CAMH*.45); }
-vec3 efFog(float t){ return mix(vec3(.035,.075,.115), vec3(.016,.04,.065), night) + efCyan()*.025; }
-vec3 ndHaze(vec3 rd, float t){ return efFog(t)*1.25 + efMoon()*.03; }
-vec2 efSkyP(vec3 rd){ return vec2(atan(rd.x, -rd.z), rd.y/max(length(rd.xz), 1e-4)); }
+// the moonlit haze between the trees: blue-grey, a little brighter toward the moon
+vec3 efFog(float t){ return mix(vec3(.060,.104,.140), vec3(.028,.056,.080), night) + efCyan()*.02; }
+vec3 ndHaze(vec3 rd, float t){ return efFog(t)*1.3 + efMoon()*.035; }
 
-// A rank of trees against the sky: individual pointed conifer tops and rounded broadleaf crowns,
-// two interleaved rows so the line has depth. Returns how far below the treeline the point is.
-float efRank(float x, float base, float hgt, float cells, float seed){
- float best = -1.;
- for(int j=0;j<2;j++){ float fj = float(j);
-  float u = x*cells + fj*.5 + seed*3.7;
-  float c = floor(u), f = fract(u) - .5;
-  float h = hash(vec2(c, seed + fj*9.1)), h2 = fract(h*17.3);
-  float top = base + hgt*(.45 + .55*h)*(1. - .25*fj);
-  float d = abs(f)*2.;
-  // conifers: a spire with ragged branch tiers; broadleaf: a rounded, lumpy dome
-  float spire = top - d*hgt*(1.1 + .5*h2) - .05*hgt*abs(sin(d*9. + c));
-  float dome = top - d*d*hgt*.75 + .04*hgt*sin(f*13. + c);
-  float prof = h2 > .45 ? spire : dome;
-  best = max(best, prof);
- }
- return best;
-}
-
+// ---- the sky (drawn in the sky pass) ----
 vec3 ndSky(vec3 rd, float t){
- vec2 sp = efSkyP(rd);
+ vec2 sp = ndSkyP(rd);
  float up = clamp(sp.y, 0., 1.2);
- // deep blue night, lighter low down and around the moon
- vec3 col = mix(vec3(.040,.085,.15), vec3(.008,.018,.045), smoothstep(0.,.55,up));
- col = mix(col, col*.6, night*.6);
- vec2 dm = (sp - MOON)*vec2(1., 1.);
- float md = length(dm);
- col += efMoon()*(exp(-md*4.)*.10 + exp(-md*16.)*.10)*(1.-night*.3);
- // a faint band of the galaxy, and the three classes of stars, thinned by the moon's glare
- float bx = sp.x - .18 - up*.35;
- float band = exp(-bx*bx*14.);
- if(band > .02){
-  float n = fbm(vec2(sp.x*4., sp.y*3.) + 3., 3.);
-  col += mix(vec3(.35,.55,1.), efViolet(), .3) * band * smoothstep(.35,.8,n) * .20 * smoothstep(.05,.3,up);
+ vec2 dm = sp - MOON; float md = length(dm);
+ // deep night overhead, a pale moonlit band low down, the glow around the moon
+ vec3 col = mix(vec3(.070,.118,.165), vec3(.004,.012,.034), smoothstep(-.02, .55, up));
+ col = mix(col, col*.62, night*.6);
+ col += efMoon()*(exp(-md*3.2)*.075 + exp(-md*11.)*.10 + exp(-md*38.)*.16)*(1. - night*.25);
+ // moonlit haze hanging over the forest: brightest low down and toward the moon
+ col += mix(efFog(t), efMoon()*.5, .3)*exp(-max(sp.y, 0.)*9.)*(.45 + .55*exp(-abs(sp.x - MOON.x)*2.))*.55;
+ // stars, thinned by the moon's glare and by the haze near the trees
+ if(sp.y > .02) col += ndStarField(sp, t, .15) * smoothstep(.03, .2, sp.y) * (1. - exp(-md*4.)*.85) * (.55 + night*.5);
+ // high cloud in thin, torn layers, silvered where the moon is behind it
+ if(sp.y > .06){
+  vec2 cq = vec2(sp.x*1.8 + t*.003, sp.y*5.2);
+  vec2 w = vec2(fbm(cq*1.3 + 4., 3.), fbm(cq*1.3 + 9.2, 3.)) - .5;
+  float cl = fbm(cq + w*1.6, 4.);
+  float cm = smoothstep(.48, .78, cl)*smoothstep(.06, .22, sp.y);
+  float edge = smoothstep(.48, .6, cl) - smoothstep(.62, .78, cl);
+  col = mix(col, col*.5 + efFog(t)*.35, cm*.65);
+  col += efMoon()*(edge*.06 + cm*.05)*exp(-md*2.2);
  }
- if(sp.y > .02) col += ndStarField(sp, t, band*.6) * smoothstep(.02, .14, sp.y) * (1. - exp(-md*5.)*.8) * (.6 + night*.5);
- col += ndMeteors(sp);
- // thin high cloud drifting past the moon, silvered where the moonlight catches it
- if(sp.y > .12){
-  float cl = fbm(vec2(sp.x*2.2 + t*.004, sp.y*6.), 3.);
-  float cm = smoothstep(.5, .78, cl)*smoothstep(.12, .3, sp.y);
-  col = mix(col, col*.55 + efMoon()*.05, cm*.6);
-  col += efMoon()*cm*exp(-md*3.)*.12;
+ // the moon: a bright disc with darker seas, a soft limb and a ring of halo
+ if(md < .07){
+  float disc = 1. - smoothstep(.034, .036, md);
+  vec2 mu = dm/.035;
+  float seas = smoothstep(.42, .68, fbm(mu*1.9 + 4., 4.));
+  float crater = smoothstep(.62, .8, noise(mu*6.5 + 2.));
+  vec3 mc = vec3(.88,.92,.99)*(1. - .30*seas - .08*crater)*(1. - .22*dot(mu, mu));
+  col = mix(col, mc*1.25, disc);
  }
- // the moon: a bright disc with darker seas and a sharp edge
- if(md < .06){
-  float disc = 1. - smoothstep(.034, .037, md);
-  vec2 mu = dm/.036;
-  float seas = smoothstep(.45, .7, fbm(mu*2.1 + 4., 3.));
-  col = mix(col, vec3(.86,.9,.98)*(1. - .28*seas)*(1. - .2*dot(mu,mu)), disc);
- }
- // the horizon: distant hills, then two ranks of forest, each nearer one darker and sharper;
- // mist lies in the gaps between them. They slide past slowly, the nearer faster.
- if(sp.y < .2){
-  float x = sp.x;
-  float hills = .035 + .03*fbm(vec2(x*2.4 + travel*.000015, 1.3), 2.);
-  vec3 haze = mix(efFog(t)*1.6, efMoon()*.18, .25);
-  col = mix(col, haze, (1. - smoothstep(hills - .004, hills + .004, sp.y))*.85);
-  float far = efRank(x + travel*.00003, .014, .065, 24., 1.);
-  float inFar = 1. - smoothstep(far - .002, far + .002, sp.y);
-  col = mix(col, mix(efFog(t)*1.25, haze, .35), inFar*.92);
-  col += efMoon()*.05*exp(-max(far - sp.y, 0.)*60.)*inFar*(1. - .5*step(0., x - MOON.x));
-  float near = efRank(x + travel*.00007, .0, .10, 13., 2.);
-  float inNear = 1. - smoothstep(near - .002, near + .002, sp.y);
-  vec3 dark = efFog(t)*.62;
-  // moonlight catches the treetops on the moon's side
-  dark += efMoon()*.07*exp(-max(near - sp.y, 0.)*90.)*(1. - smoothstep(-.6, .2, x - MOON.x));
-  col = mix(col, dark, inNear);
-  // mist lying along the foot of the forest
-  col += mix(efFog(t), efMoon()*.25, .3)*exp(-abs(sp.y - .004)*45.)*.35;
- }
- col += efCyan()*exp(-abs(sp.y)*30.)*exp(-sp.x*sp.x*4.)*.06;
+ col += efMoon()*exp(-abs(md - .14)*60.)*.012;
+ gSkyOpen = 1.;
  return col;
 }
 
 vec3 ndGround(float xr, float wz, float fade){
  float side = sign(xr);
  vec2 fw = vec2(xr, wz)/FS;   // forest units
+ // the forest floor: moss, leaf litter and needles, darker under the trees, moonlit where they open up
  float n = fbm(fw*vec2(.12, .07), 2.);
- // the forest floor: moss and leaf litter, moonlit in clearings, darker under the trees
  float litter = noise(fw*vec2(1.4, .9));
- vec3 c = mix(vec3(.012,.028,.024), vec3(.040,.074,.056), n);
- c = mix(c, vec3(.055,.048,.036), smoothstep(.55, .8, litter)*.6);
- // pools of moonlight where the trees open up
- c += efMoon()*.05*smoothstep(.45, .8, n)*smoothstep(.3, .7, litter);
- c = mix(c, efFog(time)*1.4, (1.-fade)*.75);
+ float fine = noise(fw*vec2(5.2, 3.1))*fade;
+ vec3 c = mix(vec3(.008,.018,.015), vec3(.030,.058,.044), n);
+ c = mix(c, vec3(.046,.040,.030), smoothstep(.55, .8, litter)*.55);
+ c *= .8 + .4*fine;
+ c += efMoon()*.045*smoothstep(.45, .8, n)*smoothstep(.3, .7, litter);
+ c = mix(c, efFog(time)*1.5, (1.-fade)*.8);
  // roots of the nearest trees spread across the floor; each kick sends light running out along them
- float L = 17., S = 16.;
+ float L = 18., S = 15.;
  float cell = floor((fw.y - hash(vec2(side,3.))*S)/S + .5);
  float tz = cell*S + hash(vec2(cell, side))*5.;
  vec2 d = vec2(fw.x - side*(L + hash(vec2(cell, side+5.))*3.), fw.y - tz);
  float r = length(d);
- if(r < 22.){
+ if(r < 20.){
   float a = atan(d.y, d.x);
   float twist = noise(vec2(r*.25, cell))*1.6;
-  float root = pow(abs(cos(a*3. + twist + cell)), 40.*(1.+r*.04)) * exp(-r*.11) * smoothstep(1.,3.,r);
-  c = mix(c, vec3(.012,.012,.010), root*.85);
-  float run = 0.;
-  run += pulseS.x*exp(-pow((r - pulseT.x*14.)*.5, 2.))*exp(-pulseT.x*1.3);
-  run += pulseS.y*exp(-pow((r - pulseT.y*14.)*.5, 2.))*exp(-pulseT.y*1.3);
-  c += mix(efCyan(), efEmerald(), .5) * root * run * react * .9 * fade;
+  float root = pow(abs(cos(a*3. + twist + cell)), 40.*(1.+r*.04)) * exp(-r*.12) * smoothstep(1.,3.,r);
+  c = mix(c, vec3(.010,.010,.009), root*.85);
+  c += efMoon()*root*.03*fade;
+  float run = pulseS.x*exp(-pow((r - pulseT.x*14.)*.5, 2.))*exp(-pulseT.x*1.3)
+            + pulseS.y*exp(-pow((r - pulseT.y*14.)*.5, 2.))*exp(-pulseT.y*1.3);
+  c += mix(efCyan(), efEmerald(), .5) * root * run * react * .8 * fade;
  }
  // a few bioluminescent specks in the moss that catch the hats
  vec2 g = fw*vec2(1.6, .9); vec2 gi = floor(g); float gh = hash(gi + side);
- float spk = step(.86, gh) * exp(-dot(fract(g)-.5, fract(g)-.5)*45.);
- c += mix(efCyan(), vec3(.7,1.,1.), .4) * spk * (.25 + .2*sin(time*1.5 + gh*30.) + highs*react*.9*step(.93, gh)) * (.3 + .7*fade);
+ float spk = step(.9, gh) * exp(-dot(fract(g)-.5, fract(g)-.5)*45.);
+ c += mix(efCyan(), vec3(.7,1.,1.), .4) * spk * (.18 + .15*sin(time*1.5 + gh*30.) + highs*react*.8*step(.95, gh)) * (.3 + .7*fade);
  return c;
 }
 
 vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
- // moonlight on the wet road, the shoulders' glitter catching the hats
- vec3 add = efMoon()*.03*(1.-fade*.4);
+ // moonlight lying on the wet road, the shoulders' glitter catching the hats
+ vec3 add = efMoon()*.025*(1.-fade*.4);
  vec2 g = vec2(xr*3., wz*1.2); float h = hash(floor(g));
- add += efCyan() * step(.9, h) * exp(-dot(fract(g)-.5, fract(g)-.5)*30.) * exp(-abs(edge-11.6)*1.2) * fade * (.5 + hat*react*1.2);
- return road*.78 + add;
+ add += efCyan() * step(.92, h) * exp(-dot(fract(g)-.5, fract(g)-.5)*30.) * exp(-abs(edge-11.6)*1.2) * fade * (.4 + hat*react*1.2);
+ return road*.8 + add;
 }
 
-// One tree as a camera-facing cut-out at its own depth, in tree units (w.x across from the trunk,
-// w.y up from the ground). kind 0: a broadleaf giant, its limbs carrying four or five rounded clumps
-// of leaves layered over each other; kind 1: a tall conifer built from drooping tiers.
-// Lit by the moon from the upper left; most trees only take moonlight, a few carry glowing lanterns.
+// ---- trees ----
+// Leaf texture: clusters of leaves with single leaves breaking out at the edges. Two octaves near,
+// one far (lod), so far crowns stay smooth instead of shimmering.
+float efLeaf(vec2 w, float id, float lod){
+ // octaves turned against each other, so the leaf clusters never line up into a grid
+ float n = noise(mat2(.8, .6, -.6, .8)*w*1.7 + id*3.1);
+ if(lod < .5) n = n*.6 + noise(mat2(.36, -.93, .93, .36)*w*4.9 - id)*.4;
+ return n;
+}
+// One near tree, a camera-facing cut-out at its own depth, in tree units (w.x across the trunk,
+// w.y up from the ground). Three kinds: a broadleaf giant (furrowed trunk, limbs, a wide crown of leaf
+// masses), a tall spruce (narrow, drooping tiers of needles) and a pale birch (slender, sparse crown).
+// Light comes from the moon: dark masses with silvered edges, never round shaded balls.
+// returns colour and coverage
 vec4 efTree(vec2 P, float side, float zd, float X, float id, float hr, float h0, float lod){
  float gh = efGroundH(zd, h0);
  vec2 w = vec2(P.x*zd - X, P.y*zd + gh)/FS;
- float ppw = zd*1.2/res.y/FS;
- float kind = step(.62, fract(id*.137 + hr*3.1));
- float Ht = 19. + hr*12. + kind*5.;
- if(w.y < -.5 || w.y > Ht + 1. || abs(w.x) > 11.) return vec4(0.);
- // below the crown only the trunk can be here
- if(w.y < Ht*.42 && abs(w.x) > 4.5) return vec4(0.);
+ float ppw = zd*1.2/res.y/FS;                       // one pixel in tree units
+ float kr = fract(id*.137 + hr*3.1);
+ float kind = kr < .5 ? 0. : (kr < .82 ? 1. : 2.);  // 0 broadleaf, 1 spruce, 2 birch
+ float Ht = kind == 1. ? 27. + hr*10. : (kind == 2. ? 19. + hr*7. : 21. + hr*9.);
+ float span = kind == 0. ? 9.5 : (kind == 1. ? 6. : 5.);
+ if(w.y < -.5 || w.y > Ht + 1.5 || abs(w.x) > span + 1.) return vec4(0.);
+ float crownBot = kind == 1. ? Ht*.18 : (kind == 2. ? Ht*.45 : Ht*.42);
+ if(w.y < crownBot && abs(w.x) > 3.5) return vec4(0.);
  vec2 L2 = efL();
- float out_ = side;                      // away from the road
- float lean = .9*sin(id*1.7);
- float tx = w.x - lean*w.y/Ht - .3*sin(w.y*.21 + id);
- float trunkTop = kind > .5 ? Ht*.96 : Ht*.66;
- float tr = mix(.85 + hr*.5, .28, clamp(w.y/trunkTop, 0., 1.)) + 1.5*exp(-max(w.y, 0.)*1.3);
+ float lean = .7*sin(id*1.7);
+ float tx = w.x - lean*w.y/Ht - .25*sin(w.y*.19 + id);
+ float trunkTop = kind == 1. ? Ht*.97 : (kind == 2. ? Ht*.9 : Ht*.66);
+ float baseR = kind == 2. ? .45 + hr*.2 : .8 + hr*.45;
+ float tr = mix(baseR, baseR*.35, clamp(w.y/trunkTop, 0., 1.)) + (kind == 2. ? .5 : 1.3)*exp(-max(w.y, 0.)*1.2);
  float du = tx/tr;
  vec3 col = vec3(0.); float a = 0.;
- // ---- trunk: furrowed bark, a moonlit edge, moss at the foot ----
+ // ---- trunk ----
  float trunk = (1. - smoothstep(1. - ppw/tr, 1. + ppw/tr, abs(du))) * step(w.y, trunkTop);
  if(trunk > 0.){
-  // deep vertical furrows, broken here and there by cross-cracks
-  float ridge = noise(vec2(du*4.2 + id*7., w.y*.22));
-  float fine = lod > .5 ? .5 : noise(vec2(du*11., w.y*.9 + id));
-  float furrow = smoothstep(.25, .6, abs(fract(du*2.6 + ridge*1.3) - .5)*2.);
-  float bark = .45 + .9*(ridge - .5) + .45*(fine - .5) - .35*furrow*(1. - lod*.5);
-  float lam = clamp(du*.8*sign(L2.x) + .25, 0., 1.);
-  vec3 bc = mix(vec3(.022,.020,.022), vec3(.085,.09,.11), lam*lam)*bark;
-  bc += efMoon()*pow(clamp(du*sign(L2.x), 0., 1.), 5.)*.14;
-  float moss = smoothstep(.55, .75, fract(ridge*7.3))*(1. - smoothstep(1., 5., w.y));
-  bc = mix(bc, vec3(.03,.075,.04)*(.6 + lam), moss*.8);
+  float lit = clamp(du*sign(L2.x)*.8 + .2, 0., 1.);          // the moon side of the trunk
+  vec3 bc;
+  if(kind == 2.){
+   // birch: pale bark with dark horizontal marks, catching the moonlight
+   float mark = smoothstep(.62, .8, noise(vec2(du*2. + id, w.y*2.4)))*smoothstep(.3, .6, noise(vec2(du, w.y*.4 + id)));
+   bc = mix(vec3(.05,.055,.06), vec3(.30,.33,.38), lit)*(1. - mark*.8);
+  } else {
+   // deep vertical furrows between plates of bark, broken by cross-cracks
+   float ridge = noise(vec2(du*4.6 + id*7., w.y*.16));
+   float fine = lod > .5 ? .5 : noise(vec2(du*13., w.y*.8 + id));
+   float furrow = 1. - smoothstep(.0, .22 + ppw*2., abs(fract(du*2.7 + ridge*1.4) - .5));
+   float crack = lod > .5 ? 0. : smoothstep(.78, .92, noise(vec2(du*3., w.y*2.2 + id)))*.6;
+   float plate = .55 + .6*(ridge - .5) + .4*(fine - .5);
+   bc = mix(vec3(.012,.012,.013), vec3(.075,.08,.092), lit*lit)*plate*(1. - furrow*.75)*(1. - crack);
+   // moss climbing the shaded side near the ground
+   float moss = smoothstep(.5, .72, noise(vec2(du*2.2, w.y*.45 + id)))*(1. - smoothstep(1.5, 7., w.y))*(1. - lit*.6);
+   bc = mix(bc, vec3(.022,.055,.03)*(.7 + .6*fine), moss*.85);
+  }
+  // a thin silver line of moonlight along the trunk's edge
+  bc += efMoon()*pow(clamp(du*sign(L2.x), 0., 1.), 7.)*(kind == 2. ? .22 : .12);
   col = bc; a = trunk;
- }
- // ---- limbs from the trunk up into the crown (broadleaf) ----
- vec2 cc0 = vec2(out_*3.2 + lean, Ht*.80), cc1 = vec2(-out_*2.4 + lean, Ht*.74), cc2 = vec2(lean*.8 + out_*.5, Ht*.93);
- vec2 cc3 = vec2(out_*5.6 + lean, Ht*.64), cc4 = vec2(-out_*.8 + lean, Ht*.60);
- if(kind < .5 && w.y > trunkTop*.75 && lod < .5){
-  vec2 b0 = vec2(lean*trunkTop/Ht, trunkTop);
-  for(int i=0;i<3;i++){
-   vec2 e = i==0 ? cc0 : (i==1 ? cc1 : cc3);
-   vec2 pa = w - b0, ba = e - b0;
-   float hh = clamp(dot(pa, ba)/dot(ba, ba), 0., 1.);
-   float th = mix(.45, .12, hh);
-   float lm = 1. - smoothstep(th - ppw, th + ppw, length(pa - ba*hh));
-   if(lm > a){ col = vec3(.03,.028,.03); a = lm; }
+  // shelf fungi on a few old trunks glow softly; they swell with the bass
+  if(kind == 0. && fract(id*.53) > .6 && w.y < trunkTop*.6){
+   float fy = fract(w.y*.22 + id) - .5, fx = abs(du) - .92;
+   float shelf = (1. - smoothstep(.0, .08 + ppw, abs(fy*1.6 + fx*fx*.6)))*(1. - smoothstep(.0, .35, abs(fx)))*step(.5, fract(floor(w.y*.22 + id)*.37));
+   col = mix(col, efCyan()*(.25 + bass*react*.7), shelf*.9);
   }
  }
  // ---- the crown ----
- if(w.y < Ht*.42 && a <= 0.) return vec4(0.);
- // leaf texture: clusters of leaves, with a finer flutter close up
- float leafN = noise(w*1.25 + id*3.);
- leafN = leafN*.7 + .3*(.5 + .5*sin(w.x*4.1 + leafN*6.)*sin(w.y*3.7 - leafN*5.));
- // each tree has its own shade of green; the moonlit tops turn silver-blue
- float tint = fract(id*.71);
- vec3 leafDark = mix(vec3(.003,.012,.010), vec3(.006,.010,.016), tint);
- vec3 leafLit = mix(mix(vec3(.07,.17,.10), vec3(.05,.14,.15), tint), efMoon()*.36, .32);
- vec3 L3 = normalize(vec3(L2*.85, .5));
- if(kind < .5){
-  for(int i=0;i<5;i++){
-   vec2 c = i==0 ? cc3 : (i==1 ? cc1 : (i==2 ? cc4 : (i==3 ? cc0 : cc2)));
-   float rr = (3.6 + 1.3*fract(id*(1.3 + float(i)*.71))) * (i==4 ? .9 : 1.);
-   if(lod > .5 && (i == 2 || i == 4)) continue;
-   vec2 qv = (w - c)/vec2(rr, rr*.78);
-   if(dot(qv, qv) > 1.7) continue;
-   float d = length(qv) + (leafN - .5)*.42;
-   if(d < 1. + ppw/rr){
-    float cov = 1. - smoothstep(1. - ppw/rr*1.5, 1. + ppw/rr, d);
-    // small holes through the leaves near the edge of the crown
-    cov *= 1. - smoothstep(.72, .86, leafN)*smoothstep(.55, .95, d)*.9;
-    vec3 nrm = vec3(qv, sqrt(max(1. - dot(qv, qv), 0.)));
-    float lam = clamp(dot(nrm, L3), 0., 1.);
-    float lit = smoothstep(.25, .95, lam);
-    vec3 lc = mix(leafDark, leafLit, lit*lit*(.35 + 1.1*leafN*leafN));
-    lc *= .5 + .5*smoothstep(-.9, -.2, qv.y);                   // the underside sits in shadow
-    // the edge facing the moon is silvered, leaf by leaf
-    lc += efMoon()*.16*smoothstep(.70, 1., d)*smoothstep(.2, .8, dot(normalize(qv + 1e-4), L2))*smoothstep(.35, .7, leafN);
-    // a shadow falls on the clumps behind this one, just outside its edge
-    col = a > 0. ? mix(col*mix(1., .45 + .55*smoothstep(0., .25, d - 1.), step(1., d)), lc, cov) : lc;
-    a = max(a, cov);
-   }
-  }
- } else {
-  // drooping tiers, narrowing toward the spire
-  for(int i=0;i<7;i++){ float fi = float(i);
-   float y0 = Ht*(.20 + fi*.108), th = Ht*.19;
-   // the tips of each tier droop below its centre
+ float leaf = efLeaf(w, id, lod);
+ float fc = 0.; float edgeD = 9.; float depthIn = 0.;
+ if(kind == 1.){
+  // spruce: tiers of drooping needles from near the ground to a narrow spire; the needle texture is
+  // one look-up shared by every tier
+  float needleN = noise(vec2(w.x*3.4 + id, w.y*9.));
+  for(int i=0;i<8;i++){ float fi = float(i);
+   float y0 = crownBot + (Ht - crownBot)*fi/8.2, th = (Ht - crownBot)*.2;
    float hw = (Ht - y0)*.27*(1. + .1*sin(id + fi*2.));
    float dx = abs(w.x - lean*w.y/Ht);
-   float droop = th*.32*(dx/hw)*(dx/hw);
+   float droop = th*.38*(dx/hw)*(dx/hw);
    float v = (w.y - y0 + droop)/th;
    if(v < 0. || v > 1.) continue;
-   float edgeN = .16*sin(w.x*3.4 + fi*3. + id) + (leafN - .5)*.35;
-   float width = hw*pow(1. - v, .9)*(1. + edgeN);
-   float inside = (1. - smoothstep(width - ppw, width + ppw, dx))*smoothstep(.0, .06 + (leafN - .5)*.08, v);
-   if(inside > 0.){
-    float s = dx/max(width, .1);
-    vec3 nrm = vec3(sign(w.x - lean*w.y/Ht)*s*.8, .55 - v*.2, sqrt(max(1. - s*s*.64, 0.)));
-    float lam = clamp(dot(normalize(nrm), L3), 0., 1.);
-    float lit = smoothstep(.2, .9, lam);
-    vec3 lc = mix(leafDark*.8, leafLit*.8, lit*lit*(.35 + 1.1*leafN*leafN));
-    lc *= .45 + .55*smoothstep(.0, .4, v);                      // each tier's underside is dark
-    lc += efMoon()*.12*smoothstep(.7, 1., s)*step(0., (w.x - lean*w.y/Ht)*sign(L2.x))*leafN;
-    col = a > 0. ? mix(col*(.5 + .5*smoothstep(0., .3, v)), lc, inside) : lc;
-    a = max(a, inside);
+   // needles: fine streaks that hang from each bough
+   float needle = fract(needleN + fi*.37);
+   float width = hw*pow(1. - v, .9)*(1. + .2*(leaf - .5) + .14*(needle - .5));
+   float c = (1. - smoothstep(width - ppw*1.5, width + ppw, dx))*smoothstep(.0, .1 + (needle - .5)*.12, v);
+   if(c > 0.){ fc = max(fc, c); edgeD = min(edgeD, (width - dx)/max(width, .1)); depthIn = max(depthIn, v); }
+  }
+ } else {
+  // broadleaf and birch: a crown of overlapping leaf masses, broken up into leaves at its edge
+  vec2 cc0 = vec2(side*3.4 + lean, Ht*.78), cc1 = vec2(-side*2.6 + lean, Ht*.72), cc2 = vec2(lean*.8, Ht*.92);
+  vec2 cc3 = vec2(side*6. + lean, Ht*.6), cc4 = vec2(-side*1. + lean, Ht*.58);
+  float sc = kind == 2. ? .62 : 1.;
+  float dmin = 9.;
+  for(int i=0;i<5;i++){
+   if(kind == 2. && i > 2) break;
+   vec2 c = i==0 ? cc0 : (i==1 ? cc1 : (i==2 ? cc2 : (i==3 ? cc3 : cc4)));
+   c.x *= sc;
+   float rr = (3.8 + 1.4*fract(id*(1.3 + float(i)*.71)))*sc;
+   vec2 qv = (w - c)/vec2(rr*1.1, rr*.8);
+   dmin = min(dmin, length(qv));
+  }
+  // the edge dissolves into leaves: deep inside it is solid, near the outline only the leaf clusters remain
+  float d = dmin + (leaf - .5)*.55;
+  fc = 1. - smoothstep(.92 - ppw*.5, 1. + ppw*.5, d);
+  fc *= 1. - smoothstep(.64, .78, leaf)*smoothstep(.55, .95, dmin)*.9;   // holes near the edge
+  edgeD = 1. - d; depthIn = 1. - clamp(dmin, 0., 1.);
+  // limbs from the trunk up into the crown, seen through the gaps
+  if(w.y > trunkTop*.7 && lod < .5){
+   vec2 b0 = vec2(lean*trunkTop/Ht, trunkTop);
+   for(int i=0;i<3;i++){
+    vec2 e = (i==0 ? cc0 : (i==1 ? cc1 : cc3))*vec2(sc, 1.);
+    vec2 pa = w - b0, ba = e - b0;
+    float hh = clamp(dot(pa, ba)/dot(ba, ba), 0., 1.);
+    float th = mix(.5, .1, hh)*(kind == 2. ? .5 : 1.);
+    float lm = 1. - smoothstep(th - ppw, th + ppw, length(pa - ba*hh));
+    if(lm > a){ col = kind == 2. ? vec3(.2,.22,.26) : vec3(.022,.02,.022); a = lm; }
    }
   }
  }
- if(a <= 0.) return vec4(0.);
- // a few trees carry glowing lanterns of fungus among the leaves; they rise with the mids
- float lantern = step(.78, fract(id*.31 + .17));
- if(lantern > 0. && w.y > Ht*.4){
-  vec2 g = w*vec2(.9, .7); vec2 gi = floor(g); float gh = hash(gi + id);
-  vec2 go = fract(g) - .5 - (vec2(gh, fract(gh*7.)) - .5)*.5;
-  float glow = step(.9, gh)*exp(-dot(go, go)*60.);
-  col += mix(efCyan(), efEmerald(), fract(gh*3.))*glow*a*(.35 + mids*react*1.1);
+ if(fc > 0.){
+  // leaves: near-black green deep inside, lighter where the leaf clusters face the moon, silvered at the
+  // outline on the moon's side; a little variation from tree to tree
+  float tint = fract(id*.71);
+  vec3 dark = mix(vec3(.004,.012,.010), vec3(.006,.010,.016), tint);
+  vec3 lit = mix(mix(vec3(.07,.15,.10), vec3(.05,.13,.14), tint), efMoon()*.3, .3);
+  float face = smoothstep(.35, .85, leaf)*(.45 + .55*smoothstep(.0, .6, 1. - depthIn));
+  vec3 lc = mix(dark, lit, face*face);
+  vec2 qn = vec2(w.x - lean*w.y/Ht, w.y - Ht*.7);
+  float toMoon = smoothstep(-.2, .8, dot(normalize(qn + 1e-4), L2));
+  lc += efMoon()*.2*(1. - smoothstep(.0, .25, edgeD))*toMoon*smoothstep(.4, .75, leaf);
+  lc *= .7 + .3*smoothstep(-.2, .6, (w.y - crownBot)/(Ht - crownBot));   // the underside is darker
+  col = a > 0. ? mix(col, lc, fc) : lc;
+  a = max(a, fc);
  }
+ if(a <= 0.) return vec4(0.);
  return vec4(col, a);
 }
-
+// A distant tree: just its silhouette (spire or rounded crown with a lacy edge, and its trunk), lit
+// only along the moonward edge. Used for the ranks that fade into the mist. returns (coverage, rim)
+vec2 efFarTree(vec2 P, float zd, float X, float id, float h0){
+ float gh = efGroundH(zd, h0);
+ vec2 w = vec2(P.x*zd - X, P.y*zd + gh)/FS;
+ float ppw = zd*1.2/res.y/FS;
+ float hr = fract(id*.61), con = step(.45, fract(id*.37));
+ float Ht = con > .5 ? 26. + hr*12. : 20. + hr*10.;
+ if(w.y < -.5 || w.y > Ht + 1. || abs(w.x) > 9.) return vec2(0.);
+ float lace = noise(w*.9 + id*2.);
+ float cb = con > .5 ? Ht*.16 : Ht*.4, cov = 0., rim = 0.;
+ if(w.y > cb){
+  float v = (w.y - cb)/(Ht - cb);
+  float width = con > .5 ? (1. - v)*Ht*.26*(1. + .35*sin(v*28. + id)*(1. - v)) : 7.5*sqrt(max(1. - pow(v*2. - 1., 2.), 0.))*(.9 + .2*sin(id));
+  width *= .85 + .4*(lace - .5);
+  float dx = abs(w.x);
+  cov = 1. - smoothstep(width - ppw, width + ppw*1.5, dx);
+  rim = (1. - smoothstep(.0, .6 + ppw*2., width - dx))*cov;
+ }
+ float tw = .55 + hr*.35 + 1.*exp(-max(w.y, 0.)*1.3);
+ cov = max(cov, (1. - smoothstep(tw - ppw, tw + ppw, abs(w.x - .2*sin(w.y*.2 + id))))*step(w.y, cb + 1.));
+ return vec2(cov, rim);
+}
 // A clump of mushrooms at the roadside: one to three of a single variety (round-capped, slender
 // conical or wide parasol), with stems, shaded caps, dark gills and a glowing rim. The caps' inner
 // light follows the bass and pops on each kick; only some clumps glow strongly.
 vec3 efMushrooms(vec3 col, vec2 w, float ppw, float h, float f, vec3 fog){
  float var = fract(h*7.7);
- float glowy = step(.45, fract(h*3.3));
+ float glowy = step(.55, fract(h*3.3));
  vec3 mc = h > .8 ? efPink() : (h > .62 ? efViolet() : efCyan());
  float lum = (.18 + .82*glowy)*(.6 + bass*react*1.1 + kick*react*.8);
  for(int i=0;i<3;i++){ float fi = float(i);
   float hi = fract(h*(13.1 + fi*7.3));
   if(i > 0 && hi < .4) continue;
-  float sz = (1. + 1.2*fract(h*5.1))*(1. - fi*.25)*1.4;
+  float sz = (1. + 1.2*fract(h*5.1))*(1. - fi*.25)*.95;
   vec2 m = w - vec2((fi - .8)*sz*.9*(.6 + hi), 0.);
   float stemH = sz*(var < .33 ? .8 : (var < .66 ? 1.2 : 1.1));
   float sw = sz*(var < .33 ? .09 : .065)*(1. + .4*(1. - clamp(m.y/stemH, 0., 1.)));
@@ -2066,6 +2196,25 @@ vec3 efFlowers(vec3 col, vec2 w, float ppw, float h, float f, vec3 fog){
  return col;
 }
 
+
+// Grass and low growth along the verge: fine blades in two layers, lighter at their moonlit tips.
+float efGrass(vec2 w, float ppw, float h, out float tip){
+ tip = 0.;
+ if(w.y < -.05 || w.y > 1.6) return 0.;
+ float cov = 0.;
+ for(int j=0;j<2;j++){ float fj = float(j);
+  float bx = w.x*(2.6 + fj*1.3) + fj*.37 + h*9.;
+  float bi = floor(bx), bf = fract(bx) - .5;
+  float hb = hash(vec2(bi, h*17. + fj)), ht = (.45 + 1.0*hb)*(1. - fj*.25);
+  float u = clamp(w.y/ht, 0., 1.);
+  float bend = (hb - .5)*1.1*u*u;
+  float wd = .09*(1. - u) + ppw*.6;
+  float c = (1. - smoothstep(wd - ppw*.6, wd + ppw*.6, abs(bf - bend)))*step(w.y, ht);
+  if(c > cov){ cov = c; tip = u; }
+ }
+ return cov;
+}
+
 vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
  vec2 P = rd.xy/(-rd.z);
  float fogK = .0055/sqrt(FS), h0 = hillAt(travel);
@@ -2073,19 +2222,51 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
  float c0 = efRoadX(140.)/140.;
  float side = P.x > c0 ? 1. : -1.;
  gL = normalize(vec2((MOON.x - P.x)*1.6, 1.));
- // ---- trees, farthest rank first so nearer ones cover them ----
- for(int li=2; li>=0; li--){ float lf = float(li);
-  if(lf > 1. + q) continue;
-  float L = (19. + lf*11. + lf*lf*3.)*FS, S = (14. + lf*3.)*FS;
+ vec2 sp = ndSkyP(rd);
+ float mdist = length(sp - MOON);
+ // ---- the far ranks: silhouettes fading into moonlit haze, a veil of mist between each ----
+ for(int li=4; li>=1; li--){ float lf = float(li);
+  if(lf > 3. + q) continue;
+  float L = (lf == 4. ? 230. : (lf == 3. ? 132. : (lf == 2. ? 78. : 47.)))*FS, S = (10. + lf*3.)*FS;
+  // one step of the road-curve correction is plenty this far out
+  float zd = (side*L + efRoadX(L/max(abs(P.x),.02)))/P.x;
+  if(zd < 3. || zd > 2600.*FS) continue;
+  float off = hash(vec2(lf, side))*S;
+  float base = floor((travel + zd - off)/S);
+  // depth: farther ranks are paler and bluer, nearer ones darker and crisper
+  float dk = lf == 4. ? .3 : (lf == 3. ? .48 : (lf == 2. ? .66 : .8));
+  // the haze glows brighter toward the moon, so the ranks stand out against it as silhouettes
+  vec3 haze = fog*1.9 + efMoon()*.07*exp(-abs(P.x - MOON.x)*1.6);
+  vec3 rankCol = mix(haze, vec3(.006,.012,.014), dk);
+  for(int k=1;k>=0;k--){
+   float cell = base + float(k);
+   float hc = hash(vec2(cell, lf + side*7.));
+   float tzd = cell*S + off + hc*S*.5 - travel;
+   if(tzd < 2.5) continue;
+   float X = efRoadX(tzd) + side*(L + fract(hc*13.7)*S*.6);
+   vec2 ft = efFarTree(P, tzd, X, cell*3.1 + lf*17. + side*5., h0);
+   if(ft.x > 0.){
+    vec3 c = rankCol + efMoon()*ft.y*.07*(1. - dk*.5)*(1. - smoothstep(.1, 1.2, mdist));
+    col = mix(col, c, ft.x);
+    gSkyOpen = 0.;
+   }
+  }
+  // mist lying at the foot of this rank
+  float my = P.y + .012*lf;
+  col = mix(col, fog*1.55 + efMoon()*.02, (1. - smoothstep(-.05, .06, my))*smoothstep(-.12, -.02, P.y)*.18);
+ }
+ // ---- the near trees: two ranks with full detail, farthest first ----
+ for(int li=1; li>=0; li--){ float lf = float(li);
+  float L = (17. + lf*12.)*FS, S = (13. + lf*3.)*FS;
   float zd = (side*L + efRoadX(L/max(abs(P.x),.02)))/P.x;
   zd = (side*L + efRoadX(zd))/P.x;
-  if(zd < 3. || zd > 620.*FS) continue;
-  float off = hash(vec2(lf, side))*S;
+  if(zd < 3. || zd > 700.*FS) continue;
+  float off = hash(vec2(lf + 3., side))*S;
   float base = floor((travel + zd - off)/S);
   for(int k=1;k>=-1;k--){
    if(k < 0 && lf > 0.) break;
    float cell = base + float(k);
-   float hc = hash(vec2(cell, lf+side*7.));
+   float hc = hash(vec2(cell, lf + side*7. + 3.));
    float tz = cell*S + off + hc*S*.45;
    float tzd = tz - travel;
    if(tzd < 2.5) continue;
@@ -2093,20 +2274,18 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
    float X = efRoadX(tzd) + side*(L + fract(hc*13.7)*4.*FS);
    vec4 tr = efTree(P, side, tzd, X, id, fract(hc*31.3), h0, lf);
    if(tr.a > 0.){
-    // distance fog, and mist that thickens toward the ground
+    // distance haze, and mist that thickens toward the ground
     float hgt = (P.y*tzd + efGroundH(tzd, h0))/FS;
-    float f = exp(-tzd*fogK)*(.55 + .45*smoothstep(0., 8., hgt));
-    col = mix(col, mix(fog*1.15, tr.rgb, f), tr.a);
+    float f = exp(-tzd*fogK)*(.6 + .4*smoothstep(0., 7., hgt));
+    col = mix(col, mix(fog*1.2, tr.rgb, f), tr.a);
+    gSkyOpen = 0.;
    }
   }
-  // a veil of mist between this rank and the one in front of it
-  col = mix(col, fog*1.3 + efMoon()*.02, .10*(1. - smoothstep(-.15, .05, P.y))*(lf + .5)*.5);
  }
- // ---- the verge: ferns, rocks, night flowers and the occasional clump of mushrooms ----
- // two rows: a farther one of ferns and boulders among the trees, then the one along the shoulder
+ // ---- the verge: grass, ferns, rocks, night flowers and now and then a clump of mushrooms ----
  if(P.y < .1) for(int vr=0; vr<2; vr++){
   float far = vr == 0 ? 1. : 0.;
-  float Lm = mix(15.5, 27., far), Sm = mix(5., 6.5, far)*FS;
+  float Lm = mix(15., 26., far), Sm = mix(4.5, 6., far)*FS;
   float zd = (side*Lm + efRoadX(Lm/max(abs(P.x),.02)))/P.x;
   zd = (side*Lm + efRoadX(zd))/P.x;
   if(zd > 3. && zd < 260.){
@@ -2121,19 +2300,46 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
     float ppw = tzd*1.2/res.y;
     float f = exp(-tzd*fogK);
     float kind = fract(h*41.7);
-    if(far > .5){ w /= 1.35; ppw /= 1.35; kind = .3 + kind*.52; }   // larger ferns and rocks back there
-    if(kind < .24) col = efMushrooms(col, w, ppw, h, f, fog);
-    else if(kind < .62) col = efFern(col, w, ppw, h, f, fog);
-    else if(kind < .82) col = efRock(col, w, ppw, h, f, fog);
+    if(far > .5){ w /= 1.35; ppw /= 1.35; kind = .3 + kind*.52; }
+    if(kind < .2) col = efMushrooms(col, w, ppw, h, f, fog);
+    else if(kind < .6) col = efFern(col, w, ppw, h, f, fog);
+    else if(kind < .8) col = efRock(col, w, ppw, h, f, fog);
     else col = efFlowers(col, w, ppw, h, f, fog);
    }
   }
  }
- // ---- moonlight falling in soft shafts between the trees ----
- if(P.y > -.15 && P.y < .3){
+ // grass along the edge of the shoulder, between the plants
+ if(P.y < .02){
+  float Lg = 13.2;
+  float zd = (side*Lg + efRoadX(Lg/max(abs(P.x),.02)))/P.x;
+  zd = (side*Lg + efRoadX(zd))/P.x;
+  if(zd > 2.5 && zd < 150.){
+   // the grass stands in a strip along the shoulder: blades are spaced along the road (z), and one
+   // pixel spans more of that distance the farther away it is
+   float gy = P.y*zd + efGroundH(zd, h0);
+   float ppw = zd*1.2/res.y*zd/Lg, tip;
+   float g = efGrass(vec2(travel + zd, gy), ppw, side, tip);
+   float f = exp(-zd*fogK);
+   vec3 gc = mix(vec3(.006,.018,.01), vec3(.05,.10,.07) + efMoon()*.05, tip*tip);
+   // once a blade is thinner than a pixel the grass is drawn as the share of it that would show,
+   // never as a solid block
+   float thin = clamp(.12/(ppw + .02), 0., 1.);
+   col = mix(col, mix(fog, gc, f), g*.9*thin*(1. - smoothstep(25., 70., zd)));
+  }
+ }
+ // ---- moonlight: soft shafts falling between the trees, and a low mist drifting through them ----
+ if(P.y > -.2){
   vec2 dv = P - MOON; float ang = atan(dv.x, -dv.y);
-  float beams = smoothstep(.5, .9, noise(vec2(ang*9., t*.03)))*smoothstep(.08, .3, length(dv));
-  col += efMoon()*beams*exp(-length(dv)*2.2)*.05*(1. - smoothstep(.0, 1.2, abs(ang)));
+  float beams = smoothstep(.45, .85, noise(vec2(ang*11., t*.025)))*smoothstep(.06, .35, length(dv));
+  col += efMoon()*beams*exp(-length(dv)*1.5)*.095*(1. - smoothstep(.0, 1.25, abs(ang)));
+ }
+ {
+  float mz = P.y + .03;
+  float band = exp(-mz*mz*150.);
+  if(band > .01){
+   float mn = fbm(vec2(P.x*2.6 + t*.012 - travel*.00015, P.y*9. - t*.01), 2.);
+   col = mix(col, fog*1.8 + efMoon()*.045, band*smoothstep(.3, .8, mn)*.42);
+  }
  }
  // ---- fireflies: a few soft lights wandering over the verges; the hats make them flare ----
  for(int i=0;i<6;i++){ float fi = float(i);
@@ -2143,10 +2349,10 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
   fp += vec2(sin(time*(.21 + hs*.2) + fi*2.), sin(time*(.33 + hs*.15) + fi)*.6)*.05;
   float fr = length(P - fp);
   float blink = pow(.5 + .5*sin(time*(.7 + hs) + fi*3.), 3.) + hat*react*step(.5, hs);
-  col += mix(vec3(.75,1.,.6), efCyan(), hs) * (exp(-fr*fr*9000.)*1.2 + exp(-fr*fr*600.)*.18) * blink;
+  col += mix(vec3(.75,1.,.6), efCyan(), hs) * (exp(-fr*fr*12000.)*1.1 + exp(-fr*fr*700.)*.14) * blink;
  }
- // ---- spores drifting toward and past the camera; they speed up on the beat, burst outward
- //      on the snare and twinkle with the highs ----
+ // ---- motes drifting in the moonlight; they speed up on the beat, scatter on the snare and twinkle
+ //      with the highs ----
  float bst = burst < 1. ? 1. - burst : 0.;
  for(int i=0;i<4;i++){ float fi = float(i);
   if(fi > 2. + q) break;
@@ -2155,24 +2361,26 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
   vec2 g = P*dz/FS*(1. + bst*react*.3*ph) + vec2(fi*7.3, 0.) + vec2(sin(time*.3+fi)*.3, time*.08);
   vec2 gi = floor(g), gf = fract(g) - .5;
   float h = hash(gi + fi*13.);
-  if(h < .88) continue;
+  if(h < .9) continue;
   vec2 o = (vec2(fract(h*13.1), fract(h*29.7)) - .5)*.6;
   float r = length(gf - o);
-  float size = .018 + .02*h;
+  float size = .016 + .016*h;
   float a = smoothstep(0., .15, ph) * (1. - smoothstep(.85, 1., ph));
   if(P.y < 0.) a *= 1. - .85*(1. - smoothstep(3.6, 5.2, abs(P.x)/max(-P.y, 1e-3)));
-  a *= 1. - .7*smoothstep(.05, .3, P.y);             // spores keep low, under the trees
-  float tw = .5 + .4*sin(time*(1.5+h*3.) + h*50.) + highs*react*.9*step(.93, h) + bst*react*.6;
-  col += mix(efCyan(), h > .95 ? efPink() : efEmerald(), fract(h*7.)) * exp(-r*r/(size*size)) * a * tw * .45;
+  a *= 1. - .6*smoothstep(.05, .3, P.y);
+  float tw = .45 + .4*sin(time*(1.5+h*3.) + h*50.) + highs*react*.9*step(.94, h) + bst*react*.6;
+  col += mix(efMoon(), h > .96 ? efCyan() : efEmerald(), fract(h*7.)*.7) * exp(-r*r/(size*size)) * a * tw * .4;
  }
  return col;
 }
 `;
 
   var ND_WORLDS = [
-    { id: 'rings', name: 'CELESTIAL RINGS', frag: ND_CELESTIAL_RINGS },
-    { id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY },
-    { id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST }
+    // glx: render scale on the 2 GB box. With the sky cached, Celestial Rings and Cosmic Highway cost less
+    // per frame than before, so they draw more pixels; the forest's trees are drawn every frame.
+    { id: 'rings', name: 'CELESTIAL RINGS', frag: ND_CELESTIAL_RINGS, glx: .82 },
+    { id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY, glx: .75 },
+    { id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST, glx: .7 }
   ];
   var ND_PALETTES = [
     ['ultraviolet', 'ULTRAVIOLET', [.25, .72, 1], [.52, .35, 1], [1, .35, .85], [.25, .95, .82]],
@@ -2208,7 +2416,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
     // falling back to the older three-band feed. Every element listens to its own part of the sound.
     var NM = window.NXV && NXV.musicTick ? NXV : null;
     var mus = { k: 0, e: 0, bass: 0, mid: 0, high: 0, hat: 0, snare: 0, live: false, kicks: 0, snares: 0 };
-    var pulseT = [99, 99, 99, 99], pulseS = [0, 0, 0, 0], burstAge = 99, drift = 0, shower = 0, lastPulseAt = 0;
+    var pulseT = [99, 99, 99, 99], pulseS = [0, 0, 0, 0], burstAge = 99, drift = 0, shower = 0, lastPulseAt = 0, flip = 1;
     // Shooting stars are launched here at random moments, each with its own look (see ndMeteor).
     var mets = [null, null, null], metWait = [1.5 + Math.random() * 4, 5 + Math.random() * 6, 9 + Math.random() * 9], metLog = [];
 
@@ -2240,7 +2448,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
         mus.mid += ((M6.lowmid * .35 + M6.mid * .65) - mus.mid) * ease(5);
         mus.high += ((M6.high * .6 + M6.air * .4) - mus.high) * ease(8);
         if (M6.kickHit && M6.live) kickPulse(M6.strength || .7);
-        if (M6.snareHit && M6.live) burstAge = 0;
+        if (M6.snareHit && M6.live) { burstAge = 0; flip = -flip; }
         if (M6.drop) shower = 1;
         else if (M6.build > .65 && M6.live) shower = Math.max(shower, (M6.build - .65) * 1.2);
       } else if (beat) {
@@ -2270,7 +2478,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       }
       shower *= Math.exp(-dt / 7);
     }
-    function sendMeteors() {
+    function sendMeteors(g) {
       for (var i = 0; i < 3; i++) {
         var m = mets[i];
         var a = metA[i], b2 = metB[i];
@@ -2280,8 +2488,45 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       }
     }
 
+    // Two passes: the sky is drawn into a texture every other frame (it changes slowly) and the main pass
+    // reads it, so the frame's budget goes to the moving road and scenery. If the GPU cannot render to a
+    // texture, the single-pass program (sky drawn every frame) is used instead.
+    var sky = null, skyAt = -1, skyW = 0, skyH = 0, skyLoc = null, twoPass = false;
+    function skyFree() {
+      if (sky) { try { gl.deleteFramebuffer(sky.fb); gl.deleteTexture(sky.tex); } catch (e) {} }
+      sky = null; skyW = skyH = 0;
+    }
+    function skyTarget() {
+      if (sky && skyW === glc.width && skyH === glc.height) return true;
+      skyFree();
+      try {
+        var tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, glc.width, glc.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        var fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        var ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        sky = { tex: tex, fb: fb }; skyW = glc.width; skyH = glc.height; skyAt = -1;
+        if (!ok) { skyFree(); return false; }
+        return true;
+      } catch (e) { skyFree(); return false; }
+    }
+    var gSky = null;
     function build() {
-      g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN);
+      var want = HIGH_MEMORY_DEVICE ? 1.05 : (world.glx || .7);
+      if (GLX !== want) { GLX = want; size(); }
+      skyFree(); twoPass = false; gSky = null;
+      g = glStart('nd-' + world.id + '-2p', '#define ND_SKYTEX\n' + ND_HEAD + world.frag + ND_MAIN);
+      if (g) {
+        var mainProg = glProgs['nd-' + world.id + '-2p'];
+        gSky = glUse('nd-' + world.id + '-sky', ND_HEAD + world.frag + ND_SKYPASS);
+        gl.useProgram(mainProg);
+        twoPass = !!gSky && skyTarget();
+        if (twoPass) { skyLoc = gl.getUniformLocation(mainProg, 'skyTex'); }
+      }
+      if (!twoPass) { g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN); gSky = null; }
       failed = !g; fadeStart = 0;
       if (failed) { text('xpMid', 'NIGHT DRIVE NEEDS WEBGL GRAPHICS'); $('xpMid').style.color = '#9fd0ff'; }
       return !!g;
@@ -2347,6 +2592,25 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       surge += ((react ? Math.min(1, mus.e) * .4 : 0) - surge) * Math.min(1, dt * 1.5);
       travel += speed[2] * dt * (1 + surge);
       if (travel > 1e7) travel -= 1e7;   // stays in float range on a very long journey
+      if (!fadeStart) fadeStart = now;
+      // after a resolution change the sky texture is remade; if that ever fails, drop to one pass
+      if (twoPass && !skyTarget()) { twoPass = false; gSky = null; g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN); if (!g) return; }
+      // the sky texture is refreshed every other frame (and at once after a resize or world change)
+      if (twoPass && (skyAt < 0 || frames - skyAt >= 2)) {
+        gl.useProgram(glProgs['nd-' + world.id + '-sky']);
+        setUniforms(gSky, now);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, sky.fb);
+        gSky.draw(now, mus, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.useProgram(glProgs['nd-' + world.id + '-2p']);
+        skyAt = frames;
+      }
+      if (twoPass) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sky.tex); gl.uniform1i(skyLoc, 0); }
+      setUniforms(g, now);
+      g.draw(now, mus, 0);
+      frames++;
+    }, 30);
+    function setUniforms(g, now) {
       g.f('travel', travel);
       g.f('night', timeOfNight[2]);
       g.f('react', react ? 1 : 0);
@@ -2357,19 +2621,17 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       g.f('snare', mus.snare);
       g.f('burst', burstAge);
       g.f('drift', drift);
+      g.f('flip', flip);
       for (var pj = 0; pj < 4; pj++) { pulseTU[pj] = pulseT[pj]; pulseSU[pj] = pulseS[pj]; }
       g.v4a('pulseT', pulseTU);
       g.v4a('pulseS', pulseSU);
-      sendMeteors();
+      sendMeteors(g);
       g.f('q', quality);
       // ease the world in from black over 1.6 s when it starts or another world is picked
-      if (!fadeStart) fadeStart = now;
       var fk = Math.min(1, (now - fadeStart) / 1600);
       g.f('fadeIn', fk * fk * (3 - 2 * fk));
       g.v3('cA', palette[2]); g.v3('cB', palette[3]); g.v3('cC', palette[4]); g.v3('cD', palette[5]);
-      g.draw(now, mus, 0);
-      frames++;
-    }, 30);
+    }
 
     XP.cleanupCurrent = function () {
       alive = false;
@@ -2378,11 +2640,12 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       layer.classList.remove('nd-idle');
       GLX = oldGLX;
       beat = null;
+      skyFree();
     };
     XP.ndDebug = function () {
       return { world: world.id, palette: palette[0], time: timeOfNight[0], speed: speed[0], react: react,
         travel: travel, frames: frames, gl: !!g, quality: quality, glx: GLX, fade: fadeStart ? Math.min(1, (lastNow - fadeStart) / 1600) : 0,
-        idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat,
+        idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat, twoPass: twoPass, skyAt: skyAt, size: glc ? [glc.width, glc.height] : null,
         music: { live: mus.live, kick: mus.k, bass: mus.bass, mid: mus.mid, high: mus.high, hat: mus.hat, snare: mus.snare, energy: mus.e },
         pulses: pulseT.slice(), burst: burstAge, drift: drift, shower: shower, meteors: mets.filter(Boolean).length, metLog: metLog.slice(), analyser: !!NM };
     };

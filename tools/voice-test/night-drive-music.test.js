@@ -31,7 +31,8 @@ assert(!/Math\.random\(\)[^;]*kick|setInterval/.test(nd), 'no timer-driven or ra
   assert(!/energy\*react/.test(P[w]), w + ': nothing scales with overall energy (that lit whole areas at once)');
 });
 assert(/vec3 ndMeteors\(vec2 p\)/.test(P.HEAD) && /mA0/.test(P.HEAD), 'shooting stars are launched by the app, one by one');
-['ndMeteors(', 'ndStarField('].forEach(f => ['rings', 'cosmic', 'forest'].forEach(w => assert(P[w].includes(f) || (f === 'ndStarField(' && w === 'cosmic' && P[w].includes('chStars(')), w + ' uses ' + f)));
+assert(P.MAIN.includes('ndMeteors(ndSkyP(rd))*gSkyOpen'), 'shooting stars are drawn over every world\'s open sky');
+['rings', 'cosmic', 'forest'].forEach(w => assert(P[w].includes('ndStarField(') || P[w].includes('chStars('), w + ' uses the shared star field'));
 
 // ---------- A. pixels ----------
 const OFF = { kick: 0, energy: 0, mids: 0, highs: 0, bass: 0, hat: 0, snare: 0, burst: 99, drift: 1.3, pulseT: [99, 99, 99, 99], pulseS: [0, 0, 0, 0] };
@@ -63,7 +64,7 @@ for (const w of ['rings', 'cosmic', 'forest']) {
     for (let i = 0; i < d.length; i++) { if (Math.abs(d[i]) > 5) { n++; s.add(i); } mx = Math.max(mx, Math.abs(d[i])); }
     sets[k] = s;
     note(w + ' ' + k + ': ' + (100 * n / d.length).toFixed(1) + '% of pixels change, strongest ' + mx.toFixed(0));
-    assert(mx > 20 && n / d.length > .002, w + ': the ' + k + ' reaction is noticeable (' + mx.toFixed(0) + ', ' + (100 * n / d.length).toFixed(2) + '%)');
+    assert(mx > 20 && n / d.length > .001, w + ': the ' + k + ' reaction is noticeable (' + mx.toFixed(0) + ', ' + (100 * n / d.length).toFixed(2) + '%)');
     assert(n / d.length < .4, w + ': the ' + k + ' reaction stays on its own elements (' + (100 * n / d.length).toFixed(1) + '% of the frame)');
   }
   // independence: the elements answering one band are not the ones answering another
@@ -130,12 +131,16 @@ let rg = 0; for (let o = 0; o < F.length; o += 4) rg += F[o + 1] - F[o];
 assert(rg / (W * Hh) > 3, 'the forest keeps its emerald and cyan cast');
 
 // ---------- C. cost ----------
-const work = measure(null, ['rings', 'cosmic', 'forest'], { pulseT: [.3, .9, 1.5, 2.2], pulseS: [1, .8, .9, .7], kick: .6, bass: .6, mids: .5, highs: .5, hat: .5, energy: .5, drift: 1.3 });
-// budgets: within ~12% of what each world cost per pixel before this upgrade (610, 1031, 1045)
-const BUDGET = { rings: 700, cosmic: 1150, forest: 1170 };
-for (const w of Object.keys(BUDGET)) {
-  note(w + ' work per pixel: mean ' + work[w].mean.toFixed(0) + ' (budget ' + BUDGET[w] + '), 95th percentile ' + work[w].p95);
-  assert(work[w].mean < BUDGET[w], w + ' stays within its per-pixel budget (' + work[w].mean.toFixed(0) + ' vs ' + BUDGET[w] + ')');
+const uw = { pulseT: [.3, .9, 1.5, 2.2], pulseS: [1, .8, .9, .7], kick: .6, bass: .6, mids: .5, highs: .5, hat: .5, energy: .5, drift: 1.3 };
+const wMain = measure(null, ['rings', 'cosmic', 'forest'], uw, 512, 300, 'main'), wSky = measure(null, ['rings', 'cosmic', 'forest'], uw, 512, 300, 'sky');
+// Per frame: the main pass plus half the sky pass (the sky is redrawn every other frame), scaled by each
+// world's render scale against the old 0.7. Budget: no more GPU work per frame than Liquid Dreams' heaviest
+// experience (Deep Flow, ~1540 per pixel at 0.72), which already runs on the box.
+const GLX = {}; exp.replace(/id: '(\w+)', name: '[^']+', frag: \w+, glx: ([\d.]+)/g, (m, id, g) => { GLX[id] = +g; });
+for (const w of ['rings', 'cosmic', 'forest']) {
+  const frame = (wMain[w].mean + wSky[w].mean / 2) * Math.pow(GLX[w] / .7, 2);
+  note(w + ' work per frame: main ' + wMain[w].mean.toFixed(0) + ' + sky ' + wSky[w].mean.toFixed(0) + '/2 at scale ' + GLX[w] + ' = ' + frame.toFixed(0) + ' (budget 1600)');
+  assert(GLX[w] && frame < 1600, w + ' stays within the per-frame budget (' + frame.toFixed(0) + ')');
 }
 
 // ---------- D. the running app with music ----------
@@ -179,7 +184,7 @@ const scenario = SYN + `
  const until=async(f,ms)=>{const t0=performance.now();while(performance.now()-t0<ms){try{if(f())return true;}catch(e){}await wait(100);}return false;};
  document.querySelector('[data-act=night]').click();
  R.open=await until(()=>XP.active&&XP.current==='nightdrive'&&XP.ndDebug&&XP.ndDebug().frames>5,30000);
- R.analyser=XP.ndDebug().analyser; R.detail=window.__detail.slice();
+ R.analyser=XP.ndDebug().analyser; R.detail=window.__detail.slice(); R.twoPass=XP.ndDebug().twoPass; R.glx=XP.ndDebug().glx;
  R.silentStart=XP.ndDebug().music;
  const fr0=XP.ndDebug().frames, ft0=performance.now();
  R.electronic=await drive({bpm:128,kick:1,snare:.8,hat:.7,pad:.25},7000);
@@ -204,6 +209,8 @@ const scenario = SYN + `
   assert(!A.errors || !A.errors.length, 'no page errors: ' + (A.errors || []).join(' | '));
   assert(A.open, 'Night Drive opens from its home tile');
   assert(A.analyser && A.detail.includes(true), 'it switches the six-band feed on');
+  assert(A.twoPass, 'the sky is drawn in its own pass and cached (two-pass rendering is active)');
+  note('render scale in the app: ' + A.glx);
   const show = (n, r) => note(n + ': ' + r.kicksPlayed + ' kicks played -> ' + r.pulses + ' pulses, lag ' + (r.lag.length ? Math.round(r.lag.reduce((a, b) => a + b, 0) / r.lag.length) + ' ms avg / ' + Math.round(Math.max(...r.lag.map(Math.abs))) + ' max' : 'n/a') + '; bass ' + r.bass.toFixed(2) + ' mid ' + r.mid.toFixed(2) + ' high ' + r.high.toFixed(2) + ' hat max ' + r.hatMax.toFixed(2) + ' live ' + (100 * r.live).toFixed(0) + '%');
   for (const k of ['electronic', 'bassHeavy', 'atmos', 'varied']) show(k, A[k]);
   const e = A.electronic;

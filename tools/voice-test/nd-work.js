@@ -29,10 +29,16 @@ function instrument(P, world) {
   body = body.replace('gl_FragColor = vec4(clamp(col,0.,1.), 1.);', 'gl_FragColor = vec4(fract(WORK/256.), floor(WORK/256.)/255., 0., 1.);');
   return head + W + body;
 }
-function measure(src, worlds, u, W, H) {
+// mode: undefined = single pass (sky drawn every frame); 'main' = the two-pass main program; 'sky' = the sky pass
+function instrumentMode(P, world, mode) {
+  if (mode === 'main') return instrument({ GL_HEAD: P.GL_HEAD, HEAD: '#define ND_SKYTEX\n' + P.HEAD, MAIN: P.MAIN }, world);
+  if (mode === 'sky') return instrument({ GL_HEAD: P.GL_HEAD, HEAD: P.HEAD, MAIN: P.SKY.replace('gl_FragColor = vec4(c, gSkyOpen);', 'gl_FragColor = vec4(clamp(col,0.,1.), 1.);').replace('vec3 c = sqrt(', 'vec3 col = vec3(0.); vec3 c = sqrt(').replace("if(rd.y < -.022){ gl_FragColor = vec4(0.); return; }", "if(rd.y < -.022){ gl_FragColor = vec4(0.); return; }") }, world);
+  return instrument(P, world);
+}
+function measure(src, worlds, u, W, H, mode) {
   W = W || 512; H = H || 300;
   const P = parts(src), jobs = {};
-  for (const w of worlds) jobs[w] = [instrument(P, P[w]), Object.assign({}, BASE, u || {})];
+  for (const w of worlds) jobs[w] = [instrumentMode(P, P[w], mode), Object.assign({}, BASE, u || {})];
   const R = render(jobs, W, H, { img: true, reps: 1 });
   const out = {};
   for (const w of worlds) {

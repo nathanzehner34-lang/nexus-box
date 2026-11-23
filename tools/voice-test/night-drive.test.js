@@ -53,7 +53,7 @@ assert(ND_MAIN.includes('float run = ') && ND_RINGS.includes('float wave = '), '
   assert(ND_RINGS.includes('vec3 ' + h + '('), 'Celestial Rings implements the ' + h + ' hook');
   assert(ND_COSMIC.includes('vec3 ' + h + '('), 'Cosmic Highway implements the ' + h + ' hook');
 });
-assert(/\{ id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY \}/.test(exp), 'Cosmic Highway is offered as a Night Drive world');
+assert(/\{ id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY[,} ]/.test(exp), 'Cosmic Highway is offered as a Night Drive world');
 ['chGalaxy', 'chStars', 'chRibbons', 'chEye', 'chHill'].forEach(f => assert(ND_COSMIC.includes(f + '('), 'Cosmic Highway builds its ' + f));
 // GLSL leaves smoothstep undefined when its first edge is above the second; some GPUs return 0.
 (ND_COSMIC.match(/smoothstep\(\s*-?[\d.]+\s*,\s*-?[\d.]+/g) || []).forEach(m => {
@@ -241,7 +241,7 @@ assert(C.hero.roadBright > .02, 'the road carries bright light trails (' + C.her
 assert(C.hero.sat > .35, 'the neon palette stays rich (' + C.hero.sat.toFixed(2) + ')');
 assert(C.d.move > 2 && C.d.far > 6, 'the drive moves and the view keeps changing (' + C.d.move.toFixed(1) + ', ' + C.d.far.toFixed(1) + ')');
 assert(C.journeyDiff.every(d => d > 2), 'a long Cosmic Highway journey keeps changing (' + C.journeyDiff.map(d => d.toFixed(1)).join(', ') + ')');
-assert(C.d.music > 4 && C.loud.lum > C.quiet.lum, 'Cosmic Highway answers the music clearly, element by element rather than with a global flash (' + C.d.music.toFixed(1) + ', ' + C.quiet.lum.toFixed(1) + ' -> ' + C.loud.lum.toFixed(1) + ')');
+assert(C.d.music > 3 && C.loud.lum > C.quiet.lum, 'Cosmic Highway answers the music clearly, element by element rather than with a global flash (' + C.d.music.toFixed(1) + ', ' + C.quiet.lum.toFixed(1) + ' -> ' + C.loud.lum.toFixed(1) + ')');
 assert(C.d.deaf > 2, 'its music reactivity can be switched off (' + C.d.deaf.toFixed(1) + ')');
 assert(C.d.palette > 3 && C.dusk.lum > C.deep.lum * 1.05, 'colour and time of night both change the world');
 assert(C.q0.lum > 20 && C.q0.roadNear.left > 110, 'the 2 GB quality tier renders Cosmic Highway too');

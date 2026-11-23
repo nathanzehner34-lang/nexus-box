@@ -9,9 +9,11 @@ function parts(src) {
   const i = src.indexOf('var GL_HEAD');
   const GL_HEAD = eval('(' + src.slice(src.indexOf('=', i) + 1, src.indexOf(';\n', i)) + ')');
   const lit = n => { const k = src.indexOf('var ' + n + ' = `'); if (k < 0) throw new Error(n + ' missing'); const a = src.indexOf('`', k) + 1; return src.slice(a, src.indexOf('`;', a)); };
-  const HEAD = lit('ND_HEAD'), MAIN = lit('ND_MAIN');
-  return { GL_HEAD, HEAD, MAIN, rings: lit('ND_CELESTIAL_RINGS'), cosmic: lit('ND_COSMIC_HIGHWAY'), forest: lit('ND_ENCHANTED_FOREST'),
-    build(w) { return GL_HEAD + HEAD + w + MAIN; } };
+  const HEAD = lit('ND_HEAD'), MAIN = lit('ND_MAIN'), SKY = src.includes('var ND_SKYPASS = `') ? lit('ND_SKYPASS') : null;
+  return { GL_HEAD, HEAD, MAIN, SKY, rings: lit('ND_CELESTIAL_RINGS'), cosmic: lit('ND_COSMIC_HIGHWAY'), forest: lit('ND_ENCHANTED_FOREST'),
+    build(w) { return GL_HEAD + HEAD + w + MAIN; },
+    // the app's two-pass path: [main program reading the sky texture, sky program]
+    build2(w) { return [GL_HEAD + '#define ND_SKYTEX\n' + HEAD + w + MAIN, GL_HEAD + HEAD + w + SKY]; } };
 }
 const BASE = { travel: 5200, night: .55, react: 1, mids: .3, highs: .3, q: 0, fadeIn: 1, cA: [.25, .72, 1], cB: [.52, .35, 1], cC: [1, .35, .85], cD: [.25, .95, .82], time: 31, kick: 0, energy: .3, hue: 0 };
 function render(jobs, W, H, opts) {
@@ -21,8 +23,14 @@ const gl=c.getContext('webgl',{preserveDrawingBuffer:true,antialias:false,alpha:
 const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;}
 const px=new Uint8Array(4),progs={};
-try{for(const[k,[f,u]]of Object.entries(J)){let p=progs[f];if(!p){p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));progs[f]=p;}gl.useProgram(p);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
-for(const[n,v]of Object.entries(Object.assign({res:[${W},${H}]},u))){const L=gl.getUniformLocation(p,n);if(L===null)continue;if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,...v);else if(v.length===3)gl.uniform3f(L,...v);else gl.uniform4f(L,...v);}
+function prog(f){let p=progs[f];if(!p){p=gl.createProgram();gl.attachShader(p,sh(gl.VERTEX_SHADER,'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}'));gl.attachShader(p,sh(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));progs[f]=p;}gl.useProgram(p);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);return p;}
+function setU(p,u){for(const[n,v]of Object.entries(Object.assign({res:[${W},${H}]},u))){const L=gl.getUniformLocation(p,n);if(L===null)continue;if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,...v);else if(v.length===3)gl.uniform3f(L,...v);else gl.uniform4f(L,...v);}}
+const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,${W},${H},0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+const fb=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+try{for(const[k,[f,u,skyf]]of Object.entries(J)){
+if(skyf){const sp=prog(skyf);setU(sp,u);gl.bindFramebuffer(gl.FRAMEBUFFER,fb);gl.viewport(0,0,${W},${H});gl.drawArrays(gl.TRIANGLES,0,3);gl.bindFramebuffer(gl.FRAMEBUFFER,null);}
+const p=prog(f);setU(p,u);if(skyf){gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,tex);gl.uniform1i(gl.getUniformLocation(p,'skyTex'),0);}
 gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);
 let best=1e9;for(let r=0;r<${opts.reps || 2};r++){const t0=performance.now();gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,px);best=Math.min(best,performance.now()-t0);}
 const a=new Uint8Array(${W * H * 4});gl.readPixels(0,0,${W},${H},gl.RGBA,gl.UNSIGNED_BYTE,a);
@@ -45,8 +53,9 @@ if (require.main === module) {
   const P = parts(), jobs = {};
   const extra = process.env.ND_U ? JSON.parse(process.env.ND_U) : {};
   for (const w of (process.env.ND_WORLDS || 'rings,cosmic,forest').split(',')) {
-    jobs[w + '_quiet'] = [P.build(P[w]), Object.assign({}, BASE, { kick: 0, energy: .05, mids: 0, highs: 0 }, extra)];
-    jobs[w + '_loud'] = [P.build(P[w]), Object.assign({}, BASE, { kick: .9, energy: .8, mids: .7, highs: .7, bass: .8, snare: .6, hat: .6, pulseT: [.25, .9, 1.6, 99] }, extra)];
+    const two = P.SKY && !process.env.ND_SINGLE ? P.build2(P[w]) : [P.build(P[w])];
+    jobs[w + '_quiet'] = [two[0], Object.assign({}, BASE, { kick: 0, energy: .05, mids: 0, highs: 0 }, extra), two[1]];
+    jobs[w + '_loud'] = [two[0], Object.assign({}, BASE, { kick: .9, energy: .8, mids: .7, highs: .7, bass: .8, snare: .6, hat: .6, pulseT: [.25, .9, 1.6, 99] }, extra), two[1]];
   }
   const R = render(jobs, W, H, { png: true });
   for (const [k, v] of Object.entries(R)) { fs.writeFileSync(path.join(dir, k + '.png'), Buffer.from(v.png, 'base64')); console.log(k, v.ms.toFixed(1) + ' ms'); }

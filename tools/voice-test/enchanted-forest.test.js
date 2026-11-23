@@ -11,7 +11,7 @@ const HEAD = lit('ND_HEAD'), MAIN = lit('ND_MAIN'), FOREST = lit('ND_ENCHANTED_F
 ['ndSky', 'ndHaze', 'ndGround', 'ndRoadFx', 'ndOverlay'].forEach(h => assert(FOREST.includes('vec3 ' + h + '('), 'the forest implements ' + h));
 assert(FOREST.includes('#define ND_OVERLAY') && MAIN.includes('#ifdef ND_OVERLAY'), 'the forest draws its standing trees and plants through the overlay hook');
 assert(!COSMIC.includes('ND_OVERLAY'), 'Cosmic Highway draws nothing standing up');
-assert(/\{ id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST \}/.test(exp), 'Enchanted Forest is offered in the WORLD row');
+assert(/\{ id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST[,} ]/.test(exp), 'Enchanted Forest is offered in the WORLD row');
 assert(!/\b(car|cars|truck|vehicle|cockpit|dashboard|speedometer|building|person|people)\b/i.test(FOREST), 'no vehicles, buildings or people');
 // no reversed smoothstep edges anywhere in Night Drive (undefined in GLSL; some GPUs return 0)
 function smoothsteps(t) { const out = []; const re = /smoothstep\(/g; let m; while ((m = re.exec(t))) { let i = m.index + 11, d = 1, args = [], cur = ''; for (; i < t.length && d > 0; i++) { const c = t[i]; if (c === '(') d++; if (c === ')') { d--; if (!d) break; } if (c === ',' && d === 1) { args.push(cur); cur = ''; } else cur += c; } args.push(cur); out.push(args); } return out; }
@@ -24,7 +24,7 @@ assert(/const float FS = 3\.0;/.test(FOREST), 'the forest is built at Night Driv
   const [a, b] = m.slice(11).split(',').map(Number);
   assert(a < b, 'no reversed smoothstep edges (undefined on some GPUs): ' + m);
 });
-['efTree', 'efMushrooms', 'efFern', 'efRock', 'efFlowers', 'efRank', 'kick*react', 'bass*react', 'highs*react', 'mids*react', 'hat*react'].forEach(k => assert(FOREST.includes(k), 'forest uses ' + k));
+['efTree', 'efFarTree', 'efGrass', 'efMushrooms', 'efFern', 'efRock', 'efFlowers', 'kick*react', 'bass*react', 'highs*react', 'mids*react', 'hat*react'].forEach(k => assert(FOREST.includes(k), 'forest uses ' + k));
 
 // ---- pixels ----
 const W = 320, H = 180;
