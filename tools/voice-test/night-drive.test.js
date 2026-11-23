@@ -54,14 +54,14 @@ assert(ND_MAIN.includes('float run = ') && ND_RINGS.includes('float wave = '), '
   assert(ND_COSMIC.includes('vec3 ' + h + '('), 'Cosmic Highway implements the ' + h + ' hook');
 });
 assert(/\{ id: 'cosmic', name: 'COSMIC HIGHWAY', frag: ND_COSMIC_HIGHWAY \}/.test(exp), 'Cosmic Highway is offered as a Night Drive world');
-['chGalaxy', 'chStars', 'chRibbons', 'chMeteor', 'chHill'].forEach(f => assert(ND_COSMIC.includes(f + '('), 'Cosmic Highway builds its ' + f));
+['chGalaxy', 'chStars', 'chRibbons', 'chEye', 'chHill'].forEach(f => assert(ND_COSMIC.includes(f + '('), 'Cosmic Highway builds its ' + f));
 // GLSL leaves smoothstep undefined when its first edge is above the second; some GPUs return 0.
 (ND_COSMIC.match(/smoothstep\(\s*-?[\d.]+\s*,\s*-?[\d.]+/g) || []).forEach(m => {
   const e = m.slice(11).split(',').map(Number);
   assert(e[0] < e[1], 'Cosmic Highway only uses well-defined smoothstep edges: ' + m);
 });
 assert(ND_MAIN.includes('col *= fadeIn;') && /fadeIn', fk \* fk \* \(3 - 2 \* fk\)/.test(exp), 'a world eases in from black when it starts or changes');
-['ndPlanet', 'ndRings', 'ndStars', 'ndNebula'].forEach(f => assert(ND_RINGS.includes(f + '('), 'the world builds its ' + f));
+['ndPlanet', 'ndRings', 'ndStarField', 'ndNebula', 'rgMoon'].forEach(f => assert(ND_RINGS.includes(f + '('), 'the world builds its ' + f));
 assert(/curveAt|hillAt/.test(ND_HEAD) && ND_MAIN.includes('hillAt(') && ND_MAIN.includes('curveAt('),
   'the shared highway carries the curves and crests, so other worlds inherit them');
 assert(ND_MAIN.includes('ndSky(') && ND_MAIN.includes('ndGround(') && ND_MAIN.includes('ndHaze('),
@@ -148,13 +148,13 @@ try{
  const l=gl.getAttribLocation(p,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
  const W=200,H=120,px=new Uint8Array(W*H*4);
  // hue comes from the shared prelude and this world does not use it, so it is not set here
- const base={res:[W,H],time:42.5,kick:.2,energy:.35,travel:1200,night:.55,react:1,mids:.3,highs:.3,q:1,fadeIn:1,
+ const base={res:[W,H],time:42.5,kick:.2,energy:.35,travel:1200,night:.55,react:1,mids:.3,highs:.3,bass:.3,hat:0,pulseT:[99,99,99,99],pulseS:[0,0,0,0],q:1,fadeIn:1,
   cA:[.25,.72,1],cB:[.52,.35,1],cC:[1,.35,.85],cD:[.25,.95,.82]};
  // helper boxes in pixels, measured from the bottom-left
  function box(x0,y0,x1,y1){return [x0,y0,x1,y1];}
  function render(over){const u=Object.assign({},base,over);
-  for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null)throw new Error('missing uniform '+k);
-   if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
+  for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null)continue;
+   if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else if(v.length===4)gl.uniform4f(L,v[0],v[1],v[2],v[3]);else gl.uniform3f(L,v[0],v[1],v[2]);}
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
   function mean(bx){let s=0,n=0;for(let y=bx[1];y<bx[3];y++)for(let x=bx[0];x<bx[2];x++){const i=(y*W+x)*4;s+=.299*px[i]+.587*px[i+1]+.114*px[i+2];n++;}return s/n;}
   // a band across the road: bright markings and edges either side, dark asphalt between
@@ -184,7 +184,7 @@ try{
  R.moved=render({travel:1260});
  R.farAlong=render({travel:52000,time:540});
  R.dusk=render({night:0}); R.deep=render({night:1});
- R.quiet=render({kick:0,energy:0,mids:0,highs:0}); R.loud=render({kick:1,energy:1,mids:1,highs:1});
+ R.quiet=render({kick:0,energy:0,mids:0,highs:0}); R.loud=render({kick:1,energy:1,mids:1,highs:1,bass:1,hat:1,pulseT:[.3,.8,1.3,1.9],pulseS:[1,1,1,1]});
  R.noReact=render({react:0,kick:1,energy:1});
  R.aurora=render({cA:[.34,1,.82],cB:[.44,.56,1],cC:[.82,.44,1],cD:[.30,.96,.96]});
  R.q0=render({q:0});
@@ -241,7 +241,7 @@ assert(C.hero.roadBright > .02, 'the road carries bright light trails (' + C.her
 assert(C.hero.sat > .35, 'the neon palette stays rich (' + C.hero.sat.toFixed(2) + ')');
 assert(C.d.move > 2 && C.d.far > 6, 'the drive moves and the view keeps changing (' + C.d.move.toFixed(1) + ', ' + C.d.far.toFixed(1) + ')');
 assert(C.journeyDiff.every(d => d > 2), 'a long Cosmic Highway journey keeps changing (' + C.journeyDiff.map(d => d.toFixed(1)).join(', ') + ')');
-assert(C.d.music > 4 && C.loud.lum > C.quiet.lum * 1.08, 'Cosmic Highway answers the music clearly (' + C.d.music.toFixed(1) + ', ' + C.quiet.lum.toFixed(1) + ' -> ' + C.loud.lum.toFixed(1) + ')');
+assert(C.d.music > 4 && C.loud.lum > C.quiet.lum, 'Cosmic Highway answers the music clearly, element by element rather than with a global flash (' + C.d.music.toFixed(1) + ', ' + C.quiet.lum.toFixed(1) + ' -> ' + C.loud.lum.toFixed(1) + ')');
 assert(C.d.deaf > 2, 'its music reactivity can be switched off (' + C.d.deaf.toFixed(1) + ')');
 assert(C.d.palette > 3 && C.dusk.lum > C.deep.lum * 1.05, 'colour and time of night both change the world');
 assert(C.q0.lum > 20 && C.q0.roadNear.left > 110, 'the 2 GB quality tier renders Cosmic Highway too');

@@ -77,7 +77,9 @@ jobs:
           node tools/voice-test/party-mode-render.test.js
           node --check tools/voice-test/party-experiences-render.test.js
           node --check tools/voice-test/energy-flow-music.test.js
-          node --check tools/voice-test/night-drive.test.js
+          node tools/voice-test/night-drive.test.js
+          node tools/voice-test/enchanted-forest.test.js
+          node tools/voice-test/night-drive-music.test.js
           node --check tools/voice-test/ink-machine.test.js
           node tools/voice-test/live-environments.test.js
           node tools/voice-test/cleanup-performance.test.js
