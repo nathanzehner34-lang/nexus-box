@@ -68,6 +68,7 @@ jobs:
           node tools/voice-test/production-visual-upgrade.test.js
           node tools/voice-test/visual-world-packs.test.js
           node tools/voice-test/nexus-visuals.test.js
+          node tools/voice-test/liquid-dreams-reactivity.test.js
           node tools/voice-test/liquid-dreams-development.test.js
           node tools/voice-test/liquid-dreams-render.test.js
           node --check tools/voice-test/liquid-dreams-playall.test.js
