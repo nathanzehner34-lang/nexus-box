@@ -1318,8 +1318,13 @@ public class MainActivity extends Activity {
     private void setMeterDetail(boolean on) {
         if (meterDetail == on) return;
         meterDetail = on;
-        // a running Visualizer keeps its capture rate, so restart it to pick up the faster rate
-        if (on && meterOn && visualizer != null && !visualizerDetail) { stopMeter(); startMeter(); }
+        // a running Visualizer keeps its capture rate, so restart it to pick up the faster rate. The restart
+        // reopens the playback Visualizer only: it never falls back to the microphone (Party Mode relies on that).
+        if (on && meterOn && visualizer != null && !visualizerDetail) {
+            stopMeter();
+            if (startVisualizer()) { meterOn = true; js("Nexus._meterSource && Nexus._meterSource('music')"); }
+            else { js("Nexus._meterSource && Nexus._meterSource('unavailable')"); js("Nexus._meterError && Nexus._meterError('playback')"); }
+        }
     }
 
     private void startMeter() {
