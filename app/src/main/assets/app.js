@@ -1550,7 +1550,10 @@
     ['clip_idol', '🗿', 'THE IDOL', 'A crowd before a giant glowing statue', 'The Idol'],
     ['clip_frenzy', '🙌', 'IDOL FRENZY', 'Arms raised, confetti flying', 'Idol Frenzy'],
     ['clip_run', '🏃', 'THE RUN', 'Sprinting through flying debris', 'The Run'],
-    ['clip_collapse', '🏙', 'CITY COLLAPSE', 'A city breaking into glittering debris', 'City Collapse']
+    ['clip_collapse', '🏙', 'CITY COLLAPSE', 'A city breaking into glittering debris', 'City Collapse'],
+    ['clip_printer', '🖨', 'MONEY PRINTER', 'The presses running hot', 'Money Printer'],
+    ['clip_benjamin', '💵', 'BENJAMIN', 'The face on the hundred', 'Benjamin'],
+    ['clip_freshcash', '💸', 'FRESH CASH', 'Crisp bills under the light', 'Fresh Cash']
   ];
   // ---- Shared control markup (design system components) ----
   function switchHtml(attrs, label, on) {

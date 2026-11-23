@@ -532,9 +532,9 @@
   // runs out of decoders with more) and it never has to load anything mid-scene. When one scene
   // follows another (Play favourites), the last picture is held and faded into the next scene.
   // ==================================================================
-  var REELS = {"coins": "clips/coins.mp4", "skulls": "clips/skulls.mp4", "cityfire": "clips/cityfire.mp4", "inferno": "clips/inferno.mp4", "serpent": "clips/serpent.mp4", "idol": "clips/idol.mp4", "frenzy": "clips/frenzy.mp4", "run": "clips/run.mp4", "collapse": "clips/collapse.mp4"};
-  var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
-  var CLIP_ORDER = ["coins", "skulls", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse"];
+  var REELS = {"coins": "clips/coins.mp4", "skulls": "clips/skulls.mp4", "cityfire": "clips/cityfire.mp4", "inferno": "clips/inferno.mp4", "serpent": "clips/serpent.mp4", "idol": "clips/idol.mp4", "frenzy": "clips/frenzy.mp4", "run": "clips/run.mp4", "collapse": "clips/collapse.mp4", "printer": "clips/printer.mp4", "benjamin": "clips/benjamin.mp4", "freshcash": "clips/freshcash.mp4"};
+  var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse", "printer": "Money Printer", "benjamin": "Benjamin", "freshcash": "Fresh Cash"};
+  var CLIP_ORDER = ["coins", "skulls", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse", "printer", "benjamin", "freshcash"];
   function makeVideo() {
     var v = document.createElement('video');
     v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
