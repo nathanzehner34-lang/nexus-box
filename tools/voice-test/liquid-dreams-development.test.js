@@ -25,7 +25,7 @@ assert(/function nextExperience\(\) \{\n\s+if \(state\.color === 'signature'\) s
 assert(/function colorShift\(\) \{[\s\S]*?state\.color = LD_SHIFT_ORDER\[\(i \+ 1\) % LD_SHIFT_ORDER\.length\];[\s\S]*?\}/.test(liquid) && !/function colorShift\(\) \{[^}]*state\.env/.test(liquid), 'Color Shift changes only the palette');
 assert(liquid.includes('spectralNow += (target.s - spectralNow) * k') && liquid.includes("2400 / state.colorSpeed"), 'palette and spectrum blend smoothly at the colour transition speed');
 // colour finish
-assert(shader.includes('mix(vec3(lum),col,1.32)') && shader.includes('(2.51*col+.03)/(col*(2.43*col+.59)+.14)') && shader.includes('pow(col,vec3(.9))'), 'vibrance plus a filmic curve keeps neon saturated and lifts dark detail');
+assert(shader.includes('mix(vec3(lum),col,1.32+energyL*.16)') && shader.includes('(2.51*col+.03)/(col*(2.43*col+.59)+.14)') && shader.includes('pow(col,vec3(.9))'), 'vibrance plus a filmic curve keeps neon saturated and lifts dark detail');
 assert(shader.includes('vec3 tinted=rb*(L/max(Lr,.08))') , 'spectral palettes re-hue while keeping light and shade');
 // touch
 assert(!/touchRipple|touchBurst|touchRippleRadius/.test(shader + liquid), 'the old ripple and burst are removed');

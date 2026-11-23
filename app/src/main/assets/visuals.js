@@ -30,7 +30,7 @@
   var M = {
     sub: 0, bass: 0, lowmid: 0, mid: 0, high: 0, air: 0,
     kick: 0, snare: 0, hat: 0, kickHit: false, snareHit: false, hatHit: false, kickN: 0, snareN: 0, hatN: 0, strength: 0,
-    energy: 0, slow: 0, build: 0, drop: false, dropEnv: 0, quiet: 1, live: false,
+    energy: 0, slow: 0, build: 0, drop: false, dropEnv: 0, quiet: 1, live: false, activity: 0,
     phase: 0, period: 500, bpm: 120, beat: 0, frac: 0, bar: 0
   };
   var raw = [0, 0, 0, 0, 0, 0], rawAt = 0, norm = [0, 0, 0, 0, 0, 0];
@@ -51,7 +51,7 @@
     var k = onset('low', low, now, 230, lastKickAt, .35), sn = onset('mid', md, now, 170, lastSnareAt, .4), h = onset('hi', hi, now, 85, lastHatAt, .4);
     if (k) {
       var iv = now - lastKickAt; lastKickAt = now; pend.kick = Math.max(pend.kick, k);
-      if (iv > 280 && iv < 1100) { intervals.push(iv); if (intervals.length > 10) intervals.shift(); }
+      if (iv > 280 && iv < 1100) { intervals.push(iv); if (intervals.length > 7) intervals.shift(); }
     }
     if (sn) { lastSnareAt = now; pend.snare = Math.max(pend.snare, sn); }
     if (h) { lastHatAt = now; pend.hat = Math.max(pend.hat, h); }
@@ -60,8 +60,9 @@
     var now = performance.now(), total = 0;
     for (var i = 0; i < 6; i++) {
       var x = Math.max(0, +v[i] || 0); raw[i] = x; total += x;
-      bandMean[i] += (x - bandMean[i]) * .015;                      // ~3 s running level
-      bandPeak[i] = Math.max(x, bandPeak[i] * .993, bandMean[i] * 1.6 + 1e-4);   // slowly falling peak
+      bandMean[i] += (x - bandMean[i]) * .006;                      // ~5 s running level
+      // the loud parts are remembered for about half a minute, so a quiet passage after them reads as quiet
+      bandPeak[i] = Math.max(x, bandPeak[i] * .9993, bandMean[i] * 1.6 + 1e-4);
       var base = bandMean[i] * .55;
       norm[i] = sat((x - base) / (bandPeak[i] - base + 1e-4));
     }
@@ -80,7 +81,7 @@
     norm[0] = bs; norm[1] = bs; norm[2] = md * .8; norm[3] = md; norm[4] = hi; norm[5] = hi * .8;
     if (fallbackKicks >= 0 && B.kicks !== fallbackKicks) {
       var iv = now - lastKickAt; lastKickAt = now; pend.kick = Math.max(pend.kick, clamp(B.k || .7, .55, 1));
-      if (iv > 280 && iv < 1100) { intervals.push(iv); if (intervals.length > 10) intervals.shift(); }
+      if (iv > 280 && iv < 1100) { intervals.push(iv); if (intervals.length > 7) intervals.shift(); }
     }
     fallbackKicks = B.kicks || 0;
     return true;
@@ -102,12 +103,14 @@
     for (var i = 0; i < 6; i++) { var k = keys[i], tgt = norm[i]; M[k] += (tgt - M[k]) * Math.min(1, s * (tgt > M[k] ? up[i] : dn[i])); }
     // hits become envelopes (instant attack, musical decay)
     M.kickHit = pend.kick > 0; M.snareHit = pend.snare > 0; M.hatHit = pend.hat > 0;
-    if (M.kickHit) { M.kick = Math.max(M.kick, pend.kick); M.strength = pend.kick; M.kickN++; }
-    if (M.snareHit) { M.snare = Math.max(M.snare, pend.snare); M.snareN++; }
-    if (M.hatHit) { M.hat = Math.max(M.hat, pend.hat); M.hatN++; }
+    if (M.kickHit) { M.kick = Math.max(M.kick, pend.kick); M.strength = pend.kick; M.kickN++; M.activity += .3; }
+    if (M.snareHit) { M.snare = Math.max(M.snare, pend.snare); M.snareN++; M.activity += .2; }
+    if (M.hatHit) { M.hat = Math.max(M.hat, pend.hat); M.hatN++; M.activity += .08; }
+    M.activity = Math.min(1, M.activity) * Math.exp(-dt / 1400);       // how busy the drums are right now
     pend.kick = pend.snare = pend.hat = 0;
     M.kick *= Math.exp(-dt / 190); M.snare *= Math.exp(-dt / 150); M.hat *= Math.exp(-dt / 85);
-    var en = M.sub * .3 + M.bass * .25 + M.lowmid * .15 + M.mid * .15 + M.high * .1 + M.air * .05;
+    // energy = how loud (against the song's own loud parts) x how busy: a drumless pad stays gentle
+    var en = (M.sub * .3 + M.bass * .25 + M.lowmid * .15 + M.mid * .15 + M.high * .1 + M.air * .05) * (.45 + .55 * M.activity);
     M.energy += (en - M.energy) * Math.min(1, s * 2.5);
     M.slow += (M.energy - M.slow) * Math.min(1, s * .12);
     M.build += (sat((M.energy - M.slow) * 3.5 + (M.high - M.bass) * .4) - M.build) * Math.min(1, s * 1.2);
@@ -118,7 +121,8 @@
     M.dropEnv *= Math.exp(-dt / 1400);
     // beat clock: tempo from kick spacing (doubled / halved into 80-160 BPM), phase pulled onto kicks
     var med = medianPeriod();
-    if (med) { while (med < 375) med *= 2; while (med > 750) med /= 2; M.period += (med - M.period) * Math.min(1, s * 1.5); }
+    // tempo folded into 80-180 BPM
+    if (med) { while (med < 333) med *= 2; while (med > 750) med /= 2; M.period += (med - M.period) * Math.min(1, s * 1.5); }
     M.bpm = 60000 / M.period;
     M.phase += dt / (M.live ? M.period : 1600);
     if (M.kickHit && M.live) { var near = Math.round(M.phase); M.phase += (near - M.phase) * .45; }
@@ -127,7 +131,7 @@
   }
   function musicReset() {
     for (var i = 0; i < 6; i++) { norm[i] = 0; }
-    ['sub', 'bass', 'lowmid', 'mid', 'high', 'air', 'kick', 'snare', 'hat', 'energy', 'slow', 'build', 'dropEnv'].forEach(function (k) { M[k] = 0; });
+    ['sub', 'bass', 'lowmid', 'mid', 'high', 'air', 'kick', 'snare', 'hat', 'energy', 'slow', 'build', 'dropEnv', 'activity'].forEach(function (k) { M[k] = 0; });
     M.quiet = 1; intervals = []; rawAt = 0;
   }
 
@@ -1987,7 +1991,9 @@
 
   window.NXV = {
     order: ORDER, themes: THEMES, start: start, stop: stop, redraw: redraw, snapshot: snapshot, previews: previews, probe: probe,
-    music: M, feed: feed6, instance: function (k) { return THEMES[k] && ensureGl() ? getTheme(k) : null; },
+    music: M, feed: feed6,
+    // shared music analysis for other experiences (Liquid Dreams): advance it once per frame
+    musicTick: function (now, dt) { return musicTick(now, dt); }, musicReset: musicReset, instance: function (k) { return THEMES[k] && ensureGl() ? getTheme(k) : null; },
     debug: function () { return { current: cur, frames: frames, q: Q, w: glc ? glc.width : 0, h: glc ? glc.height : 0, theme: theme && theme.debug ? theme.debug() : null, music: { kick: M.kick, snare: M.snare, hat: M.hat, energy: M.energy, bpm: M.bpm, live: M.live, phase: M.phase } }; }
   };
 })();

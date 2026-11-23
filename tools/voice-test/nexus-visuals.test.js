@@ -103,7 +103,7 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
   assert(appR.cards.every(c => c[2]), 'every card shows a film still');
   assert(appR.xpVisible && appR.canvas === 1 && appR.running.frames > 3 && appR.running.current === order[0], 'tapping a card starts the scene full screen with one video (' + JSON.stringify(appR.running) + ')');
   assert(appR.barOn && appR.bar.join() === order.join(), 'tapping the screen shows the theme bar');
-  assert(appR.meterDetail[0] === true, 'starting Visuals turns on the six-band music feed');
+  assert(appR.meterDetail.includes(true), 'starting Visuals turns on the six-band music feed');
   assert(!appR.after.current && appR.meterDetailAfter.includes(false) && appR.backInMenu && appR.videosAfter === 0, 'closing stops the scene, releases its video, turns the feed off and returns to the Visuals menu');
   console.log('Visuals: ' + order.length + ' cinematic scenes play on the hardware video path, one video at a time, punch on kicks, and pass the full-app run.');
 })().catch(e => { console.error(e.stack || e.message); process.exit(1); });

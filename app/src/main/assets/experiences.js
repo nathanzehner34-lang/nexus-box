@@ -339,7 +339,7 @@
 uniform float envA, envB, envMix, flowT, bassL, midL, highL, moveAmt, detailAmt, complexity, brightness, quality;
 uniform vec3 palN0, palN1, palN2, palN3, palO0, palO1, palO2, palO3;
 uniform vec2 gravPos;
-uniform float gravStr, gravSpin, touchHue, spectral, spectralO, colorPhase, energyL;
+uniform float gravStr, gravSpin, touchHue, spectral, spectralO, colorPhase, energyL, kickL, hatL;
 uniform vec4 colorWave;
 // the palette each pixel uses: the new one inside a spreading colour wave, the previous one outside it
 vec3 pal0, pal1, pal2, pal3;
@@ -512,6 +512,11 @@ void main(){
  if(colorWave.w>.5){vec2 d=uv-colorWave.xy;float dist=length(d)+.02*(noise(uv*6.+colorWave.z*2.)-.5);
   wv=smoothstep(colorWave.z+.02,colorWave.z-.16,dist);front=exp(-pow((dist-colorWave.z)/.05,2.));
   p+=d/max(length(d),.001)*front*.014;}
+ // MUSIC: the liquid breathes outward on each kick (strongest mid-screen, uneven like real fluid) and the
+ // low end bends the flow; both fade to nothing when the music is quiet.
+ {vec2 mc=p;float mr=length(mc);float wob=.75+.5*noise(mc*2.2+t*.15);
+  p*=1.-kickL*.065*wob*smoothstep(1.7,.05,mr);
+  p+=bassL*.028*vec2(sin(p.y*2.3+t*.8),cos(p.x*1.9-t*.7));}
  pal0=mix(palO0,palN0,wv);pal1=mix(palO1,palN1,wv);pal2=mix(palO2,palN2,wv);pal3=mix(palO3,palN3,wv);SPEC=mix(spectralO,spectral,wv);
  vec3 col=envLD(envA,p,t);
  if(envMix>.001){vec3 other=envLD(envB,p,t);float n=fbmLD(uv*1.6+vec2(7.1,3.3)+t*.02,3.);col=mix(col,other,smoothstep(n-.14,n+.14,envMix*1.3-.15));}
@@ -520,10 +525,12 @@ void main(){
  // funnel: a dark core with a lensed rim of light around the gravity point
  col*=1.-clamp(gravStr,0.,1.)*.75*exp(-r*r*90.);
  col+=rampLD(.97)*clamp(gravStr,0.,1.)*exp(-pow((r-.06)/.011,2.))*.32;
- col*=1.+energyL*.12;
- // colour finish: vibrance and a filmic curve that keeps neon saturated and lifts dark detail
+ col*=1.+energyL*.14+kickL*.2;
+ // hi-hats: a fine shimmer in the brighter parts of the liquid
+ col+=col*hatL*.16*smoothstep(.55,.95,noise(uv*36.+vec2(t*2.1,-t*1.7)));
+ // colour finish: vibrance (deeper with the music's energy) and a filmic curve that keeps neon saturated and lifts dark detail
  float lum=dot(col,vec3(.299,.587,.114));
- col=max(mix(vec3(lum),col,1.32),0.);
+ col=max(mix(vec3(lum),col,1.32+energyL*.16),0.);
  col*=brightness*1.38;
  col=clamp(col*(2.51*col+.03)/(col*(2.43*col+.59)+.14),0.,1.);
  col=pow(col,vec3(.9));
@@ -586,6 +593,11 @@ void main(){
 
   function liquidDreams() {
     var b = beatTracker({ quiet: true }), lastT = performance.now();
+    // Six-band music analysis (shared with Visuals): volume-independent levels, kick / snare / hat
+    // detection, tempo, build-ups and drops. Falls back to the beat tracker if it isn't loaded.
+    var NM = window.NXV && NXV.musicTick ? NXV : null;
+    if (NM) { try { NM.musicReset(); if (A && A.meterDetail) A.meterDetail(true); } catch (e) {} }
+    var kickL = 0, hatL = 0, tempoK = 1, kickSeen = 0, hatSeen = 0;
     var envIds = LD_ENVIRONMENTS.map(function (e) { return e.id; });
     var colors = ['signature'].concat(LD_SHIFT_ORDER);
     var defaults = { v: 3, env: 'deepflow', color: 'electric', speed: 1, movement: 1, audio: 1, bass: 1, colorSpeed: 1, brightness: 1, detail: 1, complexity: 1, lowMotion: false, touch: true };
@@ -901,32 +913,50 @@ void main(){
       return { env: state.env, color: state.color, palette: activePaletteKey(), envFrom: envIds[envFrom], envTo: envIds[envTo], envMix: envMix, spectral: spectralNow,
         gravity: { held: grav.held, strength: grav.s, x: grav.x, y: grav.y, spin: grav.spin }, wave: wave ? { x: wave.x, y: wave.y, r: wave.r, max: wave.max, palette: wave.key, queued: !!wave.queued } : null,
         frames: frames, firstFrame: firstFrame, canvasOpacity: glc ? glc.style.opacity : null, gpu: ldGpuActive, panelOpen: !panel.classList.contains('ld-hidden'),
-        audio: { bass: sBass, mid: sMid, high: sHigh, energy: sEnergy, beat: beatHit }, react: { bass: lastLevels[0], mid: lastLevels[1], high: lastLevels[2], energy: lastLevels[3] },
+        audio: { bass: sBass, mid: sMid, high: sHigh, energy: sEnergy, beat: beatHit, kick: kickL, hat: hatL, tempo: tempoK, kicks: kickSeen, hats: hatSeen, sixBand: !!NM }, react: { bass: lastLevels[0], mid: lastLevels[1], high: lastLevels[2], energy: lastLevels[3] },
         play: { visual: { on: play.visual.on, secs: play.visual.secs, dueIn: visualDueAt ? visualDueAt - performance.now() : null }, color: { on: play.color.on, secs: play.color.secs, dueIn: colorDueAt ? colorDueAt - performance.now() : null } } };
     };
     function draw(now) {
       if (!alive || !XP.active || XP.current !== 'liquiddreams') return;
       var dt = Math.min(80, Math.max(0, now - lastT)); lastT = now;
       var sec = dt / 1000;
-      b.tick(now);
-      var low = state.lowMotion, live = b.live;
+      var low = state.lowMotion, live, M6 = null;
+      if (NM) { M6 = NM.musicTick(now, dt || 16); live = M6.live; } else { b.tick(now); live = b.live; }
       // Bass drives the large forms, midrange the flow, treble the fine highlights, and the overall
       // beat energy the movement and colour flow. Each band is smoothed so the response is fluid.
       // Bass and overall energy are driven mainly off absolute (not peak-relative) levels, so a
       // genuinely quiet, unvarying passage reads as calm instead of drifting louder over time.
-      sBass = ease(sBass, live ? Math.min(1.2, Math.max(b.bass, b.k * .8)) : 0, dt, 110, 600);
-      sMid = ease(sMid, live ? Math.min(1.2, b.mid) : 0, dt, 220, 900);
-      sHigh = ease(sHigh, live ? Math.min(1.2, b.high) : 0, dt, 70, 380);
-      sEnergy = ease(sEnergy, live ? Math.min(1.2, b.level) : 0, dt, 250, 1400);
+      if (M6) {
+        // Bands arrive already scaled to the music's own range (0-1), so the same song reacts the same at any volume.
+        sBass = ease(sBass, live ? Math.max(M6.sub * .6 + M6.bass * .4, M6.kick * .85) : 0, dt, 70, 520);
+        sMid = ease(sMid, live ? M6.lowmid * .4 + M6.mid * .6 : 0, dt, 160, 800);
+        sHigh = ease(sHigh, live ? Math.max(M6.high * .6 + M6.air * .4, M6.hat * .7) : 0, dt, 60, 340);
+        sEnergy = ease(sEnergy, live ? Math.min(1.2, M6.energy * 1.15) : 0, dt, 250, 1400);
+        if (live && M6.kickHit) { beatHit = Math.min(1, beatHit + .55 + M6.strength * .45); kickSeen++; }
+        if (live && M6.hatHit) hatSeen++;
+        // strong kicks in busy passages step the colours along the palette's own flow (never off-palette)
+        if (live && M6.kickHit && M6.strength > .8 && M6.energy > .45) colorPhase += .012 * state.colorSpeed * (low ? .4 : 1);
+        if (M6.drop) { beatHit = 1; colorPhase += .05 * state.colorSpeed; }
+        kickL = live ? M6.kick : kickL * Math.exp(-dt / 200);
+        hatL = live ? M6.hat : hatL * Math.exp(-dt / 120);
+        // fast songs flow faster, slow songs flow smoother (gently: 0.8x to 1.25x)
+        tempoK = ease(tempoK, live && M6.bpm ? Math.max(.8, Math.min(1.25, Math.sqrt(M6.bpm / 120))) : 1, dt, 1800, 1800);
+      } else {
+        sBass = ease(sBass, live ? Math.min(1.2, Math.max(b.bass, b.k * .8)) : 0, dt, 110, 600);
+        sMid = ease(sMid, live ? Math.min(1.2, b.mid) : 0, dt, 220, 900);
+        sHigh = ease(sHigh, live ? Math.min(1.2, b.high) : 0, dt, 70, 380);
+        sEnergy = ease(sEnergy, live ? Math.min(1.2, b.level) : 0, dt, 250, 1400);
+        if (live && b.hit) beatHit = Math.min(1, beatHit + .55 + Math.min(1, b.k) * .45);
+        kickL = beatHit; hatL = 0;
+      }
       // Music reactivity is always on: sensitivity can be tuned but never switched off, in every experience and palette.
-      if (live && b.hit) beatHit = Math.min(1, beatHit + .55 + Math.min(1, b.k) * .45);
       beatHit *= Math.exp(-dt / 260);
       var react = Math.max(LD_RANGES.audio[0], state.audio) * (low ? .35 : 1);
       var bassL = Math.min(1, (sBass + beatHit * .35) * react * state.bass * 1.6), midL = Math.min(1, sMid * react * 1.5), highL = Math.min(1, sHigh * react * 1.6), energyL = Math.min(1, (sEnergy + beatHit * .2) * react * 1.3);
       lastLevels = [bassL, midL, highL, energyL];
       speedNow = ease(speedNow, state.speed * (low ? .4 : 1), dt, 600, 600);
       moveNow = ease(moveNow, state.movement * (low ? .45 : 1), dt, 600, 600);
-      flow += sec * speedNow * (1 + midL * .5 + energyL * .4);
+      flow += sec * speedNow * (1 + midL * .5 + energyL * .4) * tempoK;
       // Experience changes dissolve through a liquid noise front; both experiences render during it, so no frame is black.
       var wanted = envIds.indexOf(state.env);
       if (wanted !== envTo) { if (envFrom !== envTo && envMix > .5) envFrom = envTo; envTo = wanted; envMix = 0; }
@@ -958,6 +988,7 @@ void main(){
           if (pass === 1) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
           dream.f('envA', passes[pass]); dream.f('envB', passes[pass]); dream.f('envMix', pass === 1 ? mixEased : 0);
           dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL); dream.f('energyL', energyL);
+          dream.f('kickL', Math.min(1, kickL * react * state.bass)); dream.f('hatL', Math.min(1, hatL * react));
           dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35 + beatHit * .25 * (low ? .4 : 1))); dream.f('detailAmt', detail); dream.f('complexity', complexity);
           dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
           var old = wave ? wave.from : palette;
@@ -1979,7 +2010,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       timers.forEach(function (t) { clearTimeout(t); clearInterval(t); });
       timers = [];
       XP.onMeter = null;
-      try { if (A) A.meter(false); } catch (e) {}
+      try { if (A) { if (A.meterDetail) A.meterDetail(false); A.meter(false); } } catch (e) {}
       if (XP.active && !quiet) N.stopTalking();
       XP.active = false;
       XP.current = null;
