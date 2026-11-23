@@ -46,10 +46,11 @@ async function watch(o, ms, vol) {
   const p = play(o, ms, vol); const t0 = performance.now();
   while (performance.now() - t0 < ms - 60) {
     if (XP.redraw) XP.redraw(); g.drawImage(cv, 0, 0, 48, 27); const d = g.getImageData(0, 0, 48, 27).data;
-    let lum = 0, diff = 0; for (let i = 0; i < d.length; i += 4) { const l = .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2]; lum += l; if (prev) diff += Math.abs(l - prev[i / 4]); }
+    let lum = 0, diff = 0, val = 0, chr = 0, pale = 0; for (let i = 0; i < d.length; i += 4) { const l = .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2]; lum += l; if (prev) diff += Math.abs(l - prev[i / 4]);
+      const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]); val += mx; chr += mx - mn; if (mx > 175 && (mx - mn) / mx < .28) pale++; }
     const cur = new Float32Array(d.length / 4); for (let i = 0; i < d.length; i += 4) cur[i / 4] = .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2];
     const L = XP.liquidDebug();
-    S.push({ t: performance.now() - t0, lum: lum / cur.length, diff: prev ? diff / cur.length : 0, kick: L.audio.kick, react: L.react });
+    S.push({ t: performance.now() - t0, lum: lum / cur.length, val: val / cur.length, chr: chr / cur.length, pale: pale / cur.length, diff: prev ? diff / cur.length : 0, kick: L.audio.kick, react: L.react });
     prev = cur; await wait(45);
   }
   await p;
@@ -58,7 +59,7 @@ async function watch(o, ms, vol) {
   const avg = (a, f) => a.length ? a.reduce((x, s) => x + f(s), 0) / a.length : 0;
   return { kicks: (after.audio.kicks || 0) - k0, final: after.react, tempo: after.audio.tempo, sixBand: after.audio.sixBand,
     bass: avg(S, s => s.react.bass), mid: avg(S, s => s.react.mid), high: avg(S, s => s.react.high), energy: avg(S, s => s.react.energy),
-    lumOnKick: avg(onK, s => s.lum), lumOffKick: avg(offK, s => s.lum), motion: avg(S, s => s.diff), samples: S.length, onK: onK.length };
+    lumOnKick: avg(onK, s => s.lum), lumOffKick: avg(offK, s => s.lum), valOnKick: avg(onK, s => s.val), valOffKick: avg(offK, s => s.val), chrOnKick: avg(onK, s => s.chr), chrOffKick: avg(offK, s => s.chr), paleOnKick: avg(onK, s => s.pale), paleOffKick: avg(offK, s => s.pale), motion: avg(S, s => s.diff), samples: S.length, onK: onK.length };
 }
 `;
 const SCEN = (oldPath) => `
@@ -108,7 +109,11 @@ const SCEN = (oldPath) => `
   // (Android's Visualizer already normalises its capture against the volume; this checks a song that suddenly plays much quieter still drives the beat)
   assert(r.edmLow.kicks >= 9 && r.edmLow.bass > .4, 'a much quieter song still drives kicks and bass (' + r.edmLow.kicks + ', ' + r.edmLow.bass.toFixed(2) + ')');
   // the picture itself responds: brighter on kicks than between them, more motion with energy
-  assert(r.edm.lumOnKick - r.edm.lumOffKick > .8, 'the picture visibly pulses on kicks (' + (r.edm.lumOnKick - r.edm.lumOffKick).toFixed(2) + ')');
+  // the kick pulse is carried by the liquid's own colours: they get brighter (colour value) and richer
+  // (chroma), and the share of washed-out, near-white pixels does not rise on the beat
+  const kv = r.edm.valOnKick - r.edm.valOffKick, kc = r.edm.chrOnKick - r.edm.chrOffKick, kw = r.edm.paleOnKick - r.edm.paleOffKick;
+  assert(kv > .8 && kc > .8, 'the colours visibly pulse on kicks (brighter ' + kv.toFixed(2) + ', richer ' + kc.toFixed(2) + ')');
+  assert(kw < .005, 'kicks bring no white: washed-out pixels ' + (100 * r.edm.paleOffKick).toFixed(2) + '% -> ' + (100 * r.edm.paleOnKick).toFixed(2) + '%');
   assert(r.edm.motion > r.quiet.motion * 1.2, 'energetic music moves the picture more than a quiet pad (' + r.quiet.motion.toFixed(2) + ' -> ' + r.edm.motion.toFixed(2) + ')');
   assert(r.fast.tempo > r.slow.tempo, 'fast songs flow faster than slow ones (' + r.slow.tempo.toFixed(2) + ' vs ' + r.fast.tempo.toFixed(2) + ')');
   // calm stays calm: no artificial pulse when quiet or silent
@@ -122,5 +127,5 @@ const SCEN = (oldPath) => `
   assert(r.gravity > .6, 'Gravity Point still builds under a held finger with music playing (' + r.gravity.toFixed(2) + ')');
   assert(r.closed && r.detailLog.includes(false), 'closing releases the feed');
   console.log('Liquid Dreams reactivity: kicks ' + r.edm.kicks + ' (quarter volume ' + r.edmLow.kicks + '), bass/mid/high ' + [r.edm.bass, r.edm.mid, r.edm.high].map(v => v.toFixed(2)).join('/') +
-    ', kick pulse +' + (r.edm.lumOnKick - r.edm.lumOffKick).toFixed(1) + ' brightness, tempo ' + r.slow.tempo.toFixed(2) + '-' + r.fast.tempo.toFixed(2) + ', calm in silence; controls and touch work mid-music.');
+    ', kick pulse +' + (r.edm.valOnKick - r.edm.valOffKick).toFixed(1) + ' colour brightness / +' + (r.edm.chrOnKick - r.edm.chrOffKick).toFixed(1) + ' colour, tempo ' + r.slow.tempo.toFixed(2) + '-' + r.fast.tempo.toFixed(2) + ', calm in silence; controls and touch work mid-music.');
 })().catch(e => { console.error(e.stack || e.message); process.exit(1); });

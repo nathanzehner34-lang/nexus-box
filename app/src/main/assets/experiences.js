@@ -350,7 +350,8 @@ vec3 rainbowLD(float x){return clamp(abs(fract(x+vec3(0.,.6667,.3333))*6.-3.)-1.
 // Palette ramp. Spectral palettes re-hue the ramp while keeping its brightness, so detail survives.
 vec3 rampLD(float x){
  // with music the ramp leans toward the palette's brighter colours, rolling with the colour flow
- x=clamp(x+touchHue*.22+.035*sin(colorPhase*6.2832+x*3.)+.09*energyL*(.5+.5*sin(colorPhase*12.566+x*4.)),0.,1.);
+ // (the music's lean stops short of the pale highlight stop, so it brings colour rather than white)
+ x=clamp(x+touchHue*.22+.035*sin(colorPhase*6.2832+x*3.)+.09*energyL*(.5+.5*sin(colorPhase*12.566+x*4.))*(1.-smoothstep(.5,.8,x)),0.,1.);
  vec3 c=mix(pal0,pal1,smoothstep(0.,.4,x));c=mix(c,pal2,smoothstep(.35,.75,x));c=mix(c,pal3,smoothstep(.72,1.,x));
  float sp=clamp(SPEC,0.,1.);
  if(sp>.002){
@@ -378,11 +379,11 @@ vec3 deepFlowLD(vec2 p,float t){
  vec3 inkCol=mix(rampLD(.32+b.x*.3),rampLD(.6+a.y*.25),clamp(length(b-a)*1.6,0.,1.));
  vec3 col=mix(bg,inkCol*(.75+.6*max(lit,0.)),ink*.92);
  col=mix(col,pal0*.15,core*.5);
- col+=rampLD(.95)*pow(max(lit,0.),2.)*ink*(1.-core)*(.28+highL*.35*detailAmt);
+ col+=(rampLD(.95)*.28+rampLD(.62)*highL*.35*detailAmt)*pow(max(lit,0.),2.)*ink*(1.-core);
  col+=rampLD(.85)*pow(clamp(b.y*1.15-.2,0.,1.),4.)*ink*.18;
  float back=fbmLD(p*.55+vec2(t*.015,-t*.01)+a*.4,3.);
  col+=rampLD(.5)*smoothstep(.45,.8,back)*.14*(1.-ink);
- col+=particlesLD(p,t,14.,.06)*rampLD(.95)*(.3+highL*.9)*detailAmt;
+ col+=particlesLD(p,t,14.,.06)*(rampLD(.95)*.3+rampLD(.62)*highL*.9)*detailAmt;
  return col;
 }
 // IRIDESCENCE: translucent liquid glass with thin-film colour
@@ -411,7 +412,7 @@ vec3 iridescenceLD(vec2 p,float t){
  float spec=pow(max(dot(reflect(-normalize(vec3(-.45,.55,.7)),n),vec3(0.,0.,1.)),0.),30.)*.6;
  float soft=pow(max(dot(reflect(-normalize(vec3(-.4,.6,.7)),n),vec3(0.,0.,1.)),0.),9.)*.14;
  float caust=pow(max(0.,1.-length(n.xy)*2.4),4.)*smoothstep(.65,1.3,h)*.22;
- vec3 glass=refr*.95+rim+rampLD(.95)*caust+(spec+soft)*mix(vec3(1.),pal3,.3)*(.95+highL*.3);
+ vec3 glass=refr*.95+rim+rampLD(.95)*caust+(spec+soft)*(mix(vec3(1.),pal3,.3)*.95+rampLD(.62)*highL*.3);
  glass+=rampLD(.98)*(smoothstep(.5,.515,h)-smoothstep(.515,.57,h))*.35;
  float shadow=smoothstep(.25,.6,glassHLD(p+vec2(-.05,.07),t))*(1.-mask);
  return mix(bg*(1.-shadow*.45),glass,mask);
@@ -428,7 +429,7 @@ vec3 etherLD(vec2 p,float t){
   float w=.055+.035*sin(x*1.3+t*.19+fi*2.4)+.012*fi,d=(p.y-y)/w;
   float body=smoothstep(1.,.35,abs(d)),twist=sin(x*2.6+t*.27+fi*2.1+midL*.8),sheen=pow(.5+.5*cos(d*1.7+twist*2.2),4.);
   col=mix(col,rampLD(.35+fi*.11+sheen*.35)*(.6+sheen*.9),body*(.18+.35*sheen));
-  col+=rampLD(.85)*(exp(-abs(p.y-y)*22.)*.035+exp(-abs(p.y-y)*5.)*.025)*(1.+highL*detailAmt);}
+  col+=(rampLD(.85)+rampLD(.62)*highL*detailAmt)*(exp(-abs(p.y-y)*22.)*.035+exp(-abs(p.y-y)*5.)*.025);}
  col+=particlesLD(p*.7,t*.6,8.,.03)*rampLD(1.)*.35*detailAmt;
  return col;
 }
@@ -468,7 +469,7 @@ vec3 cosmicLD(vec2 p,float t){
  col*=1.-smoothstep(.45,.75,dust)*.65;
  vec2 cp=p-vec2(.18*sin(t*.04),.06*cos(t*.05));
  col+=rampLD(.92)*(exp(-length(cp)*2.6)*(.18+bassL*.06)+exp(-length(cp)*14.)*.18)*(.35+neb);
- col+=particlesLD(p,t*.15,22.,.01)*vec3(.9,.95,1.)*(.6+highL*.8)*detailAmt;
+ col+=particlesLD(p,t*.15,22.,.01)*(vec3(.9,.95,1.)*.6+rampLD(.62)*highL*.8)*detailAmt;
  col+=particlesLD(p*1.7+3.,t*.2,30.,.008)*rampLD(1.)*.4*detailAmt;
  return col;
 }
@@ -489,7 +490,7 @@ vec3 organicLD(vec2 p,float t){
  body+=mix(rampLD(.9),vec3(1.),.3)*gloss*.22;
  col=mix(col*.8+pal1*.08,body*1.15+col*.35,.88*seam);
  float nuc=exp(-c.x*c.x*80.)*(.55+.45*sin(t*.5+c.z*20.));
- col+=rampLD(.8)*nuc*(.22+highL*.3*detailAmt)*seam;
+ col+=(rampLD(.8)*.22+rampLD(.62)*highL*.3*detailAmt)*nuc*seam;
  col+=particlesLD(p*.9,t*.3,10.,.02)*rampLD(.9)*.25*detailAmt;
  return col;
 }
@@ -525,9 +526,14 @@ void main(){
  // funnel: a dark core with a lensed rim of light around the gravity point
  col*=1.-clamp(gravStr,0.,1.)*.75*exp(-r*r*90.);
  col+=rampLD(.97)*clamp(gravStr,0.,1.)*exp(-pow((r-.06)/.011,2.))*.32;
- col*=1.+energyL*.14+kickL*.2;
- // hi-hats: a fine shimmer in the brighter parts of the liquid
- col+=col*hatL*.16*smoothstep(.55,.95,noise(uv*36.+vec2(t*2.1,-t*1.7)));
+ col*=1.+energyL*.14;
+ // kicks and hi-hats: the liquid's own colours pulse brighter and richer, never toward white. The kick
+ // lifts each channel in proportion to how much of the colour it already carries (the dominant hue grows,
+ // the others barely move), and eases off where the liquid is already near full brightness.
+ {float mc=max(col.r,max(col.g,col.b))+1e-4;
+  float sat=(mc-min(col.r,min(col.g,col.b)))/mc;
+  col*=1.+kickL*.42*(col/mc)*(1.-smoothstep(.6,1.1,mc))*(.12+.88*smoothstep(.04,.3,sat));
+  float cl=dot(col,vec3(.299,.587,.114));col=max(col+(col-vec3(cl))*(kickL*.3+hatL*.22),0.);}
  // colour finish: vibrance (deeper with the music's energy) and a filmic curve that keeps neon saturated and lifts dark detail
  float lum=dot(col,vec3(.299,.587,.114));
  col=max(mix(vec3(lum),col,1.32+energyL*.16),0.);
