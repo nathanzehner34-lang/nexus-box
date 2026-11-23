@@ -528,8 +528,9 @@
   //   energy -> playback speed (slow motion when quiet, faster when it builds), contrast and glow
   //   bars   -> beat-synced cuts between the scene's camera angles (every beat during a build-up)
   //   drop   -> white flash, instant cut and a big zoom
-  // One video element at a time (the X3 runs out of decoders with two). A cut waits until the current
-  // angle has really played for a few seconds, so beat cuts never pile up loads the box can't finish.
+  // One video element at a time (the X3 runs out of decoders with two). Each angle plays once to its end
+  // and hands over to the next (no replaying). At every hand-over the last picture is frozen on a canvas
+  // and cross-faded into the new angle once it is really moving, so there is never a black gap.
   // ==================================================================
   var CLIPS = {"coins": ["clips/coins_0.mp4", "clips/coins_1.mp4", "clips/coins_2.mp4", "clips/coins_3.mp4", "clips/coins_4.mp4"], "skulls": ["clips/skulls_0.mp4", "clips/skulls_1.mp4"], "flag": ["clips/flag_0.mp4", "clips/flag_1.mp4"], "cityfire": ["clips/cityfire_0.mp4", "clips/cityfire_1.mp4", "clips/cityfire_2.mp4"], "inferno": ["clips/inferno_0.mp4", "clips/inferno_1.mp4"], "serpent": ["clips/serpent_0.mp4", "clips/serpent_1.mp4", "clips/serpent_2.mp4", "clips/serpent_3.mp4"], "idol": ["clips/idol_0.mp4", "clips/idol_1.mp4"], "frenzy": ["clips/frenzy_0.mp4", "clips/frenzy_1.mp4", "clips/frenzy_2.mp4", "clips/frenzy_3.mp4"], "run": ["clips/run_0.mp4", "clips/run_1.mp4", "clips/run_2.mp4"], "collapse": ["clips/collapse_0.mp4", "clips/collapse_1.mp4", "clips/collapse_2.mp4", "clips/collapse_3.mp4", "clips/collapse_4.mp4"]};
   var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "flag": "Molten Flag", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
@@ -540,7 +541,7 @@
   // released the moment the scene stops: the X3 can only decode a couple of videos at once.
   function makeVideo() {
     var v = document.createElement('video');
-    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+    v.muted = true; v.loop = false; v.playsInline = true; v.preload = 'auto';
     v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
     // Android's WebView shows a grey "play" picture in a video until its first frame is ready.
     // A see-through poster removes it, and the video stays hidden over black until it is really playing.
@@ -554,6 +555,9 @@
     var box = this.box = document.createElement('div');
     box.className = 'nv-clip'; box.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:#000';
     this.v = makeVideo(); box.appendChild(this.v);
+    this.hold = document.createElement('canvas');   // the frozen last picture during a hand-over
+    this.hold.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;pointer-events:none;opacity:0;transition:opacity .28s ease-out';
+    box.appendChild(this.hold);
     this.vig = sheet('opacity:1;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%)'); box.appendChild(this.vig);
     this.dim = sheet('background:#000'); box.appendChild(this.dim);
     this.scan = sheet('background:repeating-linear-gradient(0deg, rgba(255,40,140,0) 0, rgba(255,40,140,0) 7px, rgba(120,230,255,.45) 7px, rgba(120,230,255,.45) 9px)'); box.appendChild(this.scan);
@@ -562,16 +566,34 @@
     if (anchor && anchor.parentNode === layer) layer.insertBefore(box, anchor.nextSibling); else layer.appendChild(box);
     this.idx = 0; this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, dip: 0, sx: 0, sy: 0 }; this.lastCutBar = -1; this.css = {}; this.fails = 0;
     var self = this;
-    this.v.addEventListener('playing', function () { self.err = ''; self.fails = 0; self.shownAt = 0; if (self.v) self.v.style.opacity = '1'; });
+    this.v.addEventListener('playing', function () {
+      self.err = ''; self.fails = 0; self.shownAt = 0; if (!self.v) return;
+      self.v.style.opacity = '1';
+      // give the decoder a moment to put the new picture on screen, then fade the frozen one away
+      setTimeout(function () { if (self.hold) self.hold.style.opacity = '0'; }, 60);
+    });
+    this.v.addEventListener('ended', function () { if (self.v) self.cut(true); });   // play once, then the next angle
     this.v.addEventListener('error', function () {
       var e = self.v.error; self.err = 'Clip ' + self.list[self.idx] + ' failed (' + (e ? e.code : '?') + ')';
       if (++self.fails < self.list.length) setTimeout(function () { if (self.v) self.cut(true); }, 400);       // skip a bad angle
     });
     this.load(this.list[0]);
   };
+  ClipTheme.prototype.freeze = function () {
+    // copy the picture on screen now onto the hold canvas, so it stays up while the next angle starts
+    var v = this.v, c = this.hold; if (!v || !c || v.readyState < 2 || !v.videoWidth) return false;
+    try {
+      if (c.width !== v.videoWidth || c.height !== v.videoHeight) { c.width = v.videoWidth; c.height = v.videoHeight; }
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      c.style.transition = 'none'; c.style.transform = v.style.transform; c.style.opacity = '1';
+      void c.offsetWidth; c.style.transition = 'opacity .28s ease-out';
+      return true;
+    } catch (e) { return false; }
+  };
   ClipTheme.prototype.load = function (src) {
     var v = this.v; this.startAt = 0; this.shownAt = 0;
-    v.style.opacity = '0';                 // black, never the grey placeholder, while the next angle starts
+    // the frozen last picture covers the switch; only the very first clip starts from black
+    if (!this.freeze()) v.style.opacity = '0';
     v.src = src; try { v.load(); } catch (e) {}
     try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
   };
@@ -580,20 +602,19 @@
     var v = this.v; if (!v) return false;
     var playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
     if (playing && !this.shownAt) this.shownAt = performance.now();
-    return playing && performance.now() - this.shownAt > 3000;
+    return playing && performance.now() - this.shownAt > 1200;
   };
   ClipTheme.prototype.cut = function (force) {
     if (this.list.length < 2) return;
     if (!force && !this.ready()) return;   // still starting: let it finish instead of reloading again
     this.idx = (this.idx + 1) % this.list.length;
-    this.fx.dip = 1;                       // a quick dip on the beat hides the moment the new angle starts
     this.load(this.list[this.idx]);
   };
   ClipTheme.prototype.free = function () {
     var v = this.v;
     if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
     if (this.box && this.box.parentNode) this.box.parentNode.removeChild(this.box);
-    this.v = null; this.box = null;
+    this.v = null; this.box = null; this.hold = null;
   };
   ClipTheme.prototype.set = function (el, key, val) { if (this.css[key] !== val) { this.css[key] = val; el.style[key.split('.')[1]] = val; } };
   ClipTheme.prototype.frame = function (dt, t) {
@@ -606,7 +627,7 @@
         if (m.drop || (m.kickHit && m.bar !== this.lastCutBar && m.bar % every === 0 && m.frac < .3 && m.bar > 0)) { this.lastCutBar = m.bar; this.cut(); }
       } else if (t - (this.idleCut || 0) > 12) { this.idleCut = t; this.cut(); }
     }
-    if (v.paused && v.readyState >= 2) { try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
+    if (v.paused && !v.ended && v.readyState >= 2) { try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
     // music -> effects
     if (m.kickHit) { fx.zv += 4 * m.strength; fx.sx = (Math.random() - .5) * 8 * m.strength; fx.sy = (Math.random() - .5) * 6 * m.strength; fx.flash = Math.max(fx.flash, .07 * m.strength); }
     if (m.drop) { fx.zv += 4.5; fx.flash = .55; }
