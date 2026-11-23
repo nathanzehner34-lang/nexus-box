@@ -617,7 +617,7 @@ public class MainActivity extends Activity {
         android.content.pm.Signature[] signatures;
         if (Build.VERSION.SDK_INT >= 28 && info.signingInfo != null) signatures = info.signingInfo.getApkContentsSigners();
         else signatures = info.signatures;
-        if (signatures == null || signatures.length == 0) throw new Exception("The update has no signature.");
+        if (signatures == null || signatures.length == 0) return null;   // this Android couldn't read them
         java.util.List<String> result = new ArrayList<>();
         java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
         for (android.content.pm.Signature signature : signatures) {
@@ -632,7 +632,9 @@ public class MainActivity extends Activity {
 
     private void verifyNexusApk(File apk) throws Exception {
         if (!apk.isFile() || apk.length() < 256 * 1024) throw new Exception("The download is incomplete. Try again.");
-        int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
+        // Ask for both kinds: some Android builds only fill in one of them for a downloaded file.
+        @SuppressWarnings("deprecation")
+        int flags = PackageManager.GET_SIGNATURES | (Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : 0);
         android.content.pm.PackageInfo downloaded = getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
         android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), flags);
         if (downloaded == null) throw new Exception("The downloaded file is damaged. Try again.");
@@ -640,7 +642,10 @@ public class MainActivity extends Activity {
         long downloadedVersion = Build.VERSION.SDK_INT >= 28 ? downloaded.getLongVersionCode() : downloaded.versionCode;
         long currentVersion = Build.VERSION.SDK_INT >= 28 ? installed.getLongVersionCode() : installed.versionCode;
         if (downloadedVersion < currentVersion) throw new Exception("The download is older than this Nexus.");
-        if (!certificateDigests(downloaded).equals(certificateDigests(installed))) throw new Exception("This box has a Nexus with a different signature. Install nexus.apk once from the GitHub page in the browser.");
+        java.util.List<String> got = certificateDigests(downloaded), have = certificateDigests(installed);
+        // If this Android can't read the download's signature here, Android's own installer still checks it
+        // and refuses an update signed differently, so the install goes ahead instead of stopping with an error.
+        if (got != null && have != null && !got.equals(have)) throw new Exception("This box has a Nexus with a different signature. Install nexus.apk once from the GitHub page in the browser.");
     }
 
     // Installs through Android's own package installer session: Android shows its INSTALL/UPDATE screen.

@@ -528,7 +528,8 @@
   //   energy -> playback speed (slow motion when quiet, faster when it builds), contrast and glow
   //   bars   -> beat-synced cuts between the scene's camera angles (every beat during a build-up)
   //   drop   -> white flash, instant cut and a big zoom
-  // Two video elements alternate so a cut is instant: the next angle is always already loaded.
+  // One video element at a time (the X3 runs out of decoders with two). A cut waits until the current
+  // angle has really played for a few seconds, so beat cuts never pile up loads the box can't finish.
   // ==================================================================
   var CLIPS = {"coins": ["clips/coins_0.mp4", "clips/coins_1.mp4", "clips/coins_2.mp4", "clips/coins_3.mp4", "clips/coins_4.mp4"], "skulls": ["clips/skulls_0.mp4", "clips/skulls_1.mp4"], "flag": ["clips/flag_0.mp4", "clips/flag_1.mp4"], "cityfire": ["clips/cityfire_0.mp4", "clips/cityfire_1.mp4", "clips/cityfire_2.mp4"], "inferno": ["clips/inferno_0.mp4", "clips/inferno_1.mp4"], "serpent": ["clips/serpent_0.mp4", "clips/serpent_1.mp4", "clips/serpent_2.mp4", "clips/serpent_3.mp4"], "idol": ["clips/idol_0.mp4", "clips/idol_1.mp4"], "frenzy": ["clips/frenzy_0.mp4", "clips/frenzy_1.mp4", "clips/frenzy_2.mp4", "clips/frenzy_3.mp4"], "run": ["clips/run_0.mp4", "clips/run_1.mp4", "clips/run_2.mp4"], "collapse": ["clips/collapse_0.mp4", "clips/collapse_1.mp4", "clips/collapse_2.mp4", "clips/collapse_3.mp4", "clips/collapse_4.mp4"]};
   var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "flag": "Molten Flag", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
@@ -541,7 +542,10 @@
     var v = document.createElement('video');
     v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
     v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
-    v.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;background:#000';
+    // Android's WebView shows a grey "play" picture in a video until its first frame is ready.
+    // A see-through poster removes it, and the video stays hidden over black until it is really playing.
+    v.poster = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    v.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;background:#000;opacity:0';
     return v;
   }
   function sheet(css) { var d = document.createElement('div'); d.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;opacity:0;' + css; return d; }
@@ -558,20 +562,29 @@
     if (anchor && anchor.parentNode === layer) layer.insertBefore(box, anchor.nextSibling); else layer.appendChild(box);
     this.idx = 0; this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, dip: 0, sx: 0, sy: 0 }; this.lastCutBar = -1; this.css = {}; this.fails = 0;
     var self = this;
-    this.v.addEventListener('playing', function () { self.err = ''; self.fails = 0; });
+    this.v.addEventListener('playing', function () { self.err = ''; self.fails = 0; self.shownAt = 0; if (self.v) self.v.style.opacity = '1'; });
     this.v.addEventListener('error', function () {
       var e = self.v.error; self.err = 'Clip ' + self.list[self.idx] + ' failed (' + (e ? e.code : '?') + ')';
-      if (++self.fails < self.list.length) setTimeout(function () { if (self.v) self.cut(); }, 400);       // skip a bad angle
+      if (++self.fails < self.list.length) setTimeout(function () { if (self.v) self.cut(true); }, 400);       // skip a bad angle
     });
     this.load(this.list[0]);
   };
   ClipTheme.prototype.load = function (src) {
-    var v = this.v; this.startAt = 0;
+    var v = this.v; this.startAt = 0; this.shownAt = 0;
+    v.style.opacity = '0';                 // black, never the grey placeholder, while the next angle starts
     v.src = src; try { v.load(); } catch (e) {}
     try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
   };
-  ClipTheme.prototype.cut = function () {
+  ClipTheme.prototype.ready = function () {
+    // has the current angle been on screen long enough that a new load won't pile up behind it?
+    var v = this.v; if (!v) return false;
+    var playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
+    if (playing && !this.shownAt) this.shownAt = performance.now();
+    return playing && performance.now() - this.shownAt > 3000;
+  };
+  ClipTheme.prototype.cut = function (force) {
     if (this.list.length < 2) return;
+    if (!force && !this.ready()) return;   // still starting: let it finish instead of reloading again
     this.idx = (this.idx + 1) % this.list.length;
     this.fx.dip = 1;                       // a quick dip on the beat hides the moment the new angle starts
     this.load(this.list[this.idx]);
@@ -611,7 +624,9 @@
     if (!this.startAt) this.startAt = t;
     var note = $('xpMid'), playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
     if (playing) this.started = true;
-    if (note) { var msg = !playing && t - this.startAt > 4 ? (this.err || 'Clip is still loading… (state ' + v.readyState + ')') : (this.started ? '' : this.err || ''); if (note.textContent !== msg) note.textContent = msg; }
+    // a slow start is skipped quietly (the next angle usually starts faster); only a real failure is shown
+    if (!playing && t - this.startAt > 8 && this.list.length > 1 && !this.err) { this.startAt = t; this.cut(true); }
+    if (note) { var msg = this.started ? '' : (this.err || ''); if (note.textContent !== msg) note.textContent = msg; }
   };
   ClipTheme.prototype.debug = function () {
     var v = this.v || {};
