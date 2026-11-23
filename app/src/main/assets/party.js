@@ -24,6 +24,27 @@
   var orbs = [], connectionCounts = new Uint8Array(22), impulses = [], waves = [], particles = [], trails = [], selected = null, pointer = null, gesture = null, dragVelocity = { x: 0, y: 0 };
   var sprites = {}, presetRgb = [], lineDash = [3, 8], audio = null, soundOn = false, lastSong = '', lastTap = null, particleCursor = 0, trailCursor = 0;
   var modeStarted = 0;
+  // snare and hi-hat events (from the six-band feed): envelopes for the GL scenes, counters for tests
+  var snareEnv = 0, hatEnv = 0, snareHits = 0, hatHits = 0, detailAt = 0, detailMid = 0, detailHigh = 0, hookDetail = function () {};
+  // The snare: a sharp flash of colour in a few orbs and a spray of particles from them.
+  function onSnare(power) {
+    snareEnv = Math.max(snareEnv, power); snareHits++;
+    if (experience !== 'orb') return;
+    for (var n = 0; n < 3; n++) {
+      var o = orbs[(snareHits * 7 + n * 5) % orbs.length];
+      o.spark = Math.max(o.spark || 0, .8 * power); o.flash = Math.max(o.flash || 0, .5);
+      burst(o.x, o.y, o.color, .7 + power * .5, highMemory ? 10 : 6);
+    }
+  }
+  // Hi-hats: fine glints scattered through the field.
+  function onHat(power) {
+    hatEnv = Math.max(hatEnv, power); hatHits++;
+    if (experience !== 'orb') return;
+    for (var n = 0; n < (highMemory ? 4 : 2); n++) {
+      var p = particles[particleCursor++ % particles.length];
+      p.x = rand(0, w); p.y = rand(0, h); p.vx = rand(-.3, .3); p.vy = rand(-.3, .3); p.life = .7; p.size = rand(.6, 1.4); p.color = 5; p.burst = true;
+    }
+  }
   // Experiences: the upgraded Orb Experience (hero energy orb + selectable backgrounds) and Energy Flow (no orb).
   var experiences = ['orb', 'flow', 'ink'], experience = 'orb';
   var backdrops = ['classic', 'smoke', 'aurora', 'deep', 'iridescent'], backdrop = 'classic';
@@ -34,7 +55,7 @@
   var glProgs = {}, glUs = {}, glVariant = '';
   var GL_UNIFORMS = ['res', 'orbC', 'T', 'zph', 'bass', 'mid', 'high', 'energy', 'beat', 'orbR', 'quality',
     'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tapP',
-    'build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'f1', 'f2', 'f3', 'f4'];
+    'build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'f1', 'f2', 'f3', 'f4', 'snare', 'hat'];
   var glScale = .42, glScaleMax = .42, glQuality = 0, glSlowFrames = 0, glFastFrames = 0, glFrames = 0;
   var sceneT = 0, flowPhase = 0, flowMix = 0, flowTarget = 0, bgFrom = 0, bgTo = 0, bgMix = 0, classicWeight = 1, surge = 0, tapAt = { x: 0, y: 0, age: 9 }, flowCanvasCleared = false;
   // Music analysis for Energy Flow: fast/slow envelopes per band feed build-up and drop detection,
@@ -69,7 +90,7 @@
     "#endif",
     "uniform vec2 res, orbC;",
     "uniform float T, zph, bass, mid, high, energy, beat, orbR, quality, bgA, bgB, bgMix, flow, surge;",
-    "uniform float build, bphase, burst, bAge, bPow, recoil;",
+    "uniform float build, bphase, burst, bAge, bPow, recoil, snare, hat;",
     "uniform vec3 c1, c2, c3, tapP;",
     "uniform vec3 f1, f2, f3, f4;",
     "float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
@@ -144,11 +165,32 @@
     "}",
     "vec3 background(float id,vec2 p,float t){if(id<.5)return bgClassic(p,t);if(id<1.5)return bgSmoke(p,t);if(id<2.5)return bgAurora(p,t);if(id<3.5)return bgDeep(p,t);return bgIrid(p,t);}",
     "// ---------- HERO ENERGY ORB ----------",
+    "// Two thin orbital rings tilted around the orb. For a pixel: its distance to the ring band, which half",
+    "// (behind or in front of the orb) it belongs to, and its angle along the ring.",
+    "vec3 orbRing(vec2 d,float R,float tilt,float rot,float rad,float t){",
+    " float cr=cos(rot),sr=sin(rot);vec2 q=vec2(d.x*cr-d.y*sr,d.x*sr+d.y*cr);",
+    " vec2 e=vec2(q.x,q.y/tilt);float r=length(e);",
+    " float band=(r-rad*R)/(R*.022);",
+    " float front=step(0.,q.y*sign(tilt))*2.-1.;",
+    " return vec3(band,front,atan(e.y,e.x));",
+    "}",
+    "vec3 ringLight(vec3 rg,float t,float k){",
+    " float core=exp(-rg.x*rg.x),wide=exp(-rg.x*rg.x*.08)*.25;",
+    " // fine structure along the ring, light running round it, glints on the hats",
+    " float lanes=.65+.35*sin(rg.z*40.+k*3.);",
+    " float run=pow(.5+.5*sin(rg.z*2.-t*(1.2+k*.4)+k*2.),6.)*(.5+beat*1.2);",
+    " float gl=step(.93,hash1(vec2(floor(rg.z*60.+t*3.),k)))*hat*2.;",
+    " return mix(mix(c1,c3,k),vec3(1.),.25)*(core*lanes*(.35+run+gl)+wide*(.3+bass*.5));",
+    "}",
     "vec4 heroOrb(vec2 p,float t){",
     " vec2 d=p-orbC;float r=length(d),R=orbR*(1.+bass*.09+beat*.05);",
     " float ang=atan(d.y,d.x),ou=max(r-R,0.);",
-    " vec3 glowC=mix(c1,c3,.45);",
+    " vec3 glowC=mix(mix(c1,c3,.45),c2,snare*.35);",
     " vec3 col=glowC*(exp(-ou/(R*.22))*.5+exp(-ou/(R*1.2))*.2)*(.65+energy*.5+beat*.35);",
+    " // the rings behind the orb",
+    " vec3 ra=orbRing(d,R,.28,.35+t*.02,1.55+bass*.05,t),rb=orbRing(d,R,-.2,-.5-t*.015,1.9,t);",
+    " if(ra.y<0.)col+=ringLight(ra,t,0.)*.7;",
+    " if(rb.y<0.)col+=ringLight(rb,t,1.)*.6;",
     " if(ou<R*2.2)for(int k=0;k<2;k++){float fk=float(k);",
     "  float tn=fbm(vec2(ang*(2.2+fk*1.5)+t*.15+fk*5.,ou/R*2.2-t*(1.1+fk*.4)),3.);",
     "  float ridge=pow(1.-abs(tn*2.-1.),30.);",
@@ -157,23 +199,38 @@
     " float a=0.;",
     " if(r<R*1.01){",
     "  vec2 q=d/R;float z=sqrt(max(0.,1.-dot(q,q)));vec3 n=vec3(q,z);",
+    "  // looking into the glass: plasma at two depths, the deeper one smaller and slower (parallax)",
     "  vec2 s=q*(1.9/(.45+z))+vec2(t*.09,-t*.05);",
+    "  vec2 s2=q*(1.2/(.3+z))+vec2(-t*.05,t*.03);",
     "  float plasma=fbm(s*1.3+vec2(t*.07,0.),OCT);",
+    "  float deepP=fbm(s2*1.6+7.,3.);",
     "  float fil=fbm(s*1.9-vec2(t*.15,t*.1),4.);",
     "  float fil2=fbm(s*3.3+vec2(t*.08,t*.19)+3.,4.);",
     "  float veins=pow(1.-abs(fil*2.-1.),18.)+pow(1.-abs(fil2*2.-1.),26.)*.55;",
-    "  vec3 deep=mix(c3*.10,c1*.16,plasma);",
+    "  vec3 deep=mix(c3*.08,c1*.14,plasma)+mix(c1,c3,deepP)*smoothstep(.45,.8,deepP)*.18*(1.-z*.4);",
     "  vec3 inner=deep+mix(c1,c3,.55)*smoothstep(.45,.85,plasma)*.45;",
     "  float core=exp(-dot(q,q)*3.)*(.25+bass*.55+energy*.2);",
     "  vec3 body=inner*(.55+.45*z)+mix(c3,c2,.5)*core*.5;",
-    "  body+=mix(c2,mix(c3,vec3(1.),.3),smoothstep(.4,.7,fil2))*veins*(.9+beat*1.1+high*.6)*(.55+.45*z);",
+    "  // the snare floods the veins with the accent colour",
+    "  vec3 veinC=mix(mix(c2,mix(c3,vec3(1.),.3),smoothstep(.4,.7,fil2)),c3*1.3,snare*.7);",
+    "  body+=veinC*veins*(.9+beat*1.1+high*.6+snare*.8)*(.55+.45*z);",
+    "  // the glass shell: fresnel rim, a reflection of the room's colours, a sharp highlight",
     "  float fres=pow(1.-z,2.6);",
-    "  body+=mix(c2,c3,.35+.25*sin(ang*2.+t*.3))*fres*1.35;",
-    "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),48.)*.45;",
+    "  vec3 rn=reflect(vec3(0.,0.,-1.),n);",
+    "  vec3 env=mix(c3*.6,c1*.9,smoothstep(-.6,.8,rn.y))*(.6+.4*smoothstep(-.2,.9,rn.x));",
+    "  body+=env*fres*.9+mix(c2,c3,.35+.25*sin(ang*2.+t*.3))*fres*.7;",
+    "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),60.)*.6;",
+    "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),9.)*.06;",
     "  body+=c3*pow(max(dot(n,normalize(vec3(.55,-.6,.55))),0.),5.)*.16;",
+    "  // hi-hats: tiny glints across the surface",
+    "  vec2 gq=q*14.+floor(t*8.);float gh=hash1(floor(gq));",
+    "  body+=vec3(1.)*step(.96,gh)*exp(-dot(fract(gq)-.5,fract(gq)-.5)*18.)*hat*.8*z;",
     "  a=smoothstep(1.,.97,length(q));",
     "  col=mix(col,body,a);",
     " }",
+    " // the rings in front of the orb",
+    " if(ra.y>=0.)col+=ringLight(ra,t,0.);",
+    " if(rb.y>=0.)col+=ringLight(rb,t,1.)*.85;",
     " return vec4(col,a);",
     "}",
     "// ---------- ENERGY FLOW: LIVING ENERGY FIELD ----------",
@@ -236,12 +293,12 @@
     " float N=48.,ab=a/6.28319*N,id=floor(ab),f=fract(ab)-.5;",
     " vec2 h=hash2(vec2(id,9.3));",
     " f+=(h.y-.5)*.55;",
-    " float len=(.16+h.x*h.x*2.2)*pw*(1.-exp(-ag*2.3))*1.4;",
+    " float len=(.16+h.x*h.x*2.)*pw*(1.-exp(-ag*2.3))*1.3;",
     " float taper=smoothstep(len,len*.03,r)*smoothstep(.0,.05,r);",
     " float core=exp(-f*f*(320.+h.y*600.)),halo=exp(-f*f*(30.+h.x*55.));",
-    " float st=step(.38,h.x)*taper*(.3+h.y*1.2);",
-    " o+=mix(flowPal(h.y*.9+.08),vec3(1.),.3)*halo*st*pw*fade*.7;",
-    " o+=mix(flowPal(h.y*.9+.08),vec3(1.),.8)*core*st*pw*fade*1.5;",
+    " float st=step(.55,h.x)*taper*(.3+h.y*1.2);",
+    " o+=flowPal(h.y*.9+.08)*halo*st*pw*fade*.55;",
+    " o+=mix(flowPal(h.y*.9+.08),vec3(1.),.45)*core*st*pw*fade*1.05;",
     " // Thousands of luminous particles thrown outward, decelerating as the blast spends itself.",
     " float travel=(1.-exp(-ag*1.45))/1.45;",
     " for(int i=0;i<3;i++){float fi=float(i);",
@@ -268,9 +325,14 @@
     " float R=max(.08,.22+bass*.26+energy*.1+build*.12+beat*.05+surge*.05-recoil*.14);",
     " float rr=length(p),a=atan(p.y,p.x);",
     " vec3 col=vec3(.003,.002,.011);",
+    " // far behind: fine dust drifting slowly outward in two depths, so the field floats in space",
+    " for(int L=0;L<2;L++){float fl=float(L);float sc=34.+fl*30.;",
+    "  vec2 dq=p*sc*(1.+fract(t*(.012+fl*.01))*.0)+vec2(t*(.08+fl*.05),-t*.03);vec2 did=floor(dq);vec2 dh=hash2(did+fl*9.);",
+    "  vec2 df=fract(dq)-.5-(dh-.5)*.7;float dd=step(.86,dh.x)*exp(-dot(df,df)*(40.+fl*30.));",
+    "  col+=flowPal(dh.y)*dd*(.12+high*.25+hat*.3)*(1.-fl*.35);}",
     " col+=livingField(p,t,R)*(1.-burst*.72);",
     " float coreP=.3+bass*.5+beat*.4+burst*.55;",
-    " col+=mix(f1,vec3(1.),.45)*exp(-rr*rr*(66.-bass*24.))*coreP;",
+    " col+=mix(f1,vec3(1.),.22)*exp(-rr*rr*(66.-bass*24.))*coreP*.8;",
     " col+=mix(f4,f3,.45)*exp(-rr*(6.-bass*1.8))*(.05+energy*.1+build*.1);",
     " // One expanding pulse per detected beat, broken up by angle so it never reads as a drawn circle.",
     " float ringN=.55+.45*noiseP(vec2(a/6.28319*7.,t*.3),7.);",
@@ -282,7 +344,11 @@
     " vec2 sid=floor(sg),sh=hash2(sid);",
     " vec2 sf=fract(sg)-.5-(sh-.5)*.7,sd=sf*vec2(2.55,1.);",
     " float spk=step(.985-high*.13,sh.x)*exp(-dot(sd,sd)*30.)*(.2+sh.y*.9);",
-    " col+=mix(flowPal(sh.y*.6+.05),vec3(1.),.55)*spk*(.06+high*1.5)*smoothstep(.02,.25,dot(col,vec3(.3,.5,.2)));",
+    " col+=mix(flowPal(sh.y*.6+.05),vec3(1.),.3)*spk*(.06+high*1.2+hat*.9)*smoothstep(.02,.25,dot(col,vec3(.3,.5,.2)));",
+    " // the snare: a sharp flare of colour through the field's ridges",
+    " col+=flowPal(.62+t*.01)*snare*.35*smoothstep(.05,.4,dot(col,vec3(.3,.5,.2)));",
+    " // keep the colour when the field is loud: a soft knee instead of burning to white",
+    " col=col/(1.+dot(col,vec3(.3,.45,.25))*.55);",
     " if(burst>.001)col+=supernova(p,bAge,bPow);",
     " col*=1.+tStr*exp(-rTap*3.)*.7;",
     " col+=mix(f3,vec3(1.),.5)*tStr*exp(-pow((rTap-tAge*.45)/.07,2.))*.45;",
@@ -659,6 +725,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     gl.uniform1f(glU.build, buildUp); gl.uniform1f(glU.bphase, beatPhase);
     gl.uniform1f(glU.burst, burstEnv); gl.uniform1f(glU.bAge, burstAge); gl.uniform1f(glU.bPow, burstPower);
     gl.uniform1f(glU.recoil, fieldRecoil);
+    gl.uniform1f(glU.snare, Math.min(1, snareEnv)); gl.uniform1f(glU.hat, Math.min(1, hatEnv));
     var c1 = tint(pal[0] || [40, 234, 255], 1), c2 = tint(pal[5] || [231, 251, 255], .95), c3 = tint(pal[2] || [165, 104, 255], 1);
     var flowAccent = tint(pal[3] || [255, 83, 200], 1);
     var c3m = [c3[0] * .55 + flowAccent[0] * .45, c3[1] * .55 + flowAccent[1] * .45, c3[2] * .55 + flowAccent[2] * .45];
@@ -877,7 +944,9 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     try { localStorage.setItem('nexus.party.backdrop', name); } catch (e) {}
   }
   function addOrb(x, y, index) {
-    return { x: x, y: y, vx: rand(-.45, .45), vy: rand(-.4, .4), r: rand(10, 26),
+    // z: depth in the field (0 far, 1 near). Far orbs are smaller, dimmer and drawn first.
+    var z = index % 3 === 0 ? rand(0, .35) : rand(.35, 1);
+    return { x: x, y: y, vx: rand(-.45, .45), vy: rand(-.4, .4), r: rand(10, 24) * (.62 + z * .55), z: z,
       phase: rand(0, 6.28), rate: rand(.0017, .0046), color: index % presets[preset].colors.length,
       waveX: x, waveBase: y, nextImpulse: 0 };
   }
@@ -889,7 +958,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     try { memoryGb = window.Android && Android.deviceMemoryGb ? +Android.deviceMemoryGb() : +(navigator.deviceMemory || 0); } catch (e) {}
     highMemory = memoryGb >= 6; frameInterval = highMemory ? 16 : 32;
     scale = Math.min(window.devicePixelRatio || 1, highMemory ? 1.25 : .76);
-    glScaleMax = highMemory ? .78 : .42; glQuality = highMemory ? 1 : 0;
+    glScaleMax = highMemory ? .78 : .5; glQuality = highMemory ? 1 : 0;
     if (glScale > glScaleMax || !glFrames) glScale = glScaleMax;
     glResize();
     canvas.width = Math.max(1, Math.round(w * scale));
@@ -913,28 +982,58 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
   function paletteRgb(index) { return presetRgb[index % presetRgb.length] || presets[preset].accent; }
+  function mixRgb(a, b, k) { return [Math.round(a[0] + (b[0] - a[0]) * k), Math.round(a[1] + (b[1] - a[1]) * k), Math.round(a[2] + (b[2] - a[2]) * k)]; }
+  function rgba(c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+  // Each orb is a sphere of luminous glass: a soft halo of its own light, a body that glows from deep
+  // inside and darkens toward its edge, a thin bright fresnel rim, a small sharp highlight with a softer
+  // sheen around it, and a faint coloured reflection on the far side. Drawn once per colour and reused.
   function makeSprite(colorIndex) {
     var key = preset + ':' + colorIndex;
     if (sprites[key]) return sprites[key];
-    var side = 160, off = document.createElement('canvas'); off.width = side; off.height = side;
-    var g = off.getContext('2d'), col = presets[preset].colors[colorIndex % presets[preset].colors.length], rgb = hexRgb(col);
-    var aura = g.createRadialGradient(80, 80, 17, 80, 80, 76);
-    aura.addColorStop(0, 'rgba(' + rgb.join(',') + ',.05)'); aura.addColorStop(.48, 'rgba(' + rgb.join(',') + ',.25)'); aura.addColorStop(1, 'rgba(' + rgb.join(',') + ',0)');
-    g.fillStyle = aura; g.fillRect(0, 0, side, side);
-    var body = g.createRadialGradient(58, 52, 2, 80, 80, 48);
-    body.addColorStop(0, '#ffffff'); body.addColorStop(.12, 'rgba(255,255,255,.96)');
-    body.addColorStop(.24, col); body.addColorStop(.5, 'rgba(' + rgb.join(',') + ',.88)');
-    body.addColorStop(.76, 'rgba(' + rgb.join(',') + ',.42)'); body.addColorStop(1, 'rgba(' + rgb.join(',') + ',0)');
-    g.fillStyle = body; g.beginPath(); g.arc(80, 80, 51, 0, Math.PI * 2); g.fill();
-    g.save(); g.beginPath(); g.arc(80, 80, 39, 0, Math.PI * 2); g.clip();
-    var core = g.createRadialGradient(66, 63, 1, 80, 80, 31);
-    core.addColorStop(0, 'rgba(255,255,255,.98)'); core.addColorStop(.22, 'rgba(255,255,255,.74)');
-    core.addColorStop(.55, 'rgba(' + rgb.join(',') + ',.3)'); core.addColorStop(1, 'rgba(' + rgb.join(',') + ',0)');
-    g.fillStyle = core; g.fillRect(40, 40, 80, 80);
-    g.globalCompositeOperation = 'screen';
-    for (var a = 0; a < 3; a++) { g.beginPath(); g.ellipse(80, 80, 23 + a * 6, 9 + a * 3, -.52 + a * .45, .15, Math.PI * 1.62); g.strokeStyle = 'rgba(255,255,255,' + (.42 - a * .1) + ')'; g.lineWidth = a ? 1.1 : 1.6; g.stroke(); }
-    for (var d = 0; d < 4; d++) { var ang = d * Math.PI / 2 + .28; g.beginPath(); g.arc(80 + Math.cos(ang) * 31, 80 + Math.sin(ang) * 31, 1.8, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,.85)'; g.fill(); }
+    var side = 192, c = 96, R = 52, off = document.createElement('canvas'); off.width = side; off.height = side;
+    var g = off.getContext('2d'), rgb = hexRgb(presets[preset].colors[colorIndex % presets[preset].colors.length]);
+    // a near-white orb becomes pearl: its depth and rim take the palette's accent instead of grey
+    if (Math.min(rgb[0], rgb[1], rgb[2]) > 200) rgb = mixRgb(rgb, presets[preset].accent, .35);
+    var light = mixRgb(rgb, [255, 255, 255], .55), deep = mixRgb(rgb, [0, 0, 8], .62), white = [255, 255, 255];
+    var halo = g.createRadialGradient(c, c, R * .7, c, c, c);
+    halo.addColorStop(0, rgba(light, .45)); halo.addColorStop(.3, rgba(rgb, .16)); halo.addColorStop(1, rgba(rgb, 0));
+    g.fillStyle = halo; g.fillRect(0, 0, side, side);
+    // body: light scattering inside the glass, brightest a little below centre
+    var body = g.createRadialGradient(c + 4, c + 9, 2, c, c, R);
+    body.addColorStop(0, rgba(mixRgb(light, white, .35), 1)); body.addColorStop(.28, rgba(light, .98));
+    body.addColorStop(.62, rgba(rgb, .95)); body.addColorStop(.86, rgba(mixRgb(rgb, deep, .5), .95)); body.addColorStop(1, rgba(rgb, .85));
+    g.fillStyle = body; g.beginPath(); g.arc(c, c, R, 0, Math.PI * 2); g.fill();
+    g.save(); g.beginPath(); g.arc(c, c, R, 0, Math.PI * 2); g.clip();
+    // fresnel: the edge of the glass catches the light all the way round
+    var rim = g.createRadialGradient(c, c, R * .78, c, c, R);
+    rim.addColorStop(0, rgba(light, 0)); rim.addColorStop(.82, rgba(light, .28)); rim.addColorStop(.96, rgba(mixRgb(light, white, .5), .75)); rim.addColorStop(1, rgba(light, .2));
+    g.fillStyle = rim; g.fillRect(c - R, c - R, R * 2, R * 2);
+    // a faint coloured reflection along the lower right
+    var refl = g.createRadialGradient(c + R * .5, c + R * .55, 2, c + R * .5, c + R * .55, R * .55);
+    refl.addColorStop(0, rgba(mixRgb(rgb, white, .3), .35)); refl.addColorStop(1, rgba(rgb, 0));
+    g.fillStyle = refl; g.fillRect(c - R, c - R, R * 2, R * 2);
+    // the sheen and the sharp highlight of a light above and to the left
+    g.globalCompositeOperation = 'lighter';
+    var sheen = g.createRadialGradient(c - R * .3, c - R * .38, 1, c - R * .3, c - R * .38, R * .62);
+    sheen.addColorStop(0, rgba(white, .45)); sheen.addColorStop(1, rgba(white, 0));
+    g.fillStyle = sheen; g.fillRect(c - R, c - R, R * 2, R * 2);
+    g.translate(c - R * .36, c - R * .44); g.rotate(-.6); g.scale(1, .55);
+    var spec = g.createRadialGradient(0, 0, 0, 0, 0, R * .2);
+    spec.addColorStop(0, rgba(white, .95)); spec.addColorStop(.5, rgba(white, .5)); spec.addColorStop(1, rgba(white, 0));
+    g.fillStyle = spec; g.beginPath(); g.arc(0, 0, R * .2, 0, Math.PI * 2); g.fill();
     g.restore();
+    sprites[key] = off;
+    return off;
+  }
+  // a soft additive core that flares inside an orb on the beat
+  function coreSprite(colorIndex) {
+    var key = 'core:' + preset + ':' + colorIndex;
+    if (sprites[key]) return sprites[key];
+    var side = 96, off = document.createElement('canvas'); off.width = side; off.height = side;
+    var g = off.getContext('2d'), rgb = hexRgb(presets[preset].colors[colorIndex % presets[preset].colors.length]);
+    var gr = g.createRadialGradient(48, 48, 0, 48, 48, 48);
+    gr.addColorStop(0, rgba(mixRgb(rgb, [255, 255, 255], .6), .9)); gr.addColorStop(.25, rgba(rgb, .55)); gr.addColorStop(1, rgba(rgb, 0));
+    g.fillStyle = gr; g.fillRect(0, 0, side, side);
     sprites[key] = off;
     return off;
   }
@@ -990,6 +1089,10 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     midLevel += (inputMid - midLevel) * (inputMid > midLevel ? .3 : .12);
     highLevel += (inputHigh - highLevel) * (inputHigh > highLevel ? .48 : .17);
     beatPulse *= decay;
+    snareEnv *= Math.exp(-dt / 150); hatEnv *= Math.exp(-dt / 90);
+    // with the six-band feed, the mids and highs come from it (finer than the three-band meter)
+    if (now - detailAt < 600) { inputMid = Math.max(inputMid * .5, detailMid); inputHigh = Math.max(inputHigh * .5, detailHigh); }
+    hookDetail();
     if (now - lastAudioSample > 900) { inputEnergy = .08; inputBass = inputMid = inputHigh = 0; }
     for (var i = 0; i < orbs.length; i++) {
       var o = orbs[i];
@@ -1109,8 +1212,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
         var rr = radius * wave, px = Math.cos(ang) * rr, py = Math.sin(ang) * rr;
         if (!s) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
-      ctx.closePath(); ctx.strokeStyle = 'rgba(' + rgb.join(',') + ',' + (.075 + energy * .028 + beatPulse * .055) + ')'; ctx.lineWidth = 4 + bassLevel * 2; ctx.stroke();
-      ctx.strokeStyle = 'rgba(' + rgb.join(',') + ',' + (.2 + energy * .11 + beatPulse * .2) + ')'; ctx.lineWidth = .7 + highLevel * .45; ctx.stroke();
+      ctx.closePath(); ctx.strokeStyle = 'rgba(' + rgb.join(',') + ',' + (.04 + energy * .02 + beatPulse * .04) + ')'; ctx.lineWidth = 5 + bassLevel * 3; ctx.stroke();
+      ctx.strokeStyle = 'rgba(' + rgb.join(',') + ',' + (.09 + energy * .06 + beatPulse * .12) + ')'; ctx.lineWidth = .6 + highLevel * .4; ctx.stroke();
       var marker = t * (.22 + r * .018) + r * 1.73, mx = Math.cos(marker) * radius, my = Math.sin(marker) * radius;
       ctx.beginPath(); ctx.arc(mx, my, 1.4 + highLevel * 1.8 + beatPulse * 1.5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(238,249,255,' + (.48 + highLevel * .35) + ')'; ctx.fill();
       ctx.restore();
@@ -1125,7 +1228,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
         if (!x) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
       }
       var col = paletteRgb(th + 2);
-      ctx.strokeStyle = 'rgba(' + col.join(',') + ',' + (.07 + midLevel * .12 + musicLevel * .035) + ')'; ctx.lineWidth = 1 + midLevel * 1.1; ctx.stroke();
+      ctx.strokeStyle = 'rgba(' + col.join(',') + ',' + (.035 + midLevel * .07 + musicLevel * .02) + ')'; ctx.lineWidth = 1 + midLevel * 1.4; ctx.stroke();
     }
     for (var p = 0; p < particles.length; p++) {
       var dust = particles[p], color = paletteRgb(dust.color), alpha = dust.burst ? dust.life * .9 : (.18 + highLevel * .42) * dust.life;
@@ -1157,38 +1260,52 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       if (dist > maxDist || dist < 1) continue;
       connectionCounts[a]++; connectionCounts[b]++;
       var strength = (1 - dist / maxDist) * (.18 + musicLevel * .18 + bassLevel * .35 + beatPulse * .18), bend = Math.sin(now * .0014 + a * 1.7 + b) * Math.min(34, dist * .12), nx = -dy / dist, ny = dx / dist;
+      // a filament of energy between the two orbs, coloured from one to the other, fading with distance
+      var ca0 = paletteRgb(oa.color), cb0 = paletteRgb(ob.color), fg = ctx.createLinearGradient(oa.x, oa.y, ob.x, ob.y);
+      var depthK = .55 + .45 * Math.min(oa.z, ob.z);
+      fg.addColorStop(0, rgba(ca0, strength * .55 * depthK)); fg.addColorStop(.5, rgba(mixRgb(ca0, cb0, .5), strength * .2 * depthK)); fg.addColorStop(1, rgba(cb0, strength * .55 * depthK));
       ctx.beginPath(); ctx.moveTo(oa.x, oa.y); ctx.quadraticCurveTo((oa.x + ob.x) * .5 + nx * bend, (oa.y + ob.y) * .5 + ny * bend, ob.x, ob.y);
-      ctx.strokeStyle = accent(strength * .32); ctx.lineWidth = 3 + bassLevel * 2; ctx.stroke();
-      ctx.strokeStyle = 'rgba(224,248,255,' + (strength * .72) + ')'; ctx.lineWidth = .65 + highLevel * .55; ctx.setLineDash(lineDash); ctx.lineDashOffset = -now * .035;
-      ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = fg; ctx.lineWidth = 2.6 + bassLevel * 2.4; ctx.globalAlpha = .45; ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = .7 + highLevel * .5; ctx.stroke();
       var travel = (now * (.00028 + musicLevel * .00018) + a * .17 + b * .09) % 1, inv = 1 - travel;
       var lx = inv * inv * oa.x + 2 * inv * travel * ((oa.x + ob.x) * .5 + nx * bend) + travel * travel * ob.x;
       var ly = inv * inv * oa.y + 2 * inv * travel * ((oa.y + ob.y) * .5 + ny * bend) + travel * travel * ob.y;
       var ca = paletteRgb(oa.color), cb = paletteRgb(ob.color), cr = Math.round(ca[0] * inv + cb[0] * travel), cg = Math.round(ca[1] * inv + cb[1] * travel), cbv = Math.round(ca[2] * inv + cb[2] * travel);
-      ctx.beginPath(); ctx.arc(lx, ly, 1.3 + bassLevel * 1.5, 0, Math.PI * 2); ctx.fillStyle = 'rgba(' + cr + ',' + cg + ',' + cbv + ',' + strength + ')'; ctx.fill();
+      var sr = 2.2 + bassLevel * 2 + beatPulse * 1.5, sg = ctx.createRadialGradient(lx, ly, 0, lx, ly, sr * 2.4);
+      sg.addColorStop(0, 'rgba(255,255,255,' + Math.min(1, strength * 1.4) + ')'); sg.addColorStop(.3, 'rgba(' + cr + ',' + cg + ',' + cbv + ',' + strength + ')'); sg.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cbv + ',0)');
+      ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(lx, ly, sr * 2.4, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }
+  var orbOrder = [];
   function drawOrbs(now) {
-    ctx.save(); ctx.globalCompositeOperation = 'screen';
-    for (var i = 0; i < orbs.length; i++) {
-      var o = orbs[i], r = orbScale(o, now, i), sprite = makeSprite(o.color), rgb = paletteRgb(o.color);
-      var glow = clamp(.78 + musicLevel * .15 + bassLevel * .19 + beatPulse * .28 + (o.reaction || 0) * .3 + (o.flash || 0) * .4 + (o.charge || 0) * .24, .6, 1.55);
-      ctx.globalAlpha = glow; ctx.drawImage(sprite, o.x - r * 1.52, o.y - r * 1.52, r * 3.04, r * 3.04);
-      ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(now * (.00017 + i * .000006) * (i % 2 ? -1 : 1));
-      ctx.beginPath(); ctx.ellipse(0, 0, r * (1.42 + (o.charge || 0) * .5), r * (.72 + (o.charge || 0) * .24), .1 * Math.sin(o.phase), -.35, Math.PI * 1.52);
-      ctx.strokeStyle = 'rgba(' + rgb.join(',') + ',' + (.25 + musicLevel * .12 + (o.charge || 0) * .28) + ')'; ctx.lineWidth = .8 + (o.charge || 0) * 1.6; ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(0, 0, r * 1.78, r * .51, -.35, .25, Math.PI * 1.76);
-      ctx.strokeStyle = 'rgba(229,246,255,' + (.12 + highLevel * .18 + beatPulse * .13) + ')'; ctx.lineWidth = .65; ctx.stroke();
-      var dotA = now * .001 + o.phase, dx = Math.cos(dotA) * r * 1.42, dy = Math.sin(dotA) * r * .72;
-      ctx.beginPath(); ctx.arc(dx, dy, 1.1 + highLevel * 1.5, 0, Math.PI * 2); ctx.fillStyle = '#f5fdff'; ctx.fill();
-      if (o.charge > .02) {
-        ctx.beginPath(); ctx.arc(0, 0, r * (2.2 + o.charge * 1.7), 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(' + rgb.join(',') + ',' + (o.charge * .34) + ')'; ctx.lineWidth = 1.2 + o.charge * 2.2; ctx.stroke();
+    if (orbOrder.length !== orbs.length) { orbOrder = orbs.slice(); }
+    orbOrder.sort(function (a, b) { return a.z - b.z; });
+    ctx.save();
+    for (var k = 0; k < orbOrder.length; k++) {
+      var o = orbOrder[k], i = orbs.indexOf(o), r = orbScale(o, now, i), sprite = makeSprite(o.color), rgb = paletteRgb(o.color);
+      // far orbs sit back in the haze; near ones are full strength
+      var depth = .55 + .45 * o.z;
+      var glow = clamp(.82 + musicLevel * .1 + bassLevel * .12 + (o.reaction || 0) * .25 + (o.flash || 0) * .3 + (o.charge || 0) * .2, .6, 1.3);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = Math.min(1, glow * depth);
+      ctx.drawImage(sprite, o.x - r * 1.85, o.y - r * 1.85, r * 3.7, r * 3.7);
+      // the energy inside flares on the kick, on its own snare flash and when touched
+      var flare = beatPulse * .45 * (.5 + o.z * .5) + (o.flash || 0) * .7 + (o.spark || 0) + (o.charge || 0) * .5;
+      if (flare > .03) {
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(1, flare) * depth;
+        var cr = r * (1.1 + flare * .5);
+        ctx.drawImage(coreSprite(o.color), o.x - cr, o.y - cr, cr * 2, cr * 2);
       }
-      ctx.restore();
+      if (o.charge > .02) {
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 1;
+        var rr = r * (2.1 + o.charge * 1.6), ring = ctx.createRadialGradient(o.x, o.y, rr * .82, o.x, o.y, rr);
+        ring.addColorStop(0, rgba(rgb, 0)); ring.addColorStop(.85, rgba(rgb, o.charge * .32)); ring.addColorStop(1, rgba(rgb, 0));
+        ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(o.x, o.y, rr, 0, Math.PI * 2); ctx.fill();
+      }
+      o.spark = Math.max(0, (o.spark || 0) * .86);
     }
-    ctx.restore(); ctx.globalAlpha = 1;
+    ctx.restore(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   }
   function drawTrails() {
     ctx.save(); ctx.globalCompositeOperation = 'screen';
@@ -1390,6 +1507,30 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       }
       bassEnvelope = bassEnvelope * .9 + bass * .1;
     };
+    // ---- six-band detail (Nexus._meter6, ~30 a second while Party asks for it): the snare and the
+    // hi-hats as their own events, each found as a jump in its band against that band's own recent level.
+    var d6 = { lvl: [.02, .02], jump: [.05, .05], prev: [0, 0], last: [0, 0] };
+    var feedDetail = function (v) {
+      if (!active) return;
+      var now = performance.now();
+      detailAt = now;
+      var bands = [(+v[2] || 0) * .4 + (+v[3] || 0) * .6, (+v[4] || 0) * .55 + (+v[5] || 0) * .45], gaps = [170, 85];
+      for (var k = 0; k < 2; k++) {
+        var x = bands[k], d = Math.max(0, x - d6.prev[k]) / (d6.lvl[k] + 1e-3); d6.prev[k] = x;
+        var hit = d > d6.jump[k] * 2.2 + .35 && x > d6.lvl[k] * 1.12 && now - d6.last[k] > gaps[k];
+        d6.jump[k] += (d - d6.jump[k]) * .06; d6.lvl[k] += (x - d6.lvl[k]) * .05;
+        if (hit) { d6.last[k] = now; if (k === 0) onSnare(clamp(.5 + d * .4, .5, 1)); else onHat(clamp(.5 + d * .4, .5, 1)); }
+      }
+      detailMid = clamp(((+v[2] || 0) + (+v[3] || 0)) * 9, 0, 1.3); detailHigh = clamp(((+v[4] || 0) + (+v[5] || 0)) * 14, 0, 1.3);
+    };
+    // keeps Party on the six-band feed even if another part of Nexus installs its own handler later
+    hookDetail = function () {
+      var cur = Nexus._meter6;
+      if (cur && cur.__party) return;
+      var prev = cur, f = function (a, b, c, d, e, g) { if (prev) prev(a, b, c, d, e, g); feedDetail([a, b, c, d, e, g]); };
+      f.__party = true; Nexus._meter6 = f;
+    };
+    hookDetail();
     var oldSource = Nexus._meterSource;
     Nexus._meterSource = function (source) {
       audioSource = source === 'music' ? 'frequency' : source === 'mic' ? 'microphone' : 'fallback';
@@ -1413,6 +1554,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     buildUp = 0; beatPhase = 1; beatConfidence = 0; burstPower = 0; burstEnv = 0; burstAge = 9; fieldRecoil = 0;
     bassFast = 0; bassSlow = .01; bassPeak = .02; energyFast = energySlow = .08; highFast = highSlow = 0;
     lastAudioSample = 0; lastBeatAt = lastBurstAt = lastDropAt = lastQuietAt = performance.now();
+    try { if (window.Android && Android.meterDetail) Android.meterDetail(true); } catch (e) {}
+    snareEnv = hatEnv = 0;
     classicWeight = backdrop === 'classic' && experience === 'orb' ? 1 : 0;
     glInit();
     var token = runId;
@@ -1420,15 +1563,29 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(mediaTick, 2500);
     updateMedia();
+    wakeUi();
   }
   function stop() {
     active = false; runId++;
     if (raf) cancelAnimationFrame(raf); raf = 0;
     if (pollTimer) clearInterval(pollTimer); pollTimer = 0;
+    clearTimeout(idleTimer); if (root.classList.contains('party-idle')) root.classList.remove('party-idle');
     selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0; inkG = null; inkTwist.on = false;
+    try { if (window.Android && Android.meterDetail) Android.meterDetail(false); } catch (e) {}
     ctx.clearRect(0, 0, w, h);
     glDestroy();
   }
+  // The controls fade out after a few seconds without a touch, leaving only the visuals; any touch on
+  // Party Mode brings them back (and still reaches the field underneath).
+  var idleTimer = 0;
+  // (the class is only touched when it changes: any write to it wakes the visibility observer)
+  function wakeUi() {
+    if (root.classList.contains('party-idle')) root.classList.remove('party-idle');
+    clearTimeout(idleTimer);
+    if (active) idleTimer = setTimeout(function () { if (active && !root.classList.contains('party-idle')) root.classList.add('party-idle'); }, 6000);
+  }
+  root.addEventListener('pointerdown', wakeUi, true);
+  root.addEventListener('keydown', wakeUi, true);
   function syncVisibility() {
     if (document.hidden || root.classList.contains('hidden')) stop();
     else start();
@@ -1450,6 +1607,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active, variant: glVariant,
       build: buildUp, beatPhase: beatPhase, beatPeriod: beatPeriod, beatConfidence: beatConfidence, burst: burstEnv, burstPower: burstPower, burstAge: burstAge, burstCount: burstCount, recoil: fieldRecoil,
       bassFast: bassFast, bassSlow: bassSlow, energyFast: energyFast, energySlow: energySlow,
+      music: { bass: bassLevel, mid: midLevel, high: highLevel, energy: musicLevel, beat: beatPulse, snare: snareEnv, hat: hatEnv, snareHits: snareHits, hatHits: hatHits, detail: performance.now() - detailAt < 600 },
       ink: { mix: inkMix, failed: inkFailed, frames: inkFrames, t: inkT, swirl: inkSwirl, blast: blastEnv, blastCount: inkBlastCount, palette: preset,
         gestures: { burst: inkGestures.burst, twist: inkGestures.twist, drag: inkGestures.drag, splash: inkGestures.splash, inject: inkGestures.inject },
         twist: { on: inkTwist.on, str: inkTwist.str, wind: inkTwist.wind }, injected: Math.max(inkInj[0].amt, inkInj[1].amt),

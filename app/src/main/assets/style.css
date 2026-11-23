@@ -369,6 +369,54 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
  .party-backdrops>span { display:none; }
  .party-backdrop { padding:.5vh .55vw; }
 }
+/* ---------- Party Mode: premium deck layout ----------
+   The visuals own the middle of the screen. Experiences sit in a rail on the left, backgrounds in a
+   rail on the right (Orb Experience), the visual modes float low in the centre, colour and actions stay
+   in the dock. Everything is frosted glass; after a few seconds without a touch the controls fade away
+   (#party.party-idle) and the next touch brings them back. */
+#party .party-header { background:linear-gradient(180deg,rgba(9,14,24,.72),rgba(6,10,18,.55));border-color:rgba(190,220,255,.10);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1.2vh 3vh rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.05); }
+#party .party-shell > *, #party .party-center > * { transition:opacity .6s ease, transform .6s ease; }
+#party .party-center { position:absolute;inset:0;top:0;pointer-events:none; }
+#party #pTitle { display:none; }
+#party #pHint { position:absolute;left:0;right:0;bottom:calc(2.2vh + 7.5vh + 7.6vh);margin:0;text-align:center;
+  color:rgba(200,225,245,.55);font:600 clamp(9px,1.05vmin,12px) monospace;letter-spacing:.22vmin; }
+/* left rail: the three experiences, stacked */
+#party .party-experiences { position:absolute;left:2.4vw;top:50%;transform:translateY(-50%);margin:0;display:flex;flex-direction:column;gap:.9vh;
+  padding:.8vh;border-radius:2.2vmin;background:rgba(6,10,18,.55);border:1px solid rgba(190,220,255,.10);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1vh 3vh rgba(0,0,0,.35); }
+#party .party-experience { flex-direction:column;gap:.5vh;min-width:0;width:12.5vw;min-height:11.5vh;padding:1.2vh .6vw;border-radius:1.6vmin;
+  font-size:clamp(9px,1.15vmin,13px)!important;letter-spacing:.16vmin;text-align:center;line-height:1.25; }
+#party .party-experience b { font-size:3.6vmin;line-height:1;opacity:.8;transition:transform .35s,opacity .35s; }
+#party .party-experience:active { transform:scale(.96); }
+#party .party-experience.active b { transform:scale(1.08); }
+/* centre-bottom: the visual modes as one glass pill bar */
+#party .party-modes { position:absolute;left:50%;bottom:calc(2.2vh + 7.5vh + 1.6vh);transform:translateX(-50%);margin:0;gap:.3vw;padding:.55vh .45vw;
+  border-radius:99px;background:rgba(6,10,18,.55);border:1px solid rgba(190,220,255,.10);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px); }
+#party .party-mode { min-width:7.2vw;border-color:transparent;background:transparent; }
+#party .party-mode.active { background:linear-gradient(120deg,rgba(var(--party-rgb),.30),rgba(176,92,255,.18)); }
+/* right rail: backgrounds, each with its swatch */
+#party .party-backdrops { position:absolute;right:2.4vw;top:50%;transform:translateY(-50%);margin:0;flex-direction:column;align-items:stretch;gap:.7vh;
+  padding:.9vh .6vw;border-radius:2.2vmin;background:rgba(6,10,18,.55);border:1px solid rgba(190,220,255,.10);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 1vh 3vh rgba(0,0,0,.35); }
+#party .party-backdrops>span { display:block;margin:0 0 .3vh;text-align:center; }
+#party .party-backdrop { justify-content:flex-start;width:15vw;padding:.9vh .8vw;border-color:transparent;background:transparent;border-radius:1.2vmin; }
+#party .party-backdrop i { width:2.4vmin;height:2.4vmin; }
+#party .party-flow-caption, #party .party-ink-caption { position:absolute;left:0;right:0;bottom:calc(2.2vh + 7.5vh + 2.4vh);margin:0;text-align:center; }
+#party .party-atmospheres, #party .party-actions { background:rgba(6,10,18,.55);border-color:rgba(190,220,255,.10);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px); }
+#party .party-preset, #party .party-action { transition:background .3s,color .3s,border-color .3s,box-shadow .3s,transform .15s; }
+#party .party-preset:active, #party .party-mode:active, #party .party-backdrop:active { transform:scale(.95); }
+/* idle: the controls fade away and leave only the visuals */
+#party.party-idle .party-header, #party.party-idle .party-dock, #party.party-idle .party-experiences, #party.party-idle .party-modes,
+#party.party-idle .party-backdrops, #party.party-idle #pHint, #party.party-idle .party-flow-caption, #party.party-idle .party-ink-caption { opacity:0;pointer-events:none!important; }
+#party.party-idle .party-shell button { pointer-events:none!important; }
+#party.party-idle .party-experiences { transform:translate(-2vw,-50%); }
+#party.party-idle .party-backdrops { transform:translate(2vw,-50%); }
+@media (max-width:700px) {
+ #party .party-experience { width:15vw; }
+ #party .party-backdrop { width:17vw; }
+}
+
 /* ---------- Experiences ---------- */
 #xp { background: #000; overflow: hidden; }
 #xpc { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }

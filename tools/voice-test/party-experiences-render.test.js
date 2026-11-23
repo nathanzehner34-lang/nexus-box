@@ -196,7 +196,7 @@ const app2 = await runLive('app-2gb', appPage(bridge + 'window.__mem=2;Object.de
 assert.deepStrictEqual(app2.errors, [], 'no page errors');
 assert(app2.open && app2.f0 >= 3 && app2.s0.gl, 'Party opens with the GL scene running');
 assert.strictEqual(app2.s0.experience, 'orb'); assert.strictEqual(app2.s0.backdrop, 'classic');
-assert(Math.abs(app2.s0.glScale - .42) < .001 && app2.s0.quality === 0, 'X3 (2 GB) tier: GL scale .42, quality 0');
+assert(Math.abs(app2.s0.glScale - .5) < .001 && app2.s0.quality === 0, 'X3 (2 GB) tier: GL scale .5 (lowered automatically if frames run long), quality 0');
 assert.deepStrictEqual(app2.selector.exp, [['orb', 'true', true], ['flow', 'false', true], ['ink', 'false', true]], 'experience selector shows a clear selected state');
 assert(app2.selector.backdropsVisible && app2.selector.modesVisible, 'background chips and modes are shown in the Orb Experience');
 for (const b of ['smoke', 'aurora', 'deep', 'iridescent', 'classic']) {
