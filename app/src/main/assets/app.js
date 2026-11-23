@@ -1541,10 +1541,9 @@
   };
   // The Visuals collection: five procedural, music-reactive experiences (rendered in experiences.js).
   var VISUALS = [
-    ['clip_mix', '🎬', 'CINEMATIC MIX', 'Every scene, cut to the beat', 'Cinematic Mix'],
+    ['clip_mix', '🎬', 'CINEMATIC MIX', 'Every scene, flowing into the next', 'Cinematic Mix'],
     ['clip_coins', '🪙', 'COIN AVALANCHE', 'An endless storm of gold', 'Coin Avalanche'],
     ['clip_skulls', '💀', 'SKULL MOUNTAIN', 'A mountain of golden skulls', 'Skull Mountain'],
-    ['clip_flag', '🔥', 'MOLTEN FLAG', 'Rippling metal, fire bursting through', 'Molten Flag'],
     ['clip_cityfire', '🌆', 'CITY ON FIRE', 'Watching the whole city burn', 'City on Fire'],
     ['clip_inferno', '🔥', 'INFERNO', 'A wall of flame and embers', 'Inferno'],
     ['clip_serpent', '🐍', 'GOLDEN SERPENT', 'A gold snake through scattered coins', 'Golden Serpent'],
@@ -1609,7 +1608,8 @@
   }
 
   // ---- Visuals menu with favourites (★) and Play All / Play Favourites (auto-switches visuals) ----
-  function favList() { return (pref('favVis') || '').split(',').filter(Boolean); }
+  // favourites only ever hold scenes that still exist (a removed scene, like Molten Flag, drops out)
+  function favList() { var ids = VISUALS.map(function (v) { return v[0]; }); return (pref('favVis') || '').split(',').filter(function (k) { return k && ids.indexOf(k) >= 0; }); }
   var PLAYABLE = function () { return visList().filter(function (v) { return v[0] !== 'webcams'; }).map(function (v) { return v[0]; }); };
   var fromVisuals = false, visScroll = 0;
   function backToVisuals() { if (!fromVisuals) return false; fromVisuals = false; setTimeout(function () { openVisuals(); $('panelBody').scrollTop = visScroll; }, 30); return true; }

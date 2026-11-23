@@ -62,6 +62,7 @@ jobs:
           node tools/voice-test/production-visual-upgrade.test.js
           node tools/voice-test/visual-world-packs.test.js
           node tools/voice-test/nexus-visuals.test.js
+          node tools/voice-test/visuals-seamless.test.js
           node tools/voice-test/liquid-dreams-reactivity.test.js
           SOAK_ROUNDS=4 node tools/voice-test/soak-switching.test.js
           node tools/voice-test/liquid-dreams-development.test.js

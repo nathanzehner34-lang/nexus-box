@@ -520,99 +520,85 @@
   var THEMES = {};
 
   // ==================================================================
-  // CINEMATIC CLIPS — film-quality loops by Beeple (free for any use; credited in the menu),
+  // CINEMATIC CLIPS — film-quality footage by Beeple (free for any use; credited in the menu),
   // played full screen and driven by the music:
-  //   kick   -> zoom punch, exposure pulse, colour-split shock, small camera shake
-  //   snare  -> horizontal glitch slices
-  //   hi-hat -> film-grain sparkle
-  //   energy -> playback speed (slow motion when quiet, faster when it builds), contrast and glow
-  //   bars   -> beat-synced cuts between the scene's camera angles (every beat during a build-up)
-  //   drop   -> white flash, instant cut and a big zoom
-  // One video element at a time (the X3 runs out of decoders with two). Each angle plays once to its end
-  // and hands over to the next (no replaying). At every hand-over the last picture is frozen on a canvas
-  // and cross-faded into the new angle once it is really moving, so there is never a black gap.
+  //   kick   -> zoom punch, white flash, small camera shake
+  //   snare  -> horizontal glitch slices and jitter
+  //   hi-hat -> scan-line sparkle
+  //   drop   -> big flash and zoom
+  // Each scene is ONE continuous reel: its camera angles are joined with cross-fades when the app is
+  // built, and the reel's last moment fades into its own first frame, so it loops forever with no
+  // loading, no black and no replaying of a single short shot. Only one video is ever loaded (the X3
+  // runs out of decoders with more) and it never has to load anything mid-scene. When one scene
+  // follows another (Play favourites), the last picture is held and faded into the next scene.
   // ==================================================================
-  var CLIPS = {"coins": ["clips/coins_0.mp4", "clips/coins_1.mp4", "clips/coins_2.mp4", "clips/coins_3.mp4", "clips/coins_4.mp4"], "skulls": ["clips/skulls_0.mp4", "clips/skulls_1.mp4"], "flag": ["clips/flag_0.mp4", "clips/flag_1.mp4"], "cityfire": ["clips/cityfire_0.mp4", "clips/cityfire_1.mp4", "clips/cityfire_2.mp4"], "inferno": ["clips/inferno_0.mp4", "clips/inferno_1.mp4"], "serpent": ["clips/serpent_0.mp4", "clips/serpent_1.mp4", "clips/serpent_2.mp4", "clips/serpent_3.mp4"], "idol": ["clips/idol_0.mp4", "clips/idol_1.mp4"], "frenzy": ["clips/frenzy_0.mp4", "clips/frenzy_1.mp4", "clips/frenzy_2.mp4", "clips/frenzy_3.mp4"], "run": ["clips/run_0.mp4", "clips/run_1.mp4", "clips/run_2.mp4"], "collapse": ["clips/collapse_0.mp4", "clips/collapse_1.mp4", "clips/collapse_2.mp4", "clips/collapse_3.mp4", "clips/collapse_4.mp4"]};
-  var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "flag": "Molten Flag", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
-  var CLIP_ORDER = ["coins", "skulls", "flag", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse"];
-  // The clip plays in a plain <video> element, so Android's hardware decoder draws it straight to the screen
-  // (smooth even on the X3). The music effects are light layers on top: a CSS zoom / shake on the video,
-  // and three overlay sheets (flash, dip, glitch lines). Only ONE video is ever loaded, and it is
-  // released the moment the scene stops: the X3 can only decode a couple of videos at once.
+  var REELS = {"coins": "clips/coins.mp4", "skulls": "clips/skulls.mp4", "cityfire": "clips/cityfire.mp4", "inferno": "clips/inferno.mp4", "serpent": "clips/serpent.mp4", "idol": "clips/idol.mp4", "frenzy": "clips/frenzy.mp4", "run": "clips/run.mp4", "collapse": "clips/collapse.mp4"};
+  var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse"};
+  var CLIP_ORDER = ["coins", "skulls", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse"];
   function makeVideo() {
     var v = document.createElement('video');
-    v.muted = true; v.loop = false; v.playsInline = true; v.preload = 'auto';
-    v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
+    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+    v.setAttribute('muted', ''); v.setAttribute('loop', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
     // Android's WebView shows a grey "play" picture in a video until its first frame is ready.
-    // A see-through poster removes it, and the video stays hidden over black until it is really playing.
+    // A see-through poster removes it, and the video stays hidden until it is really playing.
     v.poster = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     v.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;background:#000;opacity:0';
     return v;
   }
   function sheet(css) { var d = document.createElement('div'); d.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;opacity:0;' + css; return d; }
-  function ClipTheme(id, list, name) { this.id = id; this.name = name; this.list = list; this.video = true; }
+  // the last picture on screen, held over a scene change or the reel's loop point (one small canvas, reused)
+  var carry = null, carryAt = 0;
+  function grab(v) {
+    try {
+      if (!v || v.readyState < 2 || !v.videoWidth) return null;
+      carry = carry || document.createElement('canvas');
+      if (carry.width !== 512) { carry.width = 512; carry.height = 300; }
+      carry.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;opacity:0';
+      carry.style.transform = v.style.transform;
+      carry.getContext('2d').drawImage(v, 0, 0, carry.width, carry.height); carryAt = performance.now();
+      return carry;
+    } catch (e) { carryAt = 0; return null; }
+  }
+  function ClipTheme(id, src, name) { this.id = id; this.name = name; this.src = src; this.video = true; }
   ClipTheme.prototype.init = function () {
     var box = this.box = document.createElement('div');
     box.className = 'nv-clip'; box.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:#000';
     this.v = makeVideo(); box.appendChild(this.v);
-    this.hold = document.createElement('canvas');   // the frozen last picture during a hand-over
-    this.hold.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;pointer-events:none;opacity:0;transition:opacity .28s ease-out';
-    box.appendChild(this.hold);
     this.vig = sheet('opacity:1;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%)'); box.appendChild(this.vig);
     this.dim = sheet('background:#000'); box.appendChild(this.dim);
     this.scan = sheet('background:repeating-linear-gradient(0deg, rgba(255,40,140,0) 0, rgba(255,40,140,0) 7px, rgba(120,230,255,.45) 7px, rgba(120,230,255,.45) 9px)'); box.appendChild(this.scan);
     this.flash = sheet('background:#fff'); box.appendChild(this.flash);
+    // a scene that follows another straight away starts on the previous picture, not on black
+    if (carry && performance.now() - carryAt < 1500) {
+      carry.style.transition = 'none'; carry.style.opacity = '1'; box.insertBefore(carry, this.vig); this.hold = carry;
+    }
     var anchor = $('xpc');
     if (anchor && anchor.parentNode === layer) layer.insertBefore(box, anchor.nextSibling); else layer.appendChild(box);
-    this.idx = 0; this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, dip: 0, sx: 0, sy: 0 }; this.lastCutBar = -1; this.css = {}; this.fails = 0;
+    this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, sx: 0, sy: 0 }; this.css = {}; this.tries = 0; this.err = ''; this.started = false;
     var self = this;
-    this.v.addEventListener('playing', function () {
-      self.err = ''; self.fails = 0; self.shownAt = 0; if (!self.v) return;
-      self.v.style.opacity = '1';
-      // give the decoder a moment to put the new picture on screen, then fade the frozen one away
-      setTimeout(function () { if (self.hold) self.hold.style.opacity = '0'; }, 60);
-    });
-    this.v.addEventListener('ended', function () { if (self.v) self.cut(true); });   // play once, then the next angle
+    var release = function () {   // the moving picture is back: fade the held one away
+      var h = self.hold; if (!h || h.style.opacity === '0') return;
+      setTimeout(function () { if (self.hold === h) { h.style.transition = 'opacity .3s ease-out'; h.style.opacity = '0'; } }, 60);
+    };
+    this.v.addEventListener('playing', function () { self.err = ''; if (!self.v) return; self.v.style.opacity = '1'; release(); });
+    this.v.addEventListener('seeked', function () { if (self.looping) { self.looping = false; release(); } });
     this.v.addEventListener('error', function () {
-      var e = self.v.error; self.err = 'Clip ' + self.list[self.idx] + ' failed (' + (e ? e.code : '?') + ')';
-      if (++self.fails < self.list.length) setTimeout(function () { if (self.v) self.cut(true); }, 400);       // skip a bad angle
+      var e = self.v && self.v.error; self.err = 'Clip ' + self.src + ' failed (' + (e ? e.code : '?') + ')';
+      if (++self.tries < 3) setTimeout(function () { if (self.v) self.load(); }, 600);
     });
-    this.load(this.list[0]);
+    this.load();
   };
-  ClipTheme.prototype.freeze = function () {
-    // copy the picture on screen now onto the hold canvas, so it stays up while the next angle starts
-    var v = this.v, c = this.hold; if (!v || !c || v.readyState < 2 || !v.videoWidth) return false;
-    try {
-      if (c.width !== v.videoWidth || c.height !== v.videoHeight) { c.width = v.videoWidth; c.height = v.videoHeight; }
-      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-      c.style.transition = 'none'; c.style.transform = v.style.transform; c.style.opacity = '1';
-      void c.offsetWidth; c.style.transition = 'opacity .28s ease-out';
-      return true;
-    } catch (e) { return false; }
-  };
-  ClipTheme.prototype.load = function (src) {
-    var v = this.v; this.startAt = 0; this.shownAt = 0;
-    // the frozen last picture covers the switch; only the very first clip starts from black
-    if (!this.freeze()) v.style.opacity = '0';
-    v.src = src; try { v.load(); } catch (e) {}
+  ClipTheme.prototype.load = function () {
+    var v = this.v; this.startAt = 0;
+    v.src = this.src; try { v.load(); } catch (e) {}
     try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
-  };
-  ClipTheme.prototype.ready = function () {
-    // has the current angle been on screen long enough that a new load won't pile up behind it?
-    var v = this.v; if (!v) return false;
-    var playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
-    if (playing && !this.shownAt) this.shownAt = performance.now();
-    return playing && performance.now() - this.shownAt > 1200;
-  };
-  ClipTheme.prototype.cut = function (force) {
-    if (this.list.length < 2) return;
-    if (!force && !this.ready()) return;   // still starting: let it finish instead of reloading again
-    this.idx = (this.idx + 1) % this.list.length;
-    this.load(this.list[this.idx]);
   };
   ClipTheme.prototype.free = function () {
     var v = this.v;
-    if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} }
+    if (v) {
+      grab(v);   // keep the picture on screen now, so a following scene can fade out of it
+      try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+    }
     if (this.box && this.box.parentNode) this.box.parentNode.removeChild(this.box);
     this.v = null; this.box = null; this.hold = null;
   };
@@ -620,44 +606,43 @@
   ClipTheme.prototype.frame = function (dt, t) {
     var m = M, s = dt / 1000, fx = this.fx, v = this.v;
     if (!v) return;
-    // cuts on the beat: every 4 bars (2 when it's busy), straight away on a drop; slow fades when there's no music
-    if (this.list.length > 1) {
-      if (m.live) {
-        var every = m.energy > .45 ? 2 : 4;
-        if (m.drop || (m.kickHit && m.bar !== this.lastCutBar && m.bar % every === 0 && m.frac < .3 && m.bar > 0)) { this.lastCutBar = m.bar; this.cut(); }
-      } else if (t - (this.idleCut || 0) > 12) { this.idleCut = t; this.cut(); }
+    // the loop point: hold the current picture for the instant the reel jumps back to its start
+    // (the reel's end already flows into its start; this only covers a WebView that blanks on the jump)
+    if (!this.looping && v.duration > 1 && v.currentTime > v.duration - .2) {
+      var h = grab(v);
+      if (h) { if (h.parentNode !== this.box) this.box.insertBefore(h, this.vig); h.style.transition = 'none'; h.style.opacity = '1'; this.hold = h; this.looping = true; }
     }
+    if (this.looping && v.currentTime < .5 && v.currentTime > 0 && !v.seeking) { this.looping = false; var hh = this.hold; if (hh) { hh.style.transition = 'opacity .3s ease-out'; hh.style.opacity = '0'; } }
     if (v.paused && !v.ended && v.readyState >= 2) { try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
     // music -> effects
     if (m.kickHit) { fx.zv += 4 * m.strength; fx.sx = (Math.random() - .5) * 8 * m.strength; fx.sy = (Math.random() - .5) * 6 * m.strength; fx.flash = Math.max(fx.flash, .07 * m.strength); }
     if (m.drop) { fx.zv += 4.5; fx.flash = .55; }
     if (m.snareHit) fx.glitch = Math.max(fx.glitch, m.snare);
     fx.zv += (-fx.zoom * 70 - fx.zv * 10) * s; fx.zoom = Math.max(-.02, Math.min(1.6, fx.zoom + fx.zv * s));
-    fx.flash *= Math.exp(-dt / 130); fx.glitch *= Math.exp(-dt / 110); fx.dip *= Math.exp(-dt / 90);
+    fx.flash *= Math.exp(-dt / 130); fx.glitch *= Math.exp(-dt / 110);
     fx.sx *= Math.exp(-dt / 70); fx.sy *= Math.exp(-dt / 70);
     var scale = 1.02 + Math.min(fx.zoom, .5) * .24 + m.dropEnv * .03;     // a kick punches in about 4%, a drop about 8%
     var jx = fx.glitch > .2 ? (Math.random() - .5) * 14 * fx.glitch : 0;
     this.set(v, 'v.transform', 'translate3d(' + (fx.sx + jx).toFixed(1) + 'px,' + fx.sy.toFixed(1) + 'px,0) scale(' + scale.toFixed(3) + ')');
     this.set(this.flash, 'f.opacity', (fx.flash + m.kick * .03).toFixed(2));
     this.set(this.scan, 's.opacity', (fx.glitch * .8 + m.hat * .06).toFixed(2));
-    this.set(this.dim, 'd.opacity', Math.min(.85, fx.dip * .85 + (m.live ? 0 : .18)).toFixed(2));
+    this.set(this.dim, 'd.opacity', (m.live ? 0 : .18).toFixed(2));
     // if nothing plays after a few seconds, say why on screen
     if (!this.startAt) this.startAt = t;
     var note = $('xpMid'), playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
     if (playing) this.started = true;
-    // a slow start is skipped quietly (the next angle usually starts faster); only a real failure is shown
-    if (!playing && t - this.startAt > 8 && this.list.length > 1 && !this.err) { this.startAt = t; this.cut(true); }
+    // a start that stalls is retried quietly; only a real failure is shown
+    if (!playing && t - this.startAt > 8 && !this.err && this.tries < 3) { this.tries++; this.load(); }
     if (note) { var msg = this.started ? '' : (this.err || ''); if (note.textContent !== msg) note.textContent = msg; }
   };
   ClipTheme.prototype.debug = function () {
     var v = this.v || {};
-    return { angle: this.idx, src: this.list[this.idx], ready: v.readyState, playing: !v.paused, time: v.currentTime, zoom: this.fx.zoom, glitch: this.fx.glitch, flash: this.fx.flash, err: this.err || '',
+    return { src: this.src, ready: v.readyState, playing: !v.paused, time: v.currentTime, zoom: this.fx.zoom, glitch: this.fx.glitch, flash: this.fx.flash, err: this.err || '',
       transform: v.style ? v.style.transform : '', videos: document.querySelectorAll('#xp video').length };
   };
-  CLIP_ORDER.forEach(function (k) { THEMES['clip_' + k] = new ClipTheme('clip_' + k, CLIPS[k], CLIP_NAMES[k]); });
-  // the mix: every scene, every angle, cut on the beat
-  (function () { var all = []; var n = 0, more = true; while (more) { more = false; CLIP_ORDER.forEach(function (k) { if (CLIPS[k][n]) { all.push(CLIPS[k][n]); more = true; } }); n++; }
-    THEMES.clip_mix = new ClipTheme('clip_mix', all, 'Cinematic Mix'); })();
+  CLIP_ORDER.forEach(function (k) { THEMES['clip_' + k] = new ClipTheme('clip_' + k, REELS[k], CLIP_NAMES[k]); });
+  // the mix: every angle of every scene, cross-faded into one continuous reel
+  THEMES.clip_mix = new ClipTheme('clip_mix', 'clips/mix.mp4', 'Cinematic Mix');
 
   function mix3(a, b, t) { return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; }
   function scale3(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
@@ -747,6 +732,7 @@
     progs = {}; addBuf = null; addCap = 0; attribsOn = {};
     if (glc) { glc.width = 1; glc.height = 1; }
     if (snap) { snap.width = 1; snap.height = 1; }
+    if (carry) { carry.width = 1; carry.height = 1; carryAt = 0; }
     musicReset(); tStart = 0;
   }
   function stop(quiet) {
