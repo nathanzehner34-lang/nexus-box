@@ -2,6 +2,8 @@
 // The box does the drive work (CinemaLibrary.java: detecting drives, read-only scanning, stills, playback);
 // this file turns the scanned file list into a library: films, shows with seasons and episodes, search,
 // sorting, filters, continue watching and the drive each film lives on. Nothing here can change a drive.
+// Movie and TV information (posters, backgrounds, descriptions, genres, episodes) comes from TMDB through
+// CinemaMeta.java, which saves it all on the box: once downloaded it shows with no internet and no drive.
 (function () {
   'use strict';
   var A = window.Android || {};
@@ -10,7 +12,8 @@
   var S = {
     open: false, drives: [], libs: [], progress: {}, info: {},
     filter: 'all', sort: 'title', query: '', show: null, season: null, detail: null,
-    scan: {}, items: [], shows: {}, rendered: 0, list: [], notice: ''
+    scan: {}, items: [], shows: {}, rendered: 0, list: [], notice: '',
+    meta: {}, metaStatus: {}, wantSig: '', genre: '', fix: null
   };
   var PAGE = 36;
 
@@ -100,7 +103,39 @@
       if (sh.first) items.push(sh);
     });
     S.items = items; S.shows = shows;
+    items.forEach(function (it) { it.key = (it.kind === 'show' ? 't|' : 'm|') + keyName(it.title) + '|' + (it.year || 0); });
+    sendWant();
   }
+  // The key that links a film or show on the drive to its saved information: the title and year read from the
+  // names, so the same film found again (after a rescan, a rename or on another drive) reuses what was saved.
+  function keyName(t) {
+    var x = String(t || '').toLowerCase();
+    try { x = x.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (e) {}
+    return x.replace(/&/g, ' and ').replace(/['’`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim().replace(/^(the|a|an) /, '');
+  }
+  // tell the box which titles exist (it only downloads what it hasn't got yet)
+  function sendWant() {
+    var w = {};
+    S.items.forEach(function (it) {
+      var o = w[it.key] || (w[it.key] = { key: it.key, kind: it.kind === 'show' ? 'tv' : 'movie', title: it.title, year: it.year || 0 });
+      if (it.kind === 'show') { o.seasons = o.seasons || []; it.seasons.forEach(function (n) { if (o.seasons.indexOf(n) < 0) o.seasons.push(n); }); }
+    });
+    var list = Object.keys(w).sort().map(function (k) { return w[k]; }), sig = JSON.stringify(list);
+    if (sig === S.wantSig || !list.length) return;
+    S.wantSig = sig;
+    call('cinemaMetaWant', sig);
+  }
+  // ---- saved information for a film or show (null until it has been matched)
+  function M(it) { var m = it && S.meta[it.key]; return m && m.status === 'ok' && m.data ? m.data : null; }
+  function metaRec(it) { return it ? S.meta[it.key] : null; }
+  function art(name) { return name ? 'https://cinema.nexus/art?f=' + encodeURIComponent(name) : ''; }
+  function nameOf(it) { var m = M(it); return m && m.title ? m.title : it.title; }
+  function yearOf(it) { var m = M(it); return m && m.year ? m.year : it.year; }
+  function epMeta(e) {
+    var sh = S.shows[e.show], m = sh && M(sh), ss = m && m.seasons && m.seasons[e.season];
+    return ss && ss.episodes ? ss.episodes[e.episode] || null : null;
+  }
+  function genresOf(it) { var m = M(it); return m && m.genres ? m.genres : []; }
   function catIndex(p) {
     for (var i = 0; i < p.length - 1; i++) if (CAT_TV.test(p[i]) || CAT_ANIME.test(p[i]) || CAT_MOVIES.test(p[i])) return i;
     return -1;
@@ -114,6 +149,8 @@
     S.drives = json(call('cinemaDrives'), []) || [];
     S.libs = json(call('cinemaLibrary'), []) || [];
     S.progress = json(call('cinemaProgress'), {}) || {};
+    S.meta = json(call('cinemaMeta'), {}) || {};
+    S.metaStatus = json(call('cinemaMetaStatus'), {}) || {};
     build();
   }
   function prog(it) { return S.progress[it.uuid + '|' + it.rel]; }
@@ -138,6 +175,7 @@
         '<label class="cn-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input id="cnSearch" type="search" placeholder="Search your movies" autocomplete="off"></label>' +
         '<select id="cnSort" aria-label="Sort"><option value="title">A–Z</option><option value="added">Recently added</option><option value="year">Newest</option><option value="oldest">Oldest</option><option value="size">Largest</option></select>' +
         '<button class="cn-rescan" id="cnRescan">↻ RESCAN</button>' +
+        '<button class="cn-rescan cn-info-btn" id="cnInfoBtn" aria-label="Movie information">ⓘ</button>' +
       '</header>' +
       '<nav class="cn-filters" id="cnFilters"></nav>' +
       '<div class="cn-drives" id="cnDrives"></div>' +
@@ -150,6 +188,7 @@
     $('cnSearch').addEventListener('input', function () { S.query = this.value; S.show = null; render(); });
     $('cnSort').addEventListener('change', function () { S.sort = this.value; render(); });
     $('cnRescan').addEventListener('click', rescanAll);
+    $('cnInfoBtn').addEventListener('click', openSettings);
     $('cnBody').addEventListener('scroll', function () { var b = $('cnBody'); if (b.scrollTop + b.clientHeight > b.scrollHeight - 600) more(); }, { passive: true });
     $('cnBody').addEventListener('click', onBodyClick);
     $('cnDrives').addEventListener('click', onDriveClick);
@@ -157,6 +196,7 @@
       var b = e.target.closest('[data-filter]'); if (!b) return;
       S.filter = b.getAttribute('data-filter'); S.show = null; render();
     });
+    $('cnFilters').addEventListener('change', function (e) { if (e.target.id === 'cnGenre') { S.genre = e.target.value; S.show = null; render(); } });
     $('cnSheet').addEventListener('click', onSheetClick);
     return root;
   }
@@ -180,15 +220,17 @@
       if (S.filter === 'tv' && !(it.kind === 'show' && it.cat !== 'anime')) return false;
       if (S.filter === 'anime' && it.cat !== 'anime') return false;
       if (S.filter === 'continue' && !(it.kind === 'show' ? showProgress(it) : (prog(it) && !prog(it).done && prog(it).pos > 0))) return false;
+      if (S.genre && genresOf(it).indexOf(S.genre) < 0) return false;
       if (!q) return true;
-      if ((it.title || '').toLowerCase().indexOf(q) >= 0 || String(it.year || '').indexOf(q) === 0) return true;
+      if ((it.title || '').toLowerCase().indexOf(q) >= 0 || nameOf(it).toLowerCase().indexOf(q) >= 0 || String(yearOf(it) || '').indexOf(q) === 0) return true;
+      if (genresOf(it).some(function (g) { return g.toLowerCase().indexOf(q) === 0; })) return true;
       return it.kind === 'show' && it.episodes.some(function (e) { return (e.title || '').toLowerCase().indexOf(q) >= 0; });
     });
     var by = {
-      title: function (a, b) { return sortKey(a.title).localeCompare(sortKey(b.title)) || (a.year || 0) - (b.year || 0); },
+      title: function (a, b) { return sortKey(nameOf(a)).localeCompare(sortKey(nameOf(b))) || (yearOf(a) || 0) - (yearOf(b) || 0); },
       added: function (a, b) { return (b.mtime || 0) - (a.mtime || 0); },
-      year: function (a, b) { return (b.year || 0) - (a.year || 0) || sortKey(a.title).localeCompare(sortKey(b.title)); },
-      oldest: function (a, b) { return (a.year || 9999) - (b.year || 9999) || sortKey(a.title).localeCompare(sortKey(b.title)); },
+      year: function (a, b) { return (yearOf(b) || 0) - (yearOf(a) || 0) || sortKey(nameOf(a)).localeCompare(sortKey(nameOf(b))); },
+      oldest: function (a, b) { return (yearOf(a) || 9999) - (yearOf(b) || 9999) || sortKey(nameOf(a)).localeCompare(sortKey(nameOf(b))); },
       size: function (a, b) { return (b.size || 0) - (a.size || 0); }
     };
     if (S.filter === 'continue') list.sort(function (a, b) { return lastAt(b) - lastAt(a); });
@@ -211,9 +253,12 @@
 
   function renderFilters() {
     var c = counts(), f = [['all', 'All'], ['continue', 'Continue watching'], ['movies', 'Movies'], ['tv', 'TV shows'], ['anime', 'Anime']];
+    var gs = {}; S.items.forEach(function (it) { genresOf(it).forEach(function (g) { gs[g] = (gs[g] || 0) + 1; }); });
+    var names = Object.keys(gs).sort();
     $('cnFilters').innerHTML = f.filter(function (x) { return x[0] === 'all' || c[x[0]] > 0 || S.filter === x[0]; }).map(function (x) {
       return '<button data-filter="' + x[0] + '" class="' + (S.filter === x[0] ? 'on' : '') + '">' + x[1] + ' <i>' + c[x[0]] + '</i></button>';
-    }).join('');
+    }).join('') + (names.length ? '<select id="cnGenre" class="cn-genre' + (S.genre ? ' on' : '') + '" aria-label="Genre"><option value="">All genres</option>' +
+      names.map(function (g) { return '<option value="' + esc(g) + '"' + (g === S.genre ? ' selected' : '') + '>' + esc(g) + ' (' + gs[g] + ')</option>'; }).join('') + '</select>' : '');
   }
 
   function renderDrives() {
@@ -238,16 +283,19 @@
 
   function card(it) {
     var p = it.kind === 'show' ? (showProgress(it) || {}).p : prog(it), pct = p && !p.done && p.dur ? Math.min(100, p.pos / p.dur * 100) : 0;
-    var still = it.kind === 'show' ? it.first : it;
-    var sub = it.kind === 'show' ? (it.seasons.length > 1 ? it.seasons.length + ' seasons' : it.episodes.length + ' episodes') : (it.year || '');
+    var still = it.kind === 'show' ? it.first : it, m = M(it), rec = metaRec(it), wide = !!card.wide;
+    var sub = it.kind === 'show' ? (it.seasons.length > 1 ? it.seasons.length + ' seasons' : it.episodes.length + ' episodes') : (yearOf(it) || '');
+    // the official poster (in the wide Continue watching row, the background) once it's saved; until then the film's own still
+    var src = m ? (wide ? art(m.backdrop) || art(m.posterSmall) : art(m.posterSmall) || art(m.poster)) : '';
     return '<div class="cn-card' + (it.online ? '' : ' offline') + '" data-id="' + esc(it.kind === 'show' ? it.id : it.uuid + '|' + it.rel) + '" style="--h:' + hue(it.title) + '">' +
-      '<div class="cn-still"><div class="cn-ph"><span>' + esc(it.title) + '</span></div>' +
-      '<img loading="lazy" decoding="async" src="' + thumb(still) + '" onload="this.parentNode.classList.add(\'img\')" onerror="this.remove()" alt="">' +
+      '<div class="cn-still"><div class="cn-ph"><span>' + esc(nameOf(it)) + '</span></div>' +
+      '<img loading="lazy" decoding="async" src="' + (src || thumb(still)) + '" onload="this.parentNode.classList.add(\'img\')" onerror="this.remove()" alt="">' +
+      (rec && rec.status === 'uncertain' ? '<em class="cn-q" title="Check which movie this is">?</em>' : '') +
       (it.kind === 'show' ? '<em class="cn-tag">' + (it.cat === 'anime' ? 'ANIME' : 'SERIES') + '</em>' : '') +
       (it.online ? '' : '<em class="cn-off">OFFLINE</em>') +
       (pct ? '<div class="cn-prog"><i style="width:' + pct.toFixed(1) + '%"></i></div>' : '') +
       (p && p.done ? '<em class="cn-done">✓</em>' : '') +
-      '</div><div class="cn-meta"><b>' + esc(it.title) + '</b><span>' + esc(sub) + (multiDrive() ? ' · ' + esc(it.drive) : '') + '</span></div></div>';
+      '</div><div class="cn-meta"><b>' + esc(nameOf(it)) + '</b><span>' + esc(sub) + (multiDrive() ? ' · ' + esc(it.drive) : '') + '</span></div></div>';
   }
   function multiDrive() { return S.libs.length > 1; }
 
@@ -264,10 +312,14 @@
     if (S.filter === 'all' && !S.query) {
       var cont = S.items.filter(function (it) { return it.kind === 'show' ? showProgress(it) : (prog(it) && !prog(it).done && prog(it).pos > 0); })
         .sort(function (a, b) { return lastAt(b) - lastAt(a); }).slice(0, 8);
+      card.wide = true;
       if (cont.length) hero = '<h3 class="cn-row-title">Continue watching</h3><div class="cn-row">' + cont.map(card).join('') + '</div><h3 class="cn-row-title">Your library</h3>';
+      card.wide = false;
     }
     if (!S.list.length) { body.innerHTML = hero + '<div class="cn-empty small">Nothing matches “' + esc(S.query) + '”.</div>'; return; }
-    body.innerHTML = hero + '<div class="cn-grid" id="cnGrid"></div>';
+    // once official posters are saved the library is shown as a poster wall
+    var posters = S.items.some(function (it) { var m = M(it); return m && (m.posterSmall || m.poster); });
+    body.innerHTML = hero + '<div class="cn-grid' + (posters ? ' posters' : '') + '" id="cnGrid"></div>';
     body.scrollTop = 0;
     more();
   }
@@ -292,21 +344,29 @@
     var body = $('cnBody');
     if (S.season == null || sh.seasons.indexOf(S.season) < 0) { var cp = showProgress(sh); S.season = cp ? cp.e.season : sh.seasons[0]; }
     var eps = sh.episodes.filter(function (e) { return e.season === S.season; });
-    var cp2 = showProgress(sh);
-    var html = '<div class="cn-show-head" style="--h:' + hue(sh.title) + '"><div class="cn-show-art"><img src="' + thumb(sh.first) + '" onerror="this.remove()" alt=""></div>' +
-      '<div class="cn-show-txt"><h2>' + esc(sh.title) + '</h2><p>' + (sh.year ? sh.year + ' · ' : '') + sh.episodes.length + ' episodes' + (sh.seasons.length > 1 ? ' · ' + sh.seasons.length + ' seasons' : '') + ' · ' + esc(sh.drive) + (sh.online ? '' : ' (not connected)') + '</p>' +
+    var cp2 = showProgress(sh), m = M(sh), rec = metaRec(sh);
+    var html = '<div class="cn-show-head" style="--h:' + hue(sh.title) + '"><div class="cn-show-art"><img src="' + (m && m.backdrop ? art(m.backdrop) : thumb(sh.first)) + '" onerror="this.remove()" alt=""></div>' +
+      '<div class="cn-show-txt"><h2>' + esc(nameOf(sh)) + '</h2><p>' + (yearOf(sh) ? yearOf(sh) + ' · ' : '') + sh.episodes.length + ' episodes' + (sh.seasons.length > 1 ? ' · ' + sh.seasons.length + ' seasons' : '') + ' · ' + esc(sh.drive) + (sh.online ? '' : ' (not connected)') + '</p>' +
+      (m && m.genres && m.genres.length ? '<p class="cn-genres">' + m.genres.map(esc).join(' · ') + (m.network ? ' · ' + esc(m.network) : '') + '</p>' : '') +
+      (m && m.overview ? '<p class="cn-overview">' + esc(m.overview) + '</p>' : '') +
+      (sh.online ? '' : '<div class="cn-offline-msg">Plug in “' + esc(sh.drive) + '” to watch.</div>') +
       (sh.online && cp2 ? '<button class="cn-primary" data-play="' + esc(cp2.e.uuid + '|' + cp2.e.rel) + '" data-resume="1">▶ RESUME S' + cp2.e.season + ' E' + (cp2.e.episode || '?') + '</button>' : sh.online && sh.episodes[0] ? '<button class="cn-primary" data-play="' + esc(sh.episodes[0].uuid + '|' + sh.episodes[0].rel) + '">▶ PLAY FIRST EPISODE</button>' : '') +
-      '</div></div>';
+      matchLink(sh, rec) +
+      '</div></div>' + (S.fix === sh.key ? chooser(sh) : '');
+    var sm = m && m.seasons && m.seasons[S.season];
+    if (sm && sm.overview) html += '<p class="cn-overview small">' + esc(sm.overview) + '</p>';
     if (sh.seasons.length > 1) html += '<div class="cn-seasons">' + sh.seasons.map(function (s) { return '<button data-season="' + s + '" class="' + (s === S.season ? 'on' : '') + '">' + (s ? 'Season ' + s : 'Specials') + '</button>'; }).join('') + '</div>';
     html += '<div class="cn-eps">' + eps.map(epRow).join('') + '</div>';
     if (sh.extras.length) html += '<h3 class="cn-row-title">Extras</h3><div class="cn-eps">' + sh.extras.map(epRow).join('') + '</div>';
     body.innerHTML = html;
   }
   function epRow(e) {
-    var p = prog(e), pct = p && !p.done && p.dur ? p.pos / p.dur * 100 : 0;
+    var p = prog(e), pct = p && !p.done && p.dur ? p.pos / p.dur * 100 : 0, em = e.kind === 'episode' ? epMeta(e) : null;
     return '<div class="cn-ep' + (e.online ? '' : ' offline') + '" data-id="' + esc(e.uuid + '|' + e.rel) + '">' +
-      '<div class="cn-ep-still" style="--h:' + hue(e.title) + '"><img loading="lazy" src="' + thumb(e) + '" onerror="this.remove()" alt="">' + (pct ? '<div class="cn-prog"><i style="width:' + pct.toFixed(1) + '%"></i></div>' : '') + '</div>' +
-      '<div class="cn-ep-txt"><b>' + (e.episode ? e.episode + '. ' : '') + esc(e.title) + '</b><span>' + fmtSize(e.size) + (p && p.done ? ' · watched' : p && p.pos ? ' · ' + fmtTime(p.pos) + ' watched' : '') + '</span></div>' +
+      '<div class="cn-ep-still" style="--h:' + hue(e.title) + '"><img loading="lazy" decoding="async" src="' + (em && em.still ? art(em.still) : thumb(e)) + '" onerror="this.remove()" alt="">' + (pct ? '<div class="cn-prog"><i style="width:' + pct.toFixed(1) + '%"></i></div>' : '') + '</div>' +
+      '<div class="cn-ep-txt"><b>' + (e.episode ? e.episode + '. ' : '') + esc(em && em.name ? em.name : e.title) + '</b>' +
+      (em && em.overview ? '<p class="cn-ep-ov">' + esc(em.overview) + '</p>' : '') +
+      '<span>' + (em && em.runtime ? em.runtime + ' min · ' : '') + fmtSize(e.size) + (p && p.done ? ' · watched' : p && p.pos ? ' · ' + fmtTime(p.pos) + ' watched' : '') + (e.online ? '' : ' · drive not connected') + '</span></div>' +
       '<span class="cn-ep-play">▶</span></div>';
   }
 
@@ -324,26 +384,83 @@
     var p = prog(it), inf = S.info[S.detail];
     if (!inf && it.online) call('cinemaInfo', it.uuid, it.rel);
     var resume = p && !p.done && p.pos > 30000;
+    var owner = it.kind === 'episode' ? S.shows[it.show] : it, m = M(owner), rec = metaRec(owner), em = it.kind === 'episode' ? epMeta(it) : null;
     var facts = [];
-    if (it.year) facts.push(it.year);
+    if (yearOf(owner)) facts.push(yearOf(owner));
     if (inf && inf.duration) facts.push(fmtRuntime(inf.duration));
+    else if (em && em.runtime) facts.push(em.runtime + ' min');
+    else if (m && m.runtime && it.kind !== 'episode') facts.push(fmtRuntime(m.runtime * 60000));
+    if (m && m.rating) facts.push('★ ' + m.rating);
     if (inf && inf.height) facts.push(inf.height >= 2000 ? '4K' : inf.height >= 1000 ? 'HD 1080p' : inf.height >= 700 ? 'HD 720p' : inf.height + 'p');
     facts.push(fmtSize(it.size));
     if (it.subs && it.subs.length) facts.push('Subtitles');
     var sh = $('cnSheet');
+    var hero = em && em.still ? art(em.still) : m && m.backdrop ? art(m.backdrop) : thumb(it);
     sh.innerHTML = '<div class="cn-sheet-card" style="--h:' + hue(it.title) + '">' +
-      '<div class="cn-sheet-art"><img src="' + thumb(it) + '" onerror="this.remove()" alt=""><div class="cn-sheet-fade"></div></div>' +
-      '<div class="cn-sheet-txt"><h2>' + esc(it.kind === 'episode' ? (S.shows[it.show] ? S.shows[it.show].title + ' · ' : '') + 'S' + it.season + ' E' + (it.episode || '?') : it.title) + '</h2>' +
-      (it.kind === 'episode' ? '<h4>' + esc(it.title) + '</h4>' : '') +
+      '<div class="cn-sheet-art"><img src="' + hero + '" onerror="this.remove()" alt=""><div class="cn-sheet-fade"></div></div>' +
+      '<div class="cn-sheet-txt">' + (m && m.poster && it.kind !== 'episode' ? '<img class="cn-sheet-poster" src="' + art(m.poster) + '" onerror="this.remove()" alt="">' : '') +
+      '<h2>' + esc(it.kind === 'episode' ? (S.shows[it.show] ? nameOf(S.shows[it.show]) + ' · ' : '') + 'S' + it.season + ' E' + (it.episode || '?') : nameOf(it)) + '</h2>' +
+      (it.kind === 'episode' ? '<h4>' + esc(em && em.name ? em.name : it.title) + '</h4>' : m && m.tagline ? '<h4>' + esc(m.tagline) + '</h4>' : '') +
       '<p class="cn-facts">' + facts.map(esc).join('  ·  ') + '</p>' +
+      (m && m.genres && m.genres.length && it.kind !== 'episode' ? '<p class="cn-genres">' + m.genres.map(esc).join(' · ') + '</p>' : '') +
+      ((em && em.overview) || (m && m.overview && it.kind !== 'episode') ? '<p class="cn-overview">' + esc(em && em.overview ? em.overview : m.overview) + '</p>' : '') +
       '<p class="cn-where">On <b>' + esc(it.drive) + '</b> · ' + esc(it.rel) + '</p>' +
       (it.online ? (resume ? '<div class="cn-acts"><button class="cn-primary big" data-act="resume">▶ RESUME FROM ' + fmtTime(p.pos) + '</button><button class="cn-ghost" data-act="start">START OVER</button></div>' :
         '<div class="cn-acts"><button class="cn-primary big" data-act="start">▶ PLAY' + (p && p.done ? ' AGAIN' : '') + '</button></div>') :
         '<div class="cn-offline-msg">Plug in “' + esc(it.drive) + '” to watch this.</div>') +
+      (it.kind === 'movie' ? matchLink(it, rec) + (S.fix === it.key ? chooser(it) : '') : '') +
       '</div><button class="cn-sheet-x" data-act="close">✕</button></div>';
     sh.classList.remove('hidden');
   }
-  function closeDetail() { S.detail = null; $('cnSheet').classList.add('hidden'); }
+  function closeDetail() { S.detail = null; S.fix = null; $('cnSheet').classList.add('hidden'); }
+
+  // ---- checking or correcting which film or show a title is
+  function matchLink(it, rec) {
+    if (!rec) return '';
+    if (rec.status === 'uncertain') return '<div class="cn-match warn"><span>Nexus isn’t sure which ' + (it.kind === 'show' ? 'show' : 'movie') + ' this is.</span><button class="cn-ghost small" data-fix="' + esc(it.key) + '">CHOOSE</button></div>';
+    if (rec.status === 'none') return '<div class="cn-match"><span>No movie information found.</span><button class="cn-ghost small" data-fix="' + esc(it.key) + '">SEARCH</button></div>';
+    if (rec.status === 'ok') return S.fix === it.key ? '' : '<button class="cn-link" data-fix="' + esc(it.key) + '">Wrong ' + (it.kind === 'show' ? 'show' : 'movie') + '? Fix it</button>';
+    return '';
+  }
+  function chooser(it) {
+    var rec = metaRec(it) || {}, cands = rec.cands || [];
+    return '<div class="cn-chooser"><p>Which ' + (it.kind === 'show' ? 'show' : 'movie') + ' is “' + esc(it.title) + (it.year ? ' (' + it.year + ')' : '') + '”?</p>' +
+      cands.map(function (c) { return '<button class="cn-cand" data-choose="' + c.id + '"><b>' + esc(c.title) + (c.year ? ' (' + c.year + ')' : '') + '</b>' + (c.overview ? '<span>' + esc(c.overview) + '</span>' : '') + '</button>'; }).join('') +
+      '<div class="cn-research"><input id="cnFixQ" type="search" placeholder="Search by another name" value="' + esc(it.title) + '"><button class="cn-ghost small" data-research="1">SEARCH</button></div>' +
+      '<button class="cn-link" data-choose="0">None of these (show it without information)</button></div>';
+  }
+  function fixTarget() {
+    if (!S.fix) return null;
+    for (var i = 0; i < S.items.length; i++) if (S.items[i].key === S.fix) return S.items[i];
+    return null;
+  }
+  function onFixClick(e) {
+    var f = e.target.closest('[data-fix]');
+    if (f) { S.fix = f.getAttribute('data-fix'); rerender(); return true; }
+    var c = e.target.closest('[data-choose]');
+    if (c && S.fix) { call('cinemaMetaChoose', S.fix, c.getAttribute('data-choose')); toast(+c.getAttribute('data-choose') ? 'Downloading the right information…' : 'Okay, shown without information.'); S.fix = null; rerender(); return true; }
+    var r = e.target.closest('[data-research]');
+    if (r && S.fix) { var q = ($('cnFixQ') || {}).value || ''; if (q.trim()) { call('cinemaMetaSearch', S.fix, q.trim()); toast('Searching for “' + q.trim() + '”…'); } return true; }
+    return false;
+  }
+  function rerender() { if (S.detail) { var it = findItem(S.detail); if (it) openDetail(it); } else render(); }
+
+  // ---- the information settings: TMDB key, progress, and the attribution TMDB requires
+  function openSettings() {
+    S.detail = null; S.fix = null;
+    var st = S.metaStatus || {}, n = st.counts || {}, total = 0; Object.keys(n).forEach(function (k) { total += n[k]; });
+    var sh = $('cnSheet');
+    sh.innerHTML = '<div class="cn-sheet-card cn-settings">' +
+      '<div class="cn-sheet-txt"><h2>Movie information</h2>' +
+      '<p class="cn-facts">' + (n.ok || 0) + ' of ' + total + ' titles have posters and details' + (n.pending ? ' · ' + n.pending + ' waiting' : '') + (n.uncertain ? ' · ' + n.uncertain + ' to check' : '') + (n.none ? ' · ' + n.none + ' not found' : '') + '</p>' +
+      '<p class="cn-overview small">' + (st.configured ? (st.online ? (st.working ? 'Downloading now…' : 'Everything that can be downloaded is saved on the box.') : 'No internet right now. Saved information still shows; the rest downloads when the box is online.') : 'Add a free TMDB key to download posters and details.') + (st.error ? ' ' + esc(st.error) : '') + '</p>' +
+      (st.artBytes ? '<p class="cn-where">Artwork saved on the box: ' + fmtSize(st.artBytes) + '</p>' : '') +
+      '<div class="cn-research"><input id="cnKey" type="password" autocomplete="off" placeholder="' + (st.configured ? 'TMDB key saved · paste a new one to replace it' : 'Paste your TMDB API key') + '"><button class="cn-primary" data-set="key">SAVE KEY</button></div>' +
+      '<div class="cn-acts"><button class="cn-ghost" data-set="retry">DOWNLOAD MISSING INFO</button></div>' +
+      '<p class="cn-attrib">Movie and TV information and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>' +
+      '</div><button class="cn-sheet-x" data-act="close">✕</button></div>';
+    sh.classList.remove('hidden');
+  }
 
   function play(it, fromStart) {
     var p = prog(it), start = !fromStart && p && !p.done ? p.pos : 0;
@@ -355,6 +472,7 @@
   }
 
   function onBodyClick(e) {
+    if (onFixClick(e)) return;
     var g = e.target.closest('[data-grant]'); if (g) { grant(g.getAttribute('data-grant')); return; }
     if (e.target.closest('[data-rescan]')) { rescanAll(); return; }
     var se = e.target.closest('[data-season]'); if (se) { S.season = +se.getAttribute('data-season'); render(); return; }
@@ -367,6 +485,13 @@
   }
   function onSheetClick(e) {
     if (e.target === $('cnSheet')) { closeDetail(); return; }
+    if (onFixClick(e)) return;
+    var st = e.target.closest('[data-set]');
+    if (st) {
+      if (st.getAttribute('data-set') === 'key') { var k = ($('cnKey') || {}).value || ''; if (k.trim()) { call('cinemaMetaKey', k.trim()); $('cnKey').value = ''; toast('Checking the key…'); } }
+      else { call('cinemaMetaRetry'); toast('Downloading missing information…'); }
+      return;
+    }
     var b = e.target.closest('[data-act]'); if (!b) return;
     var a = b.getAttribute('data-act'), it = findItem(S.detail);
     if (a === 'close') closeDetail();
@@ -469,6 +594,20 @@
       if (S.detail === o.uuid + '|' + o.rel) { var it = findItem(S.detail); if (it) openDetail(it); }
     },
     // back from the player: positions changed
+    // movie information saved by the box (a batch of titles at a time)
+    _meta: function (j) {
+      var o = json(j, null); if (!o) return;
+      Object.keys(o).forEach(function (k) { S.meta[k] = o[k]; });
+      if (!S.open) return;
+      if (S.detail) { var it = findItem(S.detail); if (it) openDetail(it); return; }
+      if ($('cnSheet') && !$('cnSheet').classList.contains('hidden')) return;
+      clearTimeout(S.metaT); S.metaT = setTimeout(function () { var b = $('cnBody'), top = b ? b.scrollTop : 0, n = S.rendered; render(); while (S.rendered < n && S.rendered < S.list.length) more(); if (b) b.scrollTop = top; }, 300);
+    },
+    _metaStatus: function (j) {
+      S.metaStatus = json(j, S.metaStatus) || S.metaStatus;
+      var sh = $('cnSheet'); if (S.open && sh && sh.querySelector('.cn-settings') && !(document.activeElement && document.activeElement.id === 'cnKey')) openSettings();
+    },
+    _metaNote: function (msg) { if (S.open) toast(msg); },
     _resumed: function () {
       if (!S.open) return;
       S.progress = json(call('cinemaProgress'), S.progress) || S.progress;
