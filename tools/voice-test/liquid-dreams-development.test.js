@@ -60,7 +60,8 @@ assert(java.includes('getPackageInstaller()') && java.includes('STATUS_PENDING_U
 assert(java.includes('updateFailed(') && app.includes("'Update did not finish: '"), 'a failed update shows the real reason on screen');
 assert(java.includes('getPackageArchiveInfo') && java.includes('downloadedVersion < currentVersion'), 'native updater rejects incomplete or non-upgrading APKs');
 assert(java.includes('spotifyWarm.isConnected()'), 'Spotify warm-up reuses an active media connection instead of disconnecting and reconnecting');
-assert(java.includes('certificateDigests(downloaded).equals(certificateDigests(installed))'), 'native updater checks package signing identity before installer launch');
+assert(java.includes('got = certificateDigests(downloaded), have = certificateDigests(installed)') && java.includes('!got.equals(have)'), 'native updater checks package signing identity before installer launch');
+assert(java.includes('PackageManager.GET_SIGNATURES | (Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : 0)'), 'the updater asks for both signature kinds, so a download is never refused as "no signature"');
 assert(java.includes('public int deviceMemoryGb()') && java.includes('memory.totalMem'), 'Android reports physical RAM so WebView can select the correct effects tier');
 assert(!java.includes('ui.postDelayed(this::startPhones, 1500)') && java.includes('if (phones == null) { startPhones();'), 'phone server starts only when its screen is opened');
 assert(gradle.includes('NEXUS_VERSION_CODE') && gradle.includes("applicationId 'com.nexus.box'"), 'dev versioning preserves the existing app identity');
