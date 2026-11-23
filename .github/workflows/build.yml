@@ -65,6 +65,7 @@ jobs:
           node --check app/src/main/assets/experiences.js
           node --check app/src/main/assets/env.js
           node --check app/src/main/assets/visuals.js
+          node --check app/src/main/assets/intro.js
           node tools/voice-test/production-visual-upgrade.test.js
           node tools/voice-test/visual-world-packs.test.js
           node tools/voice-test/nexus-visuals.test.js
@@ -80,6 +81,7 @@ jobs:
           node tools/voice-test/night-drive.test.js
           node tools/voice-test/enchanted-forest.test.js
           node tools/voice-test/night-drive-music.test.js
+          node tools/voice-test/startup-intro.test.js
           node --check tools/voice-test/ink-machine.test.js
           node tools/voice-test/live-environments.test.js
           node tools/voice-test/cleanup-performance.test.js

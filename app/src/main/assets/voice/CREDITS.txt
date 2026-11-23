@@ -1,0 +1,3 @@
+Startup announcement voice: synthesised with Piper (https://github.com/rhasspy/piper) using the
+"en-us-libritts-high" voice, speaker 375, trained on LibriTTS (http://www.openslr.org/60/),
+licensed CC BY 4.0. Processed (pitch, EQ, light chorus and room) for Nexus.

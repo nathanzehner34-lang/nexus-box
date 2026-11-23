@@ -142,8 +142,13 @@
 
   // Startup: the home screen is usable IMMEDIATELY. The greeting plays over it with a
   // welcome banner that fades away — it never blocks buttons or music.
-  // STARTUP: a short Nexus logo intro (about 3 seconds, tap to skip). Nexus does not talk at startup.
+  // STARTUP: the cinematic Design 2 intro with the spoken announcement (intro.js, about 8 seconds, tap to
+  // skip). The older 3-second logo intro below stays as a fallback if the new one cannot load.
   function playIntro() {
+    if (window.NexusIntro) return NexusIntro.play().then(function (r) { if (r && r.failed) return playClassicIntro(); });
+    return playClassicIntro();
+  }
+  function playClassicIntro() {
     return new Promise(function (resolve) {
       var o = document.createElement('div'); o.id = 'intro'; var c = document.createElement('canvas'); o.appendChild(c); document.body.appendChild(o);
       var g = c.getContext('2d'), W = c.width = Math.round(innerWidth * .75), H = c.height = Math.round(innerHeight * .75), U = Math.min(W, H);

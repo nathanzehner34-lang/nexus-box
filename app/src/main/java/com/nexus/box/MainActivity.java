@@ -199,7 +199,11 @@ public class MainActivity extends Activity {
 
 
         String page = "file:///android_asset/index.html";
-        web.loadUrl(savedInstanceState == null ? page + "#boot" : page);
+        // the startup intro plays once per real start of the app (a new process), not each time the
+        // screen is rebuilt or Nexus comes back to the front
+        boolean intro = savedInstanceState == null && !startupIntroShown;
+        startupIntroShown = true;
+        web.loadUrl(intro ? page + "#boot" : page);
     }
 
     private void startTts() {
@@ -291,6 +295,36 @@ public class MainActivity extends Activity {
         File[] p = pendingCache.remove(id);
         if (p != null) { try { if (p[0].length() > 6000) p[0].renameTo(p[1]); else p[0].delete(); } catch (Exception ignored) {} }
         ui.post(() -> { caching = false; cacheNext(); });
+    }
+
+    private static boolean startupIntroShown = false;
+    private MediaPlayer introPlayer;
+
+    // The startup announcement: a recording in the app (voice/startup.ogg), played as assistant speech so
+    // the music only dips under it and comes straight back.
+    private void playStartupVoice() {
+        stopStartupVoice();
+        try {
+            android.content.res.AssetFileDescriptor fd = getAssets().openFd("voice/startup.ogg");
+            MediaPlayer mp = new MediaPlayer();
+            mp.setAudioAttributes(speechAttrs());
+            mp.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
+            fd.close();
+            mp.prepare();
+            introPlayer = mp;
+            hold(true);
+            mp.setOnCompletionListener(m -> { if (introPlayer == m) stopStartupVoice(); });
+            mp.setOnErrorListener((m, w, e) -> { if (introPlayer == m) stopStartupVoice(); return true; });
+            mp.start();
+        } catch (Exception e) { introPlayer = null; }
+    }
+    private void stopStartupVoice() {
+        MediaPlayer m = introPlayer;
+        if (m == null) return;
+        introPlayer = null;
+        try { m.stop(); } catch (Exception ignored) {}
+        try { m.release(); } catch (Exception ignored) {}
+        hold(false);
     }
 
     private MediaPlayer linePlayer;
@@ -856,6 +890,7 @@ public class MainActivity extends Activity {
         hideExitBubble();
         try { if (updateReceiver != null) unregisterReceiver(updateReceiver); } catch (Exception ignored) {}
         if (tts != null) tts.shutdown();
+        stopStartupVoice();
         stopMeter();
         try { unregisterReceiver(spotifyReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(packageReceiver); } catch (Exception ignored) {}
@@ -1442,6 +1477,10 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean nativeGreeting() { return nativeGreeting; }
+        @JavascriptInterface
+        public boolean startupVoice() { ui.post(MainActivity.this::playStartupVoice); return true; }
+        @JavascriptInterface
+        public void stopStartupVoice() { ui.post(MainActivity.this::stopStartupVoice); }
 
         @JavascriptInterface
         public boolean takeNativeGreetUsed() { boolean u = nativeGreetUsed; nativeGreetUsed = false; return u; }
