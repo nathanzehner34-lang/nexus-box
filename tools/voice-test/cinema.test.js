@@ -50,6 +50,8 @@ Android.cinemaScan = (u) => {
   setTimeout(step, 40);
 };
 Android.cinemaPlay = (u, r, title, start, subs) => { const d = __cin.drives.find(x => x.uuid === u); if (!d || !d.mounted) return false; __cin.plays.push({ u, r, title, start, subs }); return true; };
+window.__imgs = [];
+new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.querySelectorAll) n.querySelectorAll('img').forEach(i => __imgs.push(i.getAttribute('src'))); }))).observe(document.body, { childList: true, subtree: true });
 window.__plug = (on) => {
   if (on) { let d = __cin.drives.find(x => x.uuid === 'A1B2-C3D4'); if (!d) __cin.drives.push(d = { uuid: 'A1B2-C3D4', label: 'Movie Drive', access: __cin.granted ? 'files' : 'none' }); d.mounted = true; d.state = 'mounted'; d.scannedThisConnection = false; }
   else __cin.drives = [];
@@ -111,7 +113,7 @@ session(async ({ ev, sleep, shot }) => {
   await sleep(300); await snap('4-library');
   assert.strictEqual(await ev(`document.querySelectorAll('#cnGrid .cn-card').length`) > 0, true);
   assert(await ev(`document.querySelectorAll('#cnGrid .cn-card').length <= 72`), 'grid renders in pages (not everything at once)');
-  assert(await ev(`performance.getEntriesByType('resource').some(r=>/^https:\\/\\/cinema\\.nexus\\/thumb\\?u=A1B2-C3D4&r=/.test(r.name))`), 'stills are asked from the box');
+  assert(await ev(`__imgs.some(u=>/^https:\\/\\/cinema\\.nexus\\/thumb\\?u=A1B2-C3D4&r=/.test(u||''))`), 'stills are asked from the box');
   assert(await ev(`[...document.querySelectorAll('#cnGrid .cn-ph span')].every(s=>s.textContent.length>0)`), 'every card has a title card until its still arrives');
 
   // search, sort and filters
