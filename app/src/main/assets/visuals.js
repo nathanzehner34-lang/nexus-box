@@ -633,6 +633,7 @@
   var cur = null, theme = null, built = {}, frames = 0, tStart = 0, tPrev = 0, perf = { n: 0, sum: 0, since: 0, good: 0 };
   var bar = null, barTimer = 0, snap = null;
   function sizeCanvas() {
+    if (!glc || !layer) return;
     // film clips are cheap to draw, so they keep near-full sharpness; the 3D themes use the adaptive scale
     var q = theme && theme.video ? clamp(Q + .3, .72, 1) : Q;
     var w = Math.max(64, Math.round(layer.clientWidth * q)), h = Math.max(36, Math.round(layer.clientHeight * q));
@@ -670,7 +671,7 @@
     if (now - lastFrame < FPS_GAP - 3) return;
     var gap = lastFrame ? now - lastFrame : FPS_GAP; lastFrame = now;
     try { render(now); } catch (e) { try { console.log('NXV frame: ' + (e.stack || e)); } catch (er) {} }
-    adapt(now, gap);
+    if (theme && !theme.video) adapt(now, gap);       // film scenes are drawn by the video hardware: nothing to scale
   }
   function ensureBar() {
     if (!bar) {

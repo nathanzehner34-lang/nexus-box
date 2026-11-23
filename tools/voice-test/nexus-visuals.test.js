@@ -25,6 +25,8 @@ assert(app.includes('Film visuals by Beeple'), 'the clips are credited');
 // fails there (the headless test browser hides this), so no crossOrigin, and file pages must count as one origin.
 assert(!/crossOrigin/.test(vis), 'clips load without a CORS request (it fails on file:// in the WebView)');
 assert(!/playbackRate|texImage2D\(gl\.TEXTURE_2D, 0, gl\.RGB, gl\.RGB, gl\.UNSIGNED_BYTE, v\)/.test(vis), 'clips play at normal speed on the hardware path (no per-frame copies into WebGL, no speed changes)');
+// film scenes never create or resize a WebGL canvas (the auto-quality step crashed on slow machines when it did)
+assert(vis.includes("function sizeCanvas() {\n    if (!glc || !layer) return;") && vis.includes('if (theme && !theme.video) adapt(now, gap);'), 'film scenes skip the canvas resize and auto-quality');
 assert(java.includes('s.setAllowFileAccessFromFileURLs(true);'), 'the WebView lets the page draw its own bundled clips through WebGL');
 
 // ---- reset: nothing of the old Visuals remains ----
