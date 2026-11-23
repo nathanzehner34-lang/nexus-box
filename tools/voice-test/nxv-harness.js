@@ -27,7 +27,7 @@ window.NX={A:null,$:id=>document.getElementById(id),pref:()=>''};window.Nexus={}
 <script>setTimeout(async()=>{const out=document.getElementById('__out');try{const wait=ms=>new Promise(r=>setTimeout(r,ms));const R={};${scenario};R.errors=__errors;out.textContent='RESULT='+JSON.stringify(R);}catch(e){out.textContent='ERROR='+(e.stack||e);}},300);</script>`;
   const htmlPath = path.join(temp, 'p.html'); fs.writeFileSync(htmlPath, page);
   const profile = path.join(temp, 'prof');
-  const proc = cp.spawn(browser, ['--headless=new', '--no-sandbox', '--disable-gpu-sandbox', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--allow-file-access-from-files', '--disable-extensions', '--hide-scrollbars', '--window-size=' + (opts.w || 640) + ',' + (opts.h || 360), '--remote-debugging-port=0', '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' });
+  const proc = cp.spawn(browser, ['--headless=new', '--no-sandbox', '--disable-gpu-sandbox', '--enable-unsafe-swiftshader', '--use-gl=angle', '--use-angle=swiftshader', '--allow-file-access-from-files', '--disable-extensions', '--hide-scrollbars', '--window-size=' + (opts.w || 640) + ',' + (opts.h || 360), '--remote-debugging-port=0', '--js-flags=--expose-gc', '--enable-precise-memory-info', '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' });
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   try {
     let port = 0;
