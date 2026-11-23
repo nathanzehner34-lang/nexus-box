@@ -91,6 +91,8 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
     R.cards=[...document.querySelectorAll('.vis-card')].map(c=>[c.dataset.vis,c.querySelector('b').textContent,!!c.querySelector('img')]);
     document.querySelector('.vis-card').click();
     await wait(2500);
+    // a slow build machine may still be starting the film: give it up to ten more seconds to draw
+    { const t1=Date.now(); while(NXV.debug().frames<=3&&Date.now()-t1<10000) await wait(100); }
     R.running=NXV.debug();R.xpVisible=!document.getElementById('xp').classList.contains('hidden');
     R.canvas=document.querySelectorAll('#xp video').length;
     document.getElementById('xp').click();await wait(200);
