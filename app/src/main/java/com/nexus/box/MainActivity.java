@@ -91,6 +91,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     // Nexus Cinema: movie library on external USB drives (read only)
     private CinemaLibrary cinema;
+    private CinemaMeta cinemaMeta;   // movie and TV information and artwork from TMDB, kept on the box
     private Object cinemaVolumeCallback;
     private final BroadcastReceiver driveReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
@@ -177,6 +178,8 @@ public class MainActivity extends Activity {
                 try {
                     if (cinema != null && "/thumb".equals(u.getPath()))
                         jpg = cinema.thumb(u.getQueryParameter("u"), u.getQueryParameter("r"), u.getQueryParameter("p"));
+                    else if (cinemaMeta != null && "/art".equals(u.getPath()))
+                        jpg = cinemaMeta.art(u.getQueryParameter("f"));   // saved posters, backgrounds and stills
                 } catch (Throwable ignored) {}
                 if (jpg == null) return new android.webkit.WebResourceResponse("image/jpeg", null, 404, "Not found", headers, new java.io.ByteArrayInputStream(new byte[0]));
                 return new android.webkit.WebResourceResponse("image/jpeg", null, 200, "OK", headers, new java.io.ByteArrayInputStream(jpg));
@@ -186,6 +189,7 @@ public class MainActivity extends Activity {
         web.addJavascriptInterface(new Bridge(), "Android");
         setContentView(web);
         cinema = new CinemaLibrary(this, this::js);
+        try { cinemaMeta = new CinemaMeta(this, this::js); } catch (Throwable ignored) {}
         try {
             IntentFilter df = new IntentFilter();
             df.addAction(Intent.ACTION_MEDIA_MOUNTED);
@@ -964,6 +968,7 @@ public class MainActivity extends Activity {
             try { ((android.os.storage.StorageManager) getSystemService(Context.STORAGE_SERVICE)).unregisterStorageVolumeCallback((android.os.storage.StorageManager.StorageVolumeCallback) cinemaVolumeCallback); } catch (Exception ignored) {}
         }
         if (cinema != null) cinema.shutdown();
+        if (cinemaMeta != null) cinemaMeta.shutdown();
         if (recognizer != null) recognizer.destroy();
         try { if (spotifyWarm != null) spotifyWarm.disconnect(); } catch (Exception ignored) {}
         pool.shutdownNow();
@@ -1539,6 +1544,14 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void cinemaGrant(String uuid) { if (cinema != null && uuid != null) ui.post(() -> cinema.grant(uuid)); }
         @JavascriptInterface public void cinemaScan(String uuid) { if (cinema != null && uuid != null) cinema.scan(uuid); }
         @JavascriptInterface public void cinemaInfo(String uuid, String rel) { if (cinema != null && uuid != null && rel != null) cinema.info(uuid, rel); }
+        // movie and TV information (TMDB), saved on the box; everything here works without internet
+        @JavascriptInterface public String cinemaMeta() { return cinemaMeta == null ? "{}" : cinemaMeta.allJson(); }
+        @JavascriptInterface public String cinemaMetaStatus() { return cinemaMeta == null ? "{}" : cinemaMeta.statusJson(); }
+        @JavascriptInterface public void cinemaMetaWant(String json) { if (cinemaMeta != null && json != null) { final String j = json; pool.execute(() -> cinemaMeta.want(j)); } }
+        @JavascriptInterface public void cinemaMetaKey(String key) { if (cinemaMeta != null) cinemaMeta.setKey(key); }
+        @JavascriptInterface public void cinemaMetaChoose(String key, String tmdbId) { if (cinemaMeta != null && key != null) { long id = 0; try { id = Long.parseLong(tmdbId); } catch (Exception ignored) {} cinemaMeta.choose(key, id); } }
+        @JavascriptInterface public void cinemaMetaSearch(String key, String query) { if (cinemaMeta != null && key != null) cinemaMeta.research(key, query); }
+        @JavascriptInterface public void cinemaMetaRetry() { if (cinemaMeta != null) cinemaMeta.retryAll(); }
         @JavascriptInterface
         public boolean cinemaPlay(String uuid, String rel, String title, double startMs, String subsJson) {
             if (cinema == null || uuid == null || rel == null) return false;

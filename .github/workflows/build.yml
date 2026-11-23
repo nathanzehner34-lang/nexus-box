@@ -72,6 +72,8 @@ jobs:
           node tools/voice-test/party-mode-render.test.js
           node tools/voice-test/party-premium.test.js
           node tools/voice-test/cinema.test.js
+          node tools/voice-test/cinema-meta.test.js
+          javac -d /tmp/cinema-match app/src/main/java/com/nexus/box/CinemaMatch.java tools/cinema-test/MatchTest.java && java -cp /tmp/cinema-match MatchTest
           node --check tools/voice-test/party-experiences-render.test.js
           node --check tools/voice-test/energy-flow-music.test.js
           node tools/voice-test/night-drive.test.js
