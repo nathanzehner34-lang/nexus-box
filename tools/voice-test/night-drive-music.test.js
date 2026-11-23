@@ -181,7 +181,9 @@ const scenario = SYN + `
  R.open=await until(()=>XP.active&&XP.current==='nightdrive'&&XP.ndDebug&&XP.ndDebug().frames>5,30000);
  R.analyser=XP.ndDebug().analyser; R.detail=window.__detail.slice();
  R.silentStart=XP.ndDebug().music;
+ const fr0=XP.ndDebug().frames, ft0=performance.now();
  R.electronic=await drive({bpm:128,kick:1,snare:.8,hat:.7,pad:.25},7000);
+ R.frameMs=(performance.now()-ft0)/Math.max(1,XP.ndDebug().frames-fr0);
  R.bassHeavy=await drive({bpm:92,kick:1.3,pad:.15},6000);
  R.atmos=await drive({pad:.9},5000);
  R.varied=await drive({bpm:140,kick:.8,snare:.6,hat:1,pad:.5},5000);
@@ -206,7 +208,11 @@ const scenario = SYN + `
   for (const k of ['electronic', 'bassHeavy', 'atmos', 'varied']) show(k, A[k]);
   const e = A.electronic;
   assert(e.pulses >= e.kicksPlayed * .6, 'electronic: kicks become travelling pulses (' + e.pulses + ' of ' + e.kicksPlayed + ')');
-  assert(e.lag.length && e.lag.reduce((a, b) => a + b, 0) / e.lag.length < 120, 'electronic: pulses land on the beat (avg lag ' + Math.round(e.lag.reduce((a, b) => a + b, 0) / e.lag.length) + ' ms)');
+  // a pulse can only start on the next drawn frame, so the allowance follows the frame time (33 ms on the box;
+  // software rendering on a build machine is far slower)
+  const lagAvg = e.lag.reduce((a, b) => a + b, 0) / Math.max(1, e.lag.length);
+  note('frame time in this run: ' + A.frameMs.toFixed(0) + ' ms');
+  assert(e.lag.length && lagAvg < Math.max(80, A.frameMs * 1.5), 'electronic: pulses land on the beat (avg lag ' + Math.round(lagAvg) + ' ms at ' + A.frameMs.toFixed(0) + ' ms per frame)');
   assert(e.mid > .1 && e.high > .1 && e.hatMax > .4 && e.bass > .15, 'electronic: bass, mids, highs and hats all reach their elements');
   const bh = A.bassHeavy;
   assert(bh.bass > .25 && bh.bass > bh.mid * 2 && bh.bass > bh.high * 3 && bh.pulses >= bh.kicksPlayed * .6, 'strong bass: the low end drives the big elements, not the small ones');

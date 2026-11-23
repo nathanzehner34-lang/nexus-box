@@ -277,7 +277,9 @@ const scenario = `
  R.faded=await until(()=>document.getElementById("xp").classList.contains("nd-idle"),9000);
  document.getElementById("xp").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true,pointerId:3,isPrimary:true}));
  await wait(120);R.wokeOnTouch=!document.getElementById("xp").classList.contains("nd-idle");
- // speed changes how fast the world goes by
+ // speed changes how fast the world goes by: measured right before and right after the change, so
+ // both samples see the same frame pacing (the shaders are still warming up in the first frames)
+ await frames(4);const c0=nd().travel;await frames(6);R.cruiseMoved=nd().travel-c0;
  document.querySelector("[data-speed=fast]").click();await wait(60);
  const f0=nd().travel;await frames(6);const f1=nd().travel;
  R.fastMoved=f1-f0;R.speed=nd().speed;
@@ -330,8 +332,8 @@ const scenario = `
   assert(run.controlsAtStart.present && !run.controlsAtStart.idle, 'controls are there when the journey opens');
   assert(run.faded, 'controls fade away on their own');
   assert(run.wokeOnTouch, 'a touch brings the controls back');
-  assert(run.speed === 'fast' && run.fastMoved > run.moved * 1.3,
-    'the speed control changes how fast the world goes by (' + run.moved.toFixed(1) + ' -> ' + run.fastMoved.toFixed(1) + ')');
+  assert(run.speed === 'fast' && run.fastMoved > run.cruiseMoved * 1.3,
+    'the speed control changes how fast the world goes by (' + run.cruiseMoved.toFixed(1) + ' -> ' + run.fastMoved.toFixed(1) + ')');
   assert(run.afterSettings.time === 'deep' && run.afterSettings.palette === 'aurora' && run.afterSettings.react === false,
     'time, colour and music reactivity all take effect ' + JSON.stringify(run.afterSettings));
   assert(run.meterOffWithMusicOff, 'switching music reactivity off stops the audio meter');
