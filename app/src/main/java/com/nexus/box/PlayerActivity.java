@@ -8,6 +8,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -16,6 +17,7 @@ import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -64,6 +66,10 @@ public class PlayerActivity extends Activity {
     private long startMs, lastPos = 0, lastDur = 0;
     private boolean usingCompat = false, tracksChecked = false, finishedSafely = false;
     private SharedPreferences progress;
+    // The on-screen way out: BACK TO CINEMA, the title and volume, shown with the playback controls.
+    private LinearLayout topBar;
+    private boolean barShown = true;
+    private final Runnable hideBar = () -> setBar(false);
 
     private final Runnable saver = new Runnable() {
         @Override public void run() { savePosition(false); ui.postDelayed(this, 10000); }
@@ -132,6 +138,7 @@ public class PlayerActivity extends Activity {
         } catch (Exception ignored) {}
 
         startExo();
+        buildTopBar();
         root.addView(box, lp);
         ui.postDelayed(saver, 10000);
     }
@@ -167,13 +174,17 @@ public class PlayerActivity extends Activity {
     private void startExo() {
         try {
             DefaultRenderersFactory rf = new DefaultRenderersFactory(this).setEnableDecoderFallback(true);
-            exo = new ExoPlayer.Builder(this, rf).build();
+            exo = new ExoPlayer.Builder(this, rf).setSeekBackIncrementMs(10000).setSeekForwardIncrementMs(30000).build();
             exo.setAudioAttributes(new androidx.media3.common.AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
             playerView = new PlayerView(this);
             playerView.setPlayer(exo);
             playerView.setShowSubtitleButton(true);
             playerView.setKeepScreenOn(true);
+            // a tap shows the controls; they fade after a few seconds, and the top bar goes with them
+            playerView.setControllerShowTimeoutMs(3500);
+            playerView.setControllerHideOnTouch(true);
+            playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) v -> setBar(v == View.VISIBLE));
             root.addView(playerView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             exo.addListener(new Player.Listener() {
                 @Override public void onTracksChanged(Tracks tracks) { checkTracks(tracks); }
@@ -251,6 +262,72 @@ public class PlayerActivity extends Activity {
         try { android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_SHORT).show(); } catch (Exception ignored) {}
     }
 
+    private void buildTopBar() {
+        topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dp(16), dp(14), dp(16), dp(28));
+        topBar.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0xCC000000, 0x00000000 }));
+        TextView exit = button("‹  BACK TO CINEMA", v -> exitToCinema());
+        exit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        exit.setPadding(dp(22), dp(14), dp(24), dp(14));
+        ((LinearLayout.LayoutParams) exit.getLayoutParams()).setMargins(0, 0, dp(16), 0);
+        topBar.addView(exit);
+        TextView name = new TextView(this);
+        name.setText(title == null ? "" : title);
+        name.setTextColor(0xE6FFFFFF);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        topBar.addView(name, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        topBar.addView(volume("−", AudioManager.ADJUST_LOWER));
+        topBar.addView(volume("+", AudioManager.ADJUST_RAISE));
+        // touches on the bar itself keep the controls up instead of reaching the video
+        topBar.setClickable(true);
+        root.addView(topBar, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP));
+        ui.postDelayed(hideBar, 3500);
+    }
+
+    private TextView volume(String sign, int dir) {
+        TextView b = button(sign, v -> {
+            try { ((AudioManager) getSystemService(AUDIO_SERVICE)).adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, AudioManager.FLAG_SHOW_UI); } catch (Exception ignored) {}
+            keepControls();
+        });
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(0, 0, 0, dp(2));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(60), dp(60));
+        lp.setMargins(dp(10), 0, 0, 0);
+        b.setLayoutParams(lp);
+        ((GradientDrawable) b.getBackground()).setCornerRadius(dp(30));
+        return b;
+    }
+
+    private void keepControls() {
+        if (playerView != null && exo != null) playerView.showController();
+        else { setBar(true); ui.removeCallbacks(hideBar); ui.postDelayed(hideBar, 3500); }
+    }
+
+    private void setBar(boolean on) {
+        if (topBar == null) return;
+        ui.removeCallbacks(hideBar);
+        if (on == barShown) return;
+        barShown = on;
+        topBar.animate().cancel();
+        if (on) { topBar.setVisibility(View.VISIBLE); topBar.bringToFront(); topBar.animate().alpha(1f).setDuration(180).start(); }
+        else topBar.animate().alpha(0f).setDuration(250).withEndAction(() -> { if (!barShown) topBar.setVisibility(View.GONE); }).start();
+    }
+
+    // Leaving the player always lands back in Cinema, on the screen the film was started from.
+    private void exitToCinema() { savePosition(false); finish(); }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        // the box's built-in player has no controller to follow, so any touch brings the bar up for a while
+        if (e.getActionMasked() == MotionEvent.ACTION_DOWN && (usingCompat || exo == null)) { setBar(true); ui.postDelayed(hideBar, 3500); }
+        return super.dispatchTouchEvent(e);
+    }
+
     private TextView button(String label, View.OnClickListener l) {
         TextView b = new TextView(this);
         b.setText(label);
@@ -283,6 +360,7 @@ public class PlayerActivity extends Activity {
         View box = (View) message.getTag();
         box.setVisibility(View.VISIBLE);
         box.bringToFront();
+        setBar(true); ui.removeCallbacks(hideBar);
         if (buttons.getChildCount() > 0) buttons.getChildAt(0).requestFocus();
     }
 
@@ -369,7 +447,7 @@ public class PlayerActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        if (e.getKeyCode() == KeyEvent.KEYCODE_BACK && e.getAction() == KeyEvent.ACTION_UP) { savePosition(false); finish(); return true; }
+        if (e.getKeyCode() == KeyEvent.KEYCODE_BACK && e.getAction() == KeyEvent.ACTION_UP) { exitToCinema(); return true; }
         if (e.getKeyCode() == KeyEvent.KEYCODE_BACK) return true;
         return super.dispatchKeyEvent(e);
     }

@@ -151,9 +151,9 @@ session(async ({ ev, sleep, send }) => {
   let titles = (await S()).list.map(i => i.title).sort();
   assert.deepStrictEqual(titles, ['Alien', 'The Thing'], 'genre filter: ' + titles);
   await ev(`(()=>{const g=document.getElementById('cnGenre');g.value='';g.dispatchEvent(new Event('change',{bubbles:true}));})()`);
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='crime';s.dispatchEvent(new Event('input'));})()`); await sleep(80);
+  await ev(`(()=>{if(!document.getElementById('cnSearch'))document.getElementById('cnSearchBtn').click();const s=document.getElementById('cnSearch');s.value='crime';s.dispatchEvent(new Event('input'));})()`); await sleep(80);
   assert.deepStrictEqual((await S()).list.map(i => i.title), ['Breaking Bad'], 'search by genre');
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='';s.dispatchEvent(new Event('input'));})()`);
+  await ev(`document.getElementById('cnSearchX').click()`);
 
   // 6. restart the app with no internet and no drive: everything still shows
   await send('Page.reload'); await sleep(1500);
@@ -164,9 +164,9 @@ session(async ({ ev, sleep, send }) => {
   await ev(`document.querySelector('${card(alien)}').click()`); await sleep(100);
   assert(/Nostromo/.test(await txt('.cn-sheet')) && /Plug in/.test(await txt('.cn-sheet')) && !(await ev(`!!document.querySelector('.cn-sheet [data-act=start]')`)), 'offline details show the saved description and say to plug the drive in');
   await ev('Nexus.back()');
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='alien';s.dispatchEvent(new Event('input'));})()`); await sleep(80);
+  await ev(`(()=>{if(!document.getElementById('cnSearch'))document.getElementById('cnSearchBtn').click();const s=document.getElementById('cnSearch');s.value='alien';s.dispatchEvent(new Event('input'));})()`); await sleep(80);
   assert.deepStrictEqual((await S()).list.map(i => i.title).sort(), ['Alien', 'Aliens'], 'search works offline');
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='';s.dispatchEvent(new Event('input'));})()`);
+  await ev(`document.getElementById('cnSearchX').click()`);
 
   // 8-9. plug the drive back in with a new film added: plays, only the new film is downloaded, no duplicates
   await ev(`__tmdb.online = true; __cin.entries.push({rel:'Movies/Brand New Film (2026)/Brand New Film (2026).mkv',name:'Brand New Film (2026).mkv',size:2e9,mtime:Date.now()})`);

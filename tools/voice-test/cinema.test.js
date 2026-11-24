@@ -117,11 +117,11 @@ session(async ({ ev, sleep, shot }) => {
   assert(await ev(`[...document.querySelectorAll('#cnGrid .cn-ph span')].every(s=>s.textContent.length>0)`), 'every card has a title card until its still arrives');
 
   // search, sort and filters
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='alien';s.dispatchEvent(new Event('input'));})()`); await sleep(150);
+  await ev(`(()=>{if(!document.getElementById('cnSearch'))document.getElementById('cnSearchBtn').click();const s=document.getElementById('cnSearch');s.value='alien';s.dispatchEvent(new Event('input'));})()`); await sleep(150);
   const found = await ev(`[...document.querySelectorAll('#cnGrid .cn-meta b')].map(b=>b.textContent)`);
   if (!process.env.CINEMA_FIXTURE) assert.deepStrictEqual(found.sort(), ['Alien', 'Aliens'], 'search: ' + found);
   else assert(found.length > 0 && (await ev(`NexusCinema.state().list.every(i=>/alien/i.test(i.title)||(i.kind==='show'&&i.episodes.some(e=>/alien/i.test(e.title))))`)), 'search');
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='';s.dispatchEvent(new Event('input'));})()`);
+  await ev(`document.getElementById('cnSearchX').click()`);
   await ev(`(()=>{const s=document.getElementById('cnSort');s.value='year';s.dispatchEvent(new Event('change'));})()`); await sleep(100);
   const years = (await ev(`NexusCinema.state().list.slice(0,8).map(i=>i.year||0)`));
   assert(years.every((y, i) => i === 0 || y <= years[i - 1]), 'newest first: ' + years);
@@ -136,7 +136,7 @@ session(async ({ ev, sleep, shot }) => {
   // show page
   const showId = await ev(`NexusCinema.state().items.find(i=>i.kind==='show' && i.seasons.length>1).id`);
   const showTitle = await ev(`NexusCinema.state().items.find(i=>i.id===${JSON.stringify(showId)}).title`);
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value=${JSON.stringify(showTitle)};s.dispatchEvent(new Event('input'));})()`); await sleep(100);
+  await ev(`(()=>{if(!document.getElementById('cnSearch'))document.getElementById('cnSearchBtn').click();const s=document.getElementById('cnSearch');s.value=${JSON.stringify(showTitle)};s.dispatchEvent(new Event('input'));})()`); await sleep(100);
   await ev(`document.querySelector('[data-id="${showId}"]').click()`); await sleep(150);
   assert(await ev(`!!document.querySelector('.cn-show-head') && document.querySelectorAll('.cn-seasons button').length>1`), 'a show opens with its seasons');
   await click('.cn-seasons button:nth-child(2)'); await sleep(80);
@@ -144,7 +144,7 @@ session(async ({ ev, sleep, shot }) => {
   await snap('5-show');
   await ev('Nexus.back()'); await sleep(80);
   assert(await ev(`!!document.getElementById('cnGrid') && NexusCinema.isOpen()`), 'back from a show returns to the library');
-  await ev(`(()=>{const s=document.getElementById('cnSearch');s.value='';s.dispatchEvent(new Event('input'));})()`); await sleep(80);
+  await ev(`document.getElementById('cnSearchX').click()`); await sleep(80);
 
   // 8. details and playing straight from the drive, then resume
   const movie = await ev(`[...document.querySelectorAll('#cnGrid .cn-card')].map(c=>c.getAttribute('data-id')).find(id=>NexusCinema.state().items.some(i=>i.kind==='movie'&&i.uuid+'|'+i.rel===id))`);

@@ -698,23 +698,36 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 /* =====================================================================
    NEXUS CINEMA — movie library on external drives (cinema.js)
    ===================================================================== */
-#cinema { z-index: 40; background: #05060c; color: var(--nx-ink); display: flex; flex-direction: column; overflow: hidden; }
+#cinema { z-index: 40; background: #05060c; color: var(--nx-ink); display: flex; flex-direction: column; overflow: hidden; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+#cinema button, #cinema select { touch-action: manipulation; }
 #cinema.hidden { display: none; }
 #cinema .hidden { display: none !important; }
 .cn-bg { position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(120% 80% at 85% -10%, rgba(169,141,255,.16), transparent 60%), radial-gradient(90% 70% at -10% 110%, rgba(116,232,255,.10), transparent 60%), linear-gradient(#070812, #04050a); }
 .cn-top { position: relative; display: flex; align-items: center; gap: var(--nx-gap); padding: var(--nx-pad) var(--nx-margin) 0; }
-.cn-back { width: var(--nx-tap); height: var(--nx-tap); border-radius: 50%; border: 1px solid var(--nx-line); background: var(--nx-glass-hi); font-size: 30px; line-height: 1; padding: 0 0 4px; }
-.cn-brand { font-size: var(--fs-title); letter-spacing: .32em; color: var(--nx-ink-2); white-space: nowrap; }
+/* navigation: Back, Home and Exit are big labelled pills, the same on every Cinema screen */
+.cn-nav { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 56px; min-width: 56px; padding: 0 20px 0 14px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line-strong); background: var(--nx-glass-hi); color: var(--nx-ink); font-weight: 700; letter-spacing: .1em; font-size: var(--fs-label); }
+.cn-nav span { font-size: 30px; line-height: 1; margin-top: -3px; }
+.cn-nav.cn-exit span, .cn-nav.cn-home span { font-size: 20px; margin-top: 0; }
+.cn-nav:active, .cn-tool:active, .cn-rescan:active, .cn-primary:active, .cn-ghost:active, .cn-sheet-back:active, .cn-sheet-x:active { transform: scale(.95); filter: brightness(1.25); }
+.cn-brand { flex: 1; min-width: 0; font-size: var(--fs-title); letter-spacing: .32em; color: var(--nx-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 12px 0; }
+.cn-brand.link { cursor: pointer; }
+.cn-brand #cnCrumb { display: none; letter-spacing: .01em; color: var(--nx-ink); font-weight: 700; font-size: clamp(18px, 3.2vmin, 28px); }
+.cn-brand.deep .cn-logo { display: none; }
+.cn-brand.deep #cnCrumb { display: inline; }
+.cn-tools { flex: none; display: flex; align-items: center; gap: var(--nx-gap); }
+.cn-tool { display: inline-flex; align-items: center; gap: 8px; height: 56px; padding: 0 20px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: rgba(255,255,255,.05); color: var(--nx-ink); font-weight: 700; letter-spacing: .1em; font-size: var(--fs-label); }
+.cn-tool svg, .cn-searchbar svg { width: 20px; height: 20px; fill: none; stroke: var(--nx-ink-2); stroke-width: 2; flex: none; }
+.cn-searchbar { flex: 1; display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 6px 0 18px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-cyan); background: rgba(116,232,255,.07); min-width: 0; animation: cnIn .2s var(--nx-ease); }
+.cn-searchbar input { flex: 1; min-width: 0; height: 100%; background: none; border: 0; color: var(--nx-ink); font: inherit; font-size: var(--fs-body); outline: none; user-select: text; -webkit-user-select: text; }
+.cn-searchbar input::-webkit-search-cancel-button { display: none; }
+.cn-search-x { flex: none; width: 46px; height: 46px; border-radius: 50%; border: 0; background: rgba(255,255,255,.1); font-size: 18px; }
 .cn-brand b { background: var(--nx-accent); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; }
-.cn-search { flex: 1; display: flex; align-items: center; gap: 8px; height: var(--nx-tap); padding: 0 16px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: rgba(255,255,255,.05); min-width: 0; }
-.cn-search svg { width: 20px; height: 20px; fill: none; stroke: var(--nx-ink-3); stroke-width: 2; flex: none; }
-.cn-search input { flex: 1; min-width: 0; background: none; border: 0; color: var(--nx-ink); font: inherit; font-size: var(--fs-body); outline: none; user-select: text; -webkit-user-select: text; }
-#cnSort, .cn-rescan { height: var(--nx-tap); border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: rgba(255,255,255,.05); color: var(--nx-ink); font: inherit; font-size: var(--fs-label); padding: 0 16px; letter-spacing: .06em; }
+#cnSort, .cn-rescan { height: 56px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: rgba(255,255,255,.05); color: var(--nx-ink); font: inherit; font-size: var(--fs-label); padding: 0 16px; letter-spacing: .06em; }
 #cnSort option { background: #0b0d18; }
 .cn-filters { position: relative; display: flex; gap: 8px; padding: var(--nx-gap) var(--nx-margin) 0; overflow-x: auto; scrollbar-width: none; flex: none; }
 .cn-filters::-webkit-scrollbar { display: none; }
-.cn-filters button { flex: none; height: 38px; padding: 0 16px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: transparent; font-size: var(--fs-label); letter-spacing: .04em; color: var(--nx-ink-2); }
+.cn-filters button { flex: none; height: 46px; padding: 0 16px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: transparent; font-size: var(--fs-label); letter-spacing: .04em; color: var(--nx-ink-2); }
 .cn-filters button i { font-style: normal; opacity: .55; margin-left: 4px; }
 .cn-filters button.on { color: #05060c; background: var(--nx-silver); border-color: transparent; font-weight: 700; }
 .cn-drives { position: relative; display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px var(--nx-margin) 0; font-size: var(--fs-caption); color: var(--nx-ink-3); flex: none; }
@@ -728,9 +741,9 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .cn-scan-bar { height: 3px; border-radius: 3px; background: rgba(116,232,255,.15); overflow: hidden; }
 .cn-scan-bar i { display: block; height: 100%; width: 30%; background: var(--nx-accent); border-radius: 3px; animation: cnSweep 1.3s ease-in-out infinite; }
 @keyframes cnSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
-.cn-body { position: relative; flex: 1; overflow-y: auto; overflow-x: hidden; padding: 6px var(--nx-margin) var(--nx-margin); -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.cn-body { position: relative; flex: 1; overflow-y: auto; touch-action: pan-y; overflow-x: hidden; padding: 6px var(--nx-margin) var(--nx-margin); -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .cn-row-title { margin: 14px 0 10px; font-size: var(--fs-label); letter-spacing: .22em; text-transform: uppercase; color: var(--nx-ink-3); font-weight: 600; }
-.cn-row { display: flex; gap: var(--nx-gap); overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.cn-row { display: flex; gap: var(--nx-gap); overflow-x: auto; touch-action: pan-x pan-y; scrollbar-width: none; padding-bottom: 4px; }
 .cn-row::-webkit-scrollbar { display: none; }
 .cn-row .cn-card { flex: 0 0 clamp(170px, 24vw, 280px); }
 .cn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 21vw, 250px), 1fr)); gap: clamp(12px, 2.2vmin, 22px) var(--nx-gap); }
@@ -770,10 +783,13 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .cn-show-txt h2 { margin: 0 0 6px; font-size: clamp(22px, 5vmin, 46px); line-height: 1.05; }
 .cn-show-txt p { margin: 0 0 14px; color: var(--nx-ink-2); font-size: var(--fs-body); }
 .cn-seasons { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0; scrollbar-width: none; }
-.cn-seasons button { flex: none; height: 38px; padding: 0 16px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: none; color: var(--nx-ink-2); font-size: var(--fs-label); }
+.cn-seasons button { flex: none; height: 48px; padding: 0 16px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: none; color: var(--nx-ink-2); font-size: var(--fs-label); }
 .cn-seasons button.on { background: var(--nx-silver); color: #05060c; font-weight: 700; }
+.cn-seasons button i { font-style: normal; opacity: .6; margin-left: 4px; }
+.cn-ep.watched .cn-ep-txt b { color: var(--nx-ink-2); }
+.cn-ep-still .cn-done { top: auto; bottom: 7px; }
 .cn-eps { display: flex; flex-direction: column; gap: 8px; }
-.cn-ep { display: flex; align-items: center; gap: 14px; padding: 8px; border-radius: var(--nx-r); background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.05); content-visibility: auto; contain-intrinsic-size: 600px 90px; }
+.cn-ep { display: flex; align-items: center; gap: 14px; padding: 10px; min-height: 76px; border-radius: var(--nx-r); background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.05); content-visibility: auto; contain-intrinsic-size: 600px 90px; }
 .cn-ep:active { background: rgba(255,255,255,.08); }
 .cn-ep.offline { opacity: .5; }
 .cn-ep-still { position: relative; flex: 0 0 clamp(120px, 18vw, 190px); aspect-ratio: 16 / 9; border-radius: var(--nx-r-sm); overflow: hidden; background: linear-gradient(135deg, hsl(var(--h), 40%, 16%), hsl(calc(var(--h) + 50), 45%, 8%)); }
@@ -781,9 +797,9 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .cn-ep-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .cn-ep-txt b { font-size: var(--fs-body); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cn-ep-txt span { font-size: var(--fs-caption); color: var(--nx-ink-3); }
-.cn-ep-play { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--nx-line-strong); font-size: 14px; flex: none; }
-.cn-sheet { position: absolute; inset: 0; z-index: 5; background: rgba(2,3,8,.78); display: flex; align-items: center; justify-content: center; padding: var(--nx-margin); }
-.cn-sheet-card { position: relative; width: min(880px, 100%); max-height: 100%; overflow: auto; border-radius: var(--nx-r-lg); background: #0b0d18; box-shadow: var(--nx-shadow-lg), inset 0 0 0 1px rgba(255,255,255,.08); }
+.cn-ep-play { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--nx-line-strong); font-size: 14px; flex: none; }
+.cn-sheet { position: absolute; inset: 0; z-index: 5; background: rgba(2,3,8,.78); animation: cnFade .18s ease; display: flex; align-items: center; justify-content: center; padding: var(--nx-margin); }
+.cn-sheet-card { position: relative; width: min(880px, 100%); max-height: 100%; overflow: auto; overscroll-behavior: contain; animation: cnRise .24s var(--nx-ease); border-radius: var(--nx-r-lg); background: #0b0d18; box-shadow: var(--nx-shadow-lg), inset 0 0 0 1px rgba(255,255,255,.08); }
 .cn-sheet-art { position: relative; aspect-ratio: 21 / 9; background: linear-gradient(135deg, hsl(var(--h), 45%, 18%), hsl(calc(var(--h) + 50), 50%, 8%)); }
 .cn-sheet-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cn-sheet-fade { position: absolute; inset: 0; background: linear-gradient(transparent 35%, #0b0d18); }
@@ -795,7 +811,14 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .cn-where b { color: var(--nx-ink-2); }
 .cn-acts { display: flex; gap: 12px; flex-wrap: wrap; }
 .cn-offline-msg { padding: 14px 18px; border-radius: var(--nx-r); background: rgba(255,179,107,.1); color: #ffcf9e; font-size: var(--fs-body); }
-.cn-sheet-x { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(0,0,0,.55); font-size: 18px; }
+.cn-sheet-x { position: absolute; top: 12px; right: 12px; width: 56px; height: 56px; border-radius: 50%; border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.6); font-size: 20px; }
+.cn-sheet-back { position: absolute; top: 12px; left: 12px; display: inline-flex; align-items: center; gap: 8px; height: 56px; padding: 0 20px 0 14px; border-radius: var(--nx-r-pill); border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.6); font-weight: 700; letter-spacing: .1em; font-size: var(--fs-label); }
+.cn-sheet-back span { font-size: 30px; line-height: 1; margin-top: -3px; }
+.cn-next { margin-top: 12px; }
+.cn-body > * { animation: cnIn .22s var(--nx-ease); }
+@keyframes cnIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes cnFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cnRise { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: none; } }
 .cn-toast { position: absolute; z-index: 6; left: 50%; bottom: 22px; transform: translate(-50%, 30px); opacity: 0; pointer-events: none; max-width: 86%;
   padding: 12px 20px; border-radius: var(--nx-r-pill); background: rgba(16,19,34,.95); border: 1px solid var(--nx-line-strong); font-size: var(--fs-label); transition: all var(--nx-med) var(--nx-ease); text-align: center; }
 .cn-toast.on { opacity: 1; transform: translate(-50%, 0); }

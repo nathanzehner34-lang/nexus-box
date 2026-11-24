@@ -1609,6 +1609,18 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void cinemaMetaChoose(String key, String tmdbId) { if (cinemaMeta != null && key != null) { long id = 0; try { id = Long.parseLong(tmdbId); } catch (Exception ignored) {} cinemaMeta.choose(key, id); } }
         @JavascriptInterface public void cinemaMetaSearch(String key, String query) { if (cinemaMeta != null && key != null) cinemaMeta.research(key, query); }
         @JavascriptInterface public void cinemaMetaRetry() { if (cinemaMeta != null) cinemaMeta.retryAll(); }
+        // Cinema shows the keyboard only when SEARCH is tapped, and hides it whenever search or a text box is left.
+        @JavascriptInterface
+        public void cinemaKeyboard(boolean show) {
+            ui.post(() -> {
+                try {
+                    android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm == null || web == null) return;
+                    if (show) { web.requestFocus(); imm.showSoftInput(web, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT); }
+                    else imm.hideSoftInputFromWindow(web.getWindowToken(), 0);
+                } catch (Exception ignored) {}
+            });
+        }
         @JavascriptInterface
         public boolean cinemaPlay(String uuid, String rel, String title, double startMs, String subsJson) {
             if (cinema == null || uuid == null || rel == null) return false;
