@@ -13,8 +13,11 @@
     open: false, drives: [], libs: [], progress: {}, info: {},
     filter: 'all', sort: 'title', query: '', show: null, season: null, detail: null,
     scan: {}, items: [], shows: {}, rendered: 0, list: [], notice: '',
-    meta: {}, metaStatus: {}, wantSig: '', genre: '', fix: null
+    meta: {}, metaStatus: {}, wantSig: '', genre: '', fix: null,
+    // navigation: searching is a mode with its own bar; nav is the stack of screens Back returns to
+    searching: false, nav: [], returnDetail: null
   };
+  var BROWSE_KEY = 'nexus.cinema.browse';
   var PAGE = 36;
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -159,6 +162,21 @@
     sh.episodes.forEach(function (e) { var p = prog(e); if (p && !p.done && p.pos > 0 && (!best || p.at > best.p.at)) best = { e: e, p: p }; });
     return best;
   }
+  // What to watch next in a show: the episode left part-way (if it's the latest thing watched), otherwise the
+  // episode after the last one finished. null when nothing has been watched or the show is finished.
+  function nextUp(sh) {
+    var cp = showProgress(sh), last = null;
+    sh.episodes.forEach(function (e) { var p = prog(e); if (p && p.done && (!last || (p.at || 0) > (last.p.at || 0))) last = { e: e, p: p }; });
+    if (cp && (!last || cp.p.at >= last.p.at)) return { e: cp.e, p: cp.p, resume: true, at: cp.p.at };
+    if (last) {
+      var n = sh.episodes[sh.episodes.indexOf(last.e) + 1];
+      if (n) { var np = prog(n); if (!(np && np.done)) return { e: n, p: np, resume: !!(np && np.pos > 0), upNext: true, at: last.p.at }; }
+    }
+    return cp ? { e: cp.e, p: cp.p, resume: true, at: cp.p.at } : null;
+  }
+  function watching(it) { if (it.kind === 'show') return !!nextUp(it); var p = prog(it); return !!(p && !p.done && p.pos > 0); }
+  function nextEp(e) { var sh = S.shows[e.show]; if (!sh) return null; return sh.episodes[sh.episodes.indexOf(e) + 1] || null; }
+  function showDone(sh) { return sh.episodes.length > 0 && sh.episodes.every(function (e) { var p = prog(e); return p && p.done; }); }
 
   // ------------------------------------------------------------------ screen
 
@@ -170,12 +188,17 @@
     root.innerHTML =
       '<div class="cn-bg"></div>' +
       '<header class="cn-top">' +
-        '<button class="cn-back" id="cnBack" aria-label="Back">‹</button>' +
-        '<div class="cn-brand"><b>NEXUS</b> CINEMA</div>' +
-        '<label class="cn-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input id="cnSearch" type="search" placeholder="Search your movies" autocomplete="off"></label>' +
-        '<select id="cnSort" aria-label="Sort"><option value="title">A–Z</option><option value="added">Recently added</option><option value="year">Newest</option><option value="oldest">Oldest</option><option value="size">Largest</option></select>' +
-        '<button class="cn-rescan" id="cnRescan">↻ RESCAN</button>' +
-        '<button class="cn-rescan cn-info-btn" id="cnInfoBtn" aria-label="Movie information">ⓘ</button>' +
+        '<button class="cn-nav" id="cnBack" aria-label="Back"><span>‹</span>BACK</button>' +
+        '<button class="cn-nav cn-home hidden" id="cnHome" aria-label="Cinema home"><span>⌂</span>HOME</button>' +
+        '<div class="cn-brand" id="cnBrand"><span class="cn-logo"><b>NEXUS</b> CINEMA</span><span id="cnCrumb"></span></div>' +
+        '<div class="cn-searchbar hidden" id="cnSearchBar"></div>' +
+        '<div class="cn-tools" id="cnTools">' +
+          '<button class="cn-tool" id="cnSearchBtn" aria-label="Search">' + SEARCH_IC + 'SEARCH</button>' +
+          '<select id="cnSort" aria-label="Sort"><option value="title">A–Z</option><option value="added">Recently added</option><option value="year">Newest</option><option value="oldest">Oldest</option><option value="size">Largest</option></select>' +
+          '<button class="cn-rescan" id="cnRescan">↻ RESCAN</button>' +
+          '<button class="cn-rescan cn-info-btn" id="cnInfoBtn" aria-label="Movie information">ⓘ</button>' +
+        '</div>' +
+        '<button class="cn-nav cn-exit" id="cnExit" aria-label="Exit Cinema"><span>✕</span>EXIT</button>' +
       '</header>' +
       '<nav class="cn-filters" id="cnFilters"></nav>' +
       '<div class="cn-drives" id="cnDrives"></div>' +
@@ -185,8 +208,17 @@
       '<div class="cn-toast" id="cnToast"></div>';
     document.body.appendChild(root);
     $('cnBack').addEventListener('click', back);
-    $('cnSearch').addEventListener('input', function () { S.query = this.value; S.show = null; render(); });
-    $('cnSort').addEventListener('change', function () { S.sort = this.value; render(); });
+    $('cnHome').addEventListener('click', goHome);
+    $('cnBrand').addEventListener('click', function () { if (!atRoot()) goHome(); });
+    $('cnExit').addEventListener('click', close);
+    $('cnSearchBtn').addEventListener('click', openSearch);
+    $('cnSort').addEventListener('change', function () { S.sort = this.value; this.blur(); saveBrowse(); render(); });
+    // No searching means no keyboard: any touch that isn't on a text box takes focus away from text boxes,
+    // so a box focused earlier can never bring the keyboard back over the library, a sheet or the player.
+    root.addEventListener('pointerdown', function (e) {
+      if (e.target.closest && e.target.closest('input, textarea, select, .cn-searchbar, .cn-research')) return;
+      dropKeyboard();
+    }, true);
     $('cnRescan').addEventListener('click', rescanAll);
     $('cnInfoBtn').addEventListener('click', openSettings);
     $('cnBody').addEventListener('scroll', function () { var b = $('cnBody'); if (b.scrollTop + b.clientHeight > b.scrollHeight - 600) more(); }, { passive: true });
@@ -194,12 +226,103 @@
     $('cnDrives').addEventListener('click', onDriveClick);
     $('cnFilters').addEventListener('click', function (e) {
       var b = e.target.closest('[data-filter]'); if (!b) return;
-      S.filter = b.getAttribute('data-filter'); S.show = null; render();
+      // the filters are the top-level sections: picking one leaves any show page behind
+      S.filter = b.getAttribute('data-filter'); S.show = null; S.nav = []; S.fix = null; saveBrowse(); render();
     });
-    $('cnFilters').addEventListener('change', function (e) { if (e.target.id === 'cnGenre') { S.genre = e.target.value; S.show = null; render(); } });
+    $('cnFilters').addEventListener('change', function (e) { if (e.target.id === 'cnGenre') { S.genre = e.target.value; e.target.blur(); S.show = null; S.nav = []; saveBrowse(); render(); } });
     $('cnSheet').addEventListener('click', onSheetClick);
     return root;
   }
+
+  var SEARCH_IC = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>';
+
+  // ------------------------------------------------------------------ keyboard
+  // The text box for searching is only created when SEARCH is tapped and is removed when search closes;
+  // the only other text boxes are inside the "fix this movie" and "movie information" sheets.
+  function dropKeyboard() {
+    var a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && root && root.contains(a)) { a.blur(); call('cinemaKeyboard', false); }
+  }
+  function typing() { var a = document.activeElement; return !!(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && root && root.contains(a)); }
+
+  // ------------------------------------------------------------------ search
+  function searchBar(focus) {
+    var bar = $('cnSearchBar');
+    bar.innerHTML = SEARCH_IC + '<input id="cnSearch" type="search" placeholder="Search your movies and shows" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">' +
+      '<button class="cn-search-x" id="cnSearchX" aria-label="Close search">✕</button>';
+    var inp = $('cnSearch');
+    inp.value = S.query;
+    inp.addEventListener('input', function () { S.query = this.value; render(); });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); dropKeyboard(); } });
+    $('cnSearchX').addEventListener('click', closeSearch);
+    if (focus) { inp.focus(); call('cinemaKeyboard', true); }
+  }
+  function openSearch() {
+    if (S.searching) { var i = $('cnSearch'); if (i) { i.focus(); call('cinemaKeyboard', true); } return; }
+    closeDetail(); S.fix = null;
+    pushNav();
+    S.searching = true; S.show = null; S.query = '';
+    syncHeader(); searchBar(true);
+    render();
+  }
+  function closeSearch() {
+    dropKeyboard();
+    S.searching = false; S.query = '';
+    $('cnSearchBar').innerHTML = '';
+    if (S.nav.length) restore(S.nav.pop()); else render();
+  }
+
+  // ------------------------------------------------------------------ navigation
+  // Screens Back can return to: library (any filter / search) -> show page. Sheets sit above both and close first.
+  function snap() { var b = $('cnBody'); return { filter: S.filter, genre: S.genre, query: S.query, searching: S.searching, show: S.show, season: S.season, scroll: b ? b.scrollTop : 0, rendered: S.rendered }; }
+  function pushNav() { S.nav.push(snap()); if (S.nav.length > 30) S.nav.shift(); }
+  function restore(n) {
+    S.filter = n.filter; S.genre = n.genre; S.query = n.query; S.show = n.show; S.season = n.season;
+    var was = S.searching; S.searching = n.searching;
+    if (S.searching) { if (!was || !$('cnSearch')) searchBar(false); } else $('cnSearchBar').innerHTML = '';
+    render();
+    var b = $('cnBody');
+    if (!S.show) while (S.rendered < n.rendered && S.rendered < S.list.length) more();
+    b.scrollTop = n.scroll;
+  }
+  function atRoot() { return !S.show && !S.searching && !S.nav.length && S.filter === 'all' && !S.genre; }
+  function sheetOpen() { var sh = $('cnSheet'); return !!(sh && !sh.classList.contains('hidden')); }
+  function goHome() {
+    dropKeyboard(); closeDetail();
+    S.searching = false; S.query = ''; S.nav = []; S.show = null; S.season = null; S.filter = 'all'; S.genre = ''; S.fix = null;
+    $('cnSearchBar').innerHTML = ''; saveBrowse();
+    render(); $('cnBody').scrollTop = 0;
+  }
+  function openShow(id) {
+    dropKeyboard(); pushNav();
+    S.show = id; S.season = null; S.searching = false;
+    render(); $('cnBody').scrollTop = 0;
+  }
+  // re-draw the current screen without losing the place in it
+  function refreshView() {
+    var b = $('cnBody'), top = b ? b.scrollTop : 0, n = S.rendered;
+    render();
+    if (!S.show) while (S.rendered < n && S.rendered < S.list.length) more();
+    if (b) b.scrollTop = top;
+  }
+  function syncHeader() {
+    if (!root) return;
+    $('cnSearchBar').classList.toggle('hidden', !S.searching);
+    $('cnTools').classList.toggle('hidden', S.searching);
+    $('cnBrand').classList.toggle('hidden', S.searching);
+    $('cnHome').classList.toggle('hidden', atRoot());
+    var sh = S.show && S.shows[S.show], names = { continue: 'Continue watching', movies: 'Movies', tv: 'TV shows', anime: 'Anime' };
+    var where = sh ? nameOf(sh) : S.genre ? S.genre : names[S.filter] || '';
+    // on the main screen the logo; anywhere else, where you are
+    $('cnCrumb').textContent = S.searching ? '' : where;
+    $('cnBrand').classList.toggle('deep', !!where && !S.searching);
+    $('cnBrand').classList.toggle('link', !atRoot());
+  }
+  // where the library was left, so Cinema opens there next time
+  function saveBrowse() {
+    try { var b = $('cnBody'); localStorage.setItem(BROWSE_KEY, JSON.stringify({ filter: S.filter, sort: S.sort, genre: S.genre, scroll: !S.show && !S.searching && b ? b.scrollTop : 0 })); } catch (e) {}
+  }
+  function loadBrowse() { try { return JSON.parse(localStorage.getItem(BROWSE_KEY) || 'null'); } catch (e) { return null; } }
 
   function thumb(it) {
     if (!it) return '';
@@ -219,7 +342,7 @@
       if (S.filter === 'movies' && !(it.kind === 'movie' && it.cat !== 'anime')) return false;
       if (S.filter === 'tv' && !(it.kind === 'show' && it.cat !== 'anime')) return false;
       if (S.filter === 'anime' && it.cat !== 'anime') return false;
-      if (S.filter === 'continue' && !(it.kind === 'show' ? showProgress(it) : (prog(it) && !prog(it).done && prog(it).pos > 0))) return false;
+      if (S.filter === 'continue' && !watching(it)) return false;
       if (S.genre && genresOf(it).indexOf(S.genre) < 0) return false;
       if (!q) return true;
       if ((it.title || '').toLowerCase().indexOf(q) >= 0 || nameOf(it).toLowerCase().indexOf(q) >= 0 || String(yearOf(it) || '').indexOf(q) === 0) return true;
@@ -237,7 +360,7 @@
     else list.sort(by[S.sort] || by.title);
     return list;
   }
-  function lastAt(it) { if (it.kind === 'show') { var p = showProgress(it); return p ? p.p.at : 0; } var q = prog(it); return q ? q.at : 0; }
+  function lastAt(it) { if (it.kind === 'show') { var n = nextUp(it); return n ? n.at : 0; } var q = prog(it); return q ? q.at : 0; }
   function sortKey(t) { return String(t || '').toLowerCase().replace(/^(the|a|an)\s+/, ''); }
 
   function counts() {
@@ -246,7 +369,7 @@
       if (it.kind === 'movie' && it.cat !== 'anime') c.movies++;
       if (it.kind === 'show' && it.cat !== 'anime') c.tv++;
       if (it.cat === 'anime') c.anime++;
-      if (it.kind === 'show' ? showProgress(it) : (prog(it) && !prog(it).done && prog(it).pos > 0)) c.continue++;
+      if (watching(it)) c.continue++;
     });
     return c;
   }
@@ -282,9 +405,10 @@
   function libOf(uuid) { for (var i = 0; i < S.libs.length; i++) if (S.libs[i].uuid === uuid) return S.libs[i]; return null; }
 
   function card(it) {
-    var p = it.kind === 'show' ? (showProgress(it) || {}).p : prog(it), pct = p && !p.done && p.dur ? Math.min(100, p.pos / p.dur * 100) : 0;
-    var still = it.kind === 'show' ? it.first : it, m = M(it), rec = metaRec(it), wide = !!card.wide;
-    var sub = it.kind === 'show' ? (it.seasons.length > 1 ? it.seasons.length + ' seasons' : it.episodes.length + ' episodes') : (yearOf(it) || '');
+    var nu = it.kind === 'show' ? nextUp(it) : null, wide = !!card.wide;
+    var p = it.kind === 'show' ? (nu && nu.resume ? nu.p : showDone(it) ? { done: true } : null) : prog(it), pct = p && !p.done && p.dur ? Math.min(100, p.pos / p.dur * 100) : 0;
+    var still = it.kind === 'show' ? it.first : it, m = M(it), rec = metaRec(it);
+    var sub = it.kind === 'show' ? (wide && nu ? 'S' + nu.e.season + ' E' + (nu.e.episode || '?') + (nu.upNext ? ' · Up next' : '') : it.seasons.length > 1 ? it.seasons.length + ' seasons' : it.episodes.length + ' episodes') : (yearOf(it) || '');
     // the official poster (in the wide Continue watching row, the background) once it's saved; until then the film's own still
     var src = m ? (wide ? art(m.backdrop) || art(m.posterSmall) : art(m.posterSmall) || art(m.poster)) : '';
     return '<div class="cn-card' + (it.online ? '' : ' offline') + '" data-id="' + esc(it.kind === 'show' ? it.id : it.uuid + '|' + it.rel) + '" style="--h:' + hue(it.title) + '">' +
@@ -301,6 +425,7 @@
 
   function render() {
     if (!root) return;
+    syncHeader();
     renderFilters();
     renderDrives();
     var body = $('cnBody');
@@ -310,13 +435,14 @@
     var hero = '';
     if (!S.items.length) { body.innerHTML = emptyState(); return; }
     if (S.filter === 'all' && !S.query) {
-      var cont = S.items.filter(function (it) { return it.kind === 'show' ? showProgress(it) : (prog(it) && !prog(it).done && prog(it).pos > 0); })
+      var cont = S.items.filter(watching)
         .sort(function (a, b) { return lastAt(b) - lastAt(a); }).slice(0, 8);
       card.wide = true;
       if (cont.length) hero = '<h3 class="cn-row-title">Continue watching</h3><div class="cn-row">' + cont.map(card).join('') + '</div><h3 class="cn-row-title">Your library</h3>';
       card.wide = false;
     }
-    if (!S.list.length) { body.innerHTML = hero + '<div class="cn-empty small">Nothing matches “' + esc(S.query) + '”.</div>'; return; }
+    if (S.searching && !S.query.trim()) hero = '<div class="cn-empty small">Type a title, a year or a genre.</div>';
+    if (!S.list.length) { body.innerHTML = hero + '<div class="cn-empty small">' + (S.query ? 'Nothing matches “' + esc(S.query) + '”.' : 'Nothing here yet.') + '</div>'; return; }
     // once official posters are saved the library is shown as a poster wall
     var posters = S.items.some(function (it) { var m = M(it); return m && (m.posterSmall || m.poster); });
     body.innerHTML = hero + '<div class="cn-grid' + (posters ? ' posters' : '') + '" id="cnGrid"></div>';
@@ -342,28 +468,35 @@
 
   function renderShow(sh) {
     var body = $('cnBody');
-    if (S.season == null || sh.seasons.indexOf(S.season) < 0) { var cp = showProgress(sh); S.season = cp ? cp.e.season : sh.seasons[0]; }
+    var nu = nextUp(sh);
+    if (S.season == null || sh.seasons.indexOf(S.season) < 0) S.season = nu ? nu.e.season : sh.seasons[0];
     var eps = sh.episodes.filter(function (e) { return e.season === S.season; });
-    var cp2 = showProgress(sh), m = M(sh), rec = metaRec(sh);
+    var m = M(sh), rec = metaRec(sh);
+    var first = sh.episodes[0], playBtn = '';
+    if (sh.online && nu) playBtn = '<button class="cn-primary big" data-play="' + esc(nu.e.uuid + '|' + nu.e.rel) + '"' + (nu.resume ? ' data-resume="1">▶ RESUME' : '>▶ ' + (nu.upNext ? 'NEXT ·' : 'PLAY')) + ' S' + nu.e.season + ' E' + (nu.e.episode || '?') + '</button>';
+    else if (sh.online && first) playBtn = '<button class="cn-primary big" data-play="' + esc(first.uuid + '|' + first.rel) + '">▶ ' + (showDone(sh) ? 'WATCH AGAIN' : 'PLAY FIRST EPISODE') + '</button>';
     var html = '<div class="cn-show-head" style="--h:' + hue(sh.title) + '"><div class="cn-show-art"><img src="' + (m && m.backdrop ? art(m.backdrop) : thumb(sh.first)) + '" onerror="this.remove()" alt=""></div>' +
       '<div class="cn-show-txt"><h2>' + esc(nameOf(sh)) + '</h2><p>' + (yearOf(sh) ? yearOf(sh) + ' · ' : '') + sh.episodes.length + ' episodes' + (sh.seasons.length > 1 ? ' · ' + sh.seasons.length + ' seasons' : '') + ' · ' + esc(sh.drive) + (sh.online ? '' : ' (not connected)') + '</p>' +
       (m && m.genres && m.genres.length ? '<p class="cn-genres">' + m.genres.map(esc).join(' · ') + (m.network ? ' · ' + esc(m.network) : '') + '</p>' : '') +
       (m && m.overview ? '<p class="cn-overview">' + esc(m.overview) + '</p>' : '') +
       (sh.online ? '' : '<div class="cn-offline-msg">Plug in “' + esc(sh.drive) + '” to watch.</div>') +
-      (sh.online && cp2 ? '<button class="cn-primary" data-play="' + esc(cp2.e.uuid + '|' + cp2.e.rel) + '" data-resume="1">▶ RESUME S' + cp2.e.season + ' E' + (cp2.e.episode || '?') + '</button>' : sh.online && sh.episodes[0] ? '<button class="cn-primary" data-play="' + esc(sh.episodes[0].uuid + '|' + sh.episodes[0].rel) + '">▶ PLAY FIRST EPISODE</button>' : '') +
+      playBtn +
       matchLink(sh, rec) +
       '</div></div>' + (S.fix === sh.key ? chooser(sh) : '');
     var sm = m && m.seasons && m.seasons[S.season];
     if (sm && sm.overview) html += '<p class="cn-overview small">' + esc(sm.overview) + '</p>';
-    if (sh.seasons.length > 1) html += '<div class="cn-seasons">' + sh.seasons.map(function (s) { return '<button data-season="' + s + '" class="' + (s === S.season ? 'on' : '') + '">' + (s ? 'Season ' + s : 'Specials') + '</button>'; }).join('') + '</div>';
+    if (sh.seasons.length > 1) html += '<div class="cn-seasons">' + sh.seasons.map(function (s) {
+      var se = sh.episodes.filter(function (e) { return e.season === s; }), seen = se.filter(function (e) { var p = prog(e); return p && p.done; }).length;
+      return '<button data-season="' + s + '" class="' + (s === S.season ? 'on' : '') + '">' + (s ? 'Season ' + s : 'Specials') + (seen === se.length ? ' <i>✓</i>' : seen ? ' <i>' + seen + '/' + se.length + '</i>' : '') + '</button>';
+    }).join('') + '</div>';
     html += '<div class="cn-eps">' + eps.map(epRow).join('') + '</div>';
     if (sh.extras.length) html += '<h3 class="cn-row-title">Extras</h3><div class="cn-eps">' + sh.extras.map(epRow).join('') + '</div>';
     body.innerHTML = html;
   }
   function epRow(e) {
     var p = prog(e), pct = p && !p.done && p.dur ? p.pos / p.dur * 100 : 0, em = e.kind === 'episode' ? epMeta(e) : null;
-    return '<div class="cn-ep' + (e.online ? '' : ' offline') + '" data-id="' + esc(e.uuid + '|' + e.rel) + '">' +
-      '<div class="cn-ep-still" style="--h:' + hue(e.title) + '"><img loading="lazy" decoding="async" src="' + (em && em.still ? art(em.still) : thumb(e)) + '" onerror="this.remove()" alt="">' + (pct ? '<div class="cn-prog"><i style="width:' + pct.toFixed(1) + '%"></i></div>' : '') + '</div>' +
+    return '<div class="cn-ep' + (e.online ? '' : ' offline') + (p && p.done ? ' watched' : '') + '" data-id="' + esc(e.uuid + '|' + e.rel) + '">' +
+      '<div class="cn-ep-still" style="--h:' + hue(e.title) + '"><img loading="lazy" decoding="async" src="' + (em && em.still ? art(em.still) : thumb(e)) + '" onerror="this.remove()" alt="">' + (pct ? '<div class="cn-prog"><i style="width:' + pct.toFixed(1) + '%"></i></div>' : '') + (p && p.done ? '<em class="cn-done">✓</em>' : '') + '</div>' +
       '<div class="cn-ep-txt"><b>' + (e.episode ? e.episode + '. ' : '') + esc(em && em.name ? em.name : e.title) + '</b>' +
       (em && em.overview ? '<p class="cn-ep-ov">' + esc(em.overview) + '</p>' : '') +
       '<span>' + (em && em.runtime ? em.runtime + ' min · ' : '') + fmtSize(e.size) + (p && p.done ? ' · watched' : p && p.pos ? ' · ' + fmtTime(p.pos) + ' watched' : '') + (e.online ? '' : ' · drive not connected') + '</span></div>' +
@@ -394,7 +527,7 @@
     if (inf && inf.height) facts.push(inf.height >= 2000 ? '4K' : inf.height >= 1000 ? 'HD 1080p' : inf.height >= 700 ? 'HD 720p' : inf.height + 'p');
     facts.push(fmtSize(it.size));
     if (it.subs && it.subs.length) facts.push('Subtitles');
-    var sh = $('cnSheet');
+    var sh = $('cnSheet'), nx = it.kind === 'episode' ? nextEp(it) : null;
     var hero = em && em.still ? art(em.still) : m && m.backdrop ? art(m.backdrop) : thumb(it);
     sh.innerHTML = '<div class="cn-sheet-card" style="--h:' + hue(it.title) + '">' +
       '<div class="cn-sheet-art"><img src="' + hero + '" onerror="this.remove()" alt=""><div class="cn-sheet-fade"></div></div>' +
@@ -408,11 +541,13 @@
       (it.online ? (resume ? '<div class="cn-acts"><button class="cn-primary big" data-act="resume">▶ RESUME FROM ' + fmtTime(p.pos) + '</button><button class="cn-ghost" data-act="start">START OVER</button></div>' :
         '<div class="cn-acts"><button class="cn-primary big" data-act="start">▶ PLAY' + (p && p.done ? ' AGAIN' : '') + '</button></div>') :
         '<div class="cn-offline-msg">Plug in “' + esc(it.drive) + '” to watch this.</div>') +
+      (nx ? '<div class="cn-acts cn-next"><button class="cn-ghost" data-act="next">NEXT EPISODE · S' + nx.season + ' E' + (nx.episode || '?') + ' ›</button></div>' : '') +
       (it.kind === 'movie' ? matchLink(it, rec) + (S.fix === it.key ? chooser(it) : '') : '') +
-      '</div><button class="cn-sheet-x" data-act="close">✕</button></div>';
+      '</div>' + SHEET_NAV + '</div>';
     sh.classList.remove('hidden');
   }
-  function closeDetail() { S.detail = null; S.fix = null; $('cnSheet').classList.add('hidden'); }
+  var SHEET_NAV = '<button class="cn-sheet-back" data-act="close" aria-label="Back"><span>‹</span>BACK</button><button class="cn-sheet-x" data-act="close" aria-label="Close">✕</button>';
+  function closeDetail() { if (!root) return; dropKeyboard(); S.detail = null; S.fix = null; $('cnSheet').classList.add('hidden'); }
 
   // ---- checking or correcting which film or show a title is
   function matchLink(it, rec) {
@@ -458,16 +593,18 @@
       '<div class="cn-research"><input id="cnKey" type="password" autocomplete="off" placeholder="' + (st.configured ? 'TMDB key saved · paste a new one to replace it' : 'Paste your TMDB API key') + '"><button class="cn-primary" data-set="key">SAVE KEY</button></div>' +
       '<div class="cn-acts"><button class="cn-ghost" data-set="retry">DOWNLOAD MISSING INFO</button></div>' +
       '<p class="cn-attrib">Movie and TV information and images from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>' +
-      '</div><button class="cn-sheet-x" data-act="close">✕</button></div>';
+      '</div>' + SHEET_NAV + '</div>';
     sh.classList.remove('hidden');
   }
 
   function play(it, fromStart) {
     var p = prog(it), start = !fromStart && p && !p.done ? p.pos : 0;
     var title = it.kind === 'episode' && S.shows[it.show] ? S.shows[it.show].title + ' · S' + it.season + ' E' + (it.episode || '?') + (it.title ? ' · ' + it.title : '') : it.title + (it.year ? ' (' + it.year + ')' : '');
+    dropKeyboard();
+    var from = S.detail;
     var ok = call('cinemaPlay', it.uuid, it.rel, title, start, JSON.stringify(it.subs || []));
     if (ok === false) toast('This drive isn’t connected right now.');
-    else { S.playing = it.uuid + '|' + it.rel; closeDetail(); }
+    else { S.playing = it.uuid + '|' + it.rel; S.returnDetail = from; closeDetail(); saveBrowse(); }
     return ok;
   }
 
@@ -480,7 +617,7 @@
     if (pl) { var it0 = findItem(pl.getAttribute('data-play')); if (it0) play(it0, !pl.getAttribute('data-resume')); return; }
     var c = e.target.closest('[data-id]'); if (!c) return;
     var it = findItem(c.getAttribute('data-id')); if (!it) return;
-    if (it.kind === 'show') { S.show = it.id; S.season = null; render(); $('cnBody').scrollTop = 0; return; }
+    if (it.kind === 'show') { openShow(it.id); return; }
     openDetail(it);
   }
   function onSheetClick(e) {
@@ -494,7 +631,8 @@
     }
     var b = e.target.closest('[data-act]'); if (!b) return;
     var a = b.getAttribute('data-act'), it = findItem(S.detail);
-    if (a === 'close') closeDetail();
+    if (a === 'close') { if (S.fix) { S.fix = null; rerender(); } else closeDetail(); }
+    else if (it && a === 'next') { var nx = nextEp(it); if (nx) openDetail(nx); }
     else if (it && a === 'resume') play(it, false);
     else if (it && a === 'start') play(it, true);
   }
@@ -525,9 +663,15 @@
   function open() {
     ensureRoot();
     loadAll();
-    S.open = true; S.show = null; S.filter = S.filter || 'all';
+    S.open = true; S.show = null; S.searching = false; S.query = ''; S.nav = []; S.fix = null; S.returnDetail = null;
+    $('cnSearchBar').innerHTML = '';
+    // open where the library was left last time
+    var bw = loadBrowse();
+    if (bw) { S.filter = bw.filter || 'all'; S.sort = bw.sort || 'title'; S.genre = bw.genre || ''; $('cnSort').value = S.sort; }
+    S.filter = S.filter || 'all';
     root.classList.remove('hidden');
     render();
+    if (bw && bw.scroll) { var b = $('cnBody'); while (S.rendered < S.list.length && b.scrollHeight < bw.scroll + b.clientHeight) more(); b.scrollTop = bw.scroll; }
     // a drive that's plugged in and allowed, but not scanned since it was connected, is scanned now
     S.drives.forEach(function (d) {
       if (d.mounted && d.access !== 'none' && !d.scannedThisConnection && !d.scanning && !S.scan[d.uuid]) {
@@ -538,13 +682,22 @@
   }
   function close() {
     if (!root) return;
-    S.open = false; closeDetail(); S.show = null;
+    if (S.open && !S.show && !S.searching) saveBrowse();
+    dropKeyboard();
+    S.open = false; closeDetail(); S.show = null; S.searching = false; S.query = ''; S.nav = [];
+    $('cnSearchBar').innerHTML = '';
     root.classList.add('hidden');
   }
+  // One step back, always: a chooser, then a sheet, then search, then the screen before, then the
+  // main library, and only then out of Cinema.
   function back() {
     if (!S.open) return false;
-    if (S.detail) { closeDetail(); return true; }
-    if (S.show) { S.show = null; render(); return true; }
+    dropKeyboard();
+    if (sheetOpen()) { if (S.fix && S.detail) { S.fix = null; rerender(); } else closeDetail(); return true; }
+    if (S.fix) { S.fix = null; render(); return true; }
+    if (S.searching) { closeSearch(); return true; }
+    if (S.nav.length) { restore(S.nav.pop()); return true; }
+    if (S.filter !== 'all' || S.genre) { S.filter = 'all'; S.genre = ''; saveBrowse(); render(); $('cnBody').scrollTop = 0; return true; }
     close(); return true;
   }
 
@@ -566,7 +719,7 @@
       Object.keys(before).forEach(function (u) { if (before[u] && !driveOf(u) && S.open) { var l = libOf(u); toast((l ? l.label : 'Drive') + ' disconnected · its movies stay listed as offline'); } });
       Object.keys(S.scan).forEach(function (u) { if (!driveOf(u)) delete S.scan[u]; });
       build();
-      if (S.open) { render(); showScan(); if (S.detail) { var it = findItem(S.detail); if (it) openDetail(it); } }
+      if (S.open) { refreshView(); showScan(); if (S.detail && !typing()) { var it = findItem(S.detail); if (it) openDetail(it); } }
     },
     _progress: function (j) {
       var p = json(j, null); if (!p) return;
@@ -580,7 +733,7 @@
       S.drives = json(call('cinemaDrives'), S.drives) || S.drives;
       build();
       if (S.open) {
-        showScan(); render();
+        showScan(); refreshView();
         if (r.first) toast('Library ready · ' + r.videos + ' videos');
         else if (r.added || r.removed) toast('Library updated · ' + (r.added ? r.added + ' new' : '') + (r.added && r.removed ? ', ' : '') + (r.removed ? r.removed + ' gone' : ''));
         else toast('Library is up to date · ' + r.videos + ' videos');
@@ -591,7 +744,7 @@
     _info: function (j) {
       var o = json(j, null); if (!o) return;
       S.info[o.uuid + '|' + o.rel] = o;
-      if (S.detail === o.uuid + '|' + o.rel) { var it = findItem(S.detail); if (it) openDetail(it); }
+      if (S.detail === o.uuid + '|' + o.rel && !typing()) { var it = findItem(S.detail); if (it) openDetail(it); }
     },
     // back from the player: positions changed
     // movie information saved by the box (a batch of titles at a time)
@@ -599,19 +752,26 @@
       var o = json(j, null); if (!o) return;
       Object.keys(o).forEach(function (k) { S.meta[k] = o[k]; });
       if (!S.open) return;
-      if (S.detail) { var it = findItem(S.detail); if (it) openDetail(it); return; }
-      if ($('cnSheet') && !$('cnSheet').classList.contains('hidden')) return;
-      clearTimeout(S.metaT); S.metaT = setTimeout(function () { var b = $('cnBody'), top = b ? b.scrollTop : 0, n = S.rendered; render(); while (S.rendered < n && S.rendered < S.list.length) more(); if (b) b.scrollTop = top; }, 300);
+      if (S.detail) { if (!typing()) { var it = findItem(S.detail); if (it) openDetail(it); } return; }
+      if (sheetOpen()) return;
+      clearTimeout(S.metaT); S.metaT = setTimeout(function () { if (S.open && !sheetOpen()) refreshView(); }, 300);
     },
     _metaStatus: function (j) {
       S.metaStatus = json(j, S.metaStatus) || S.metaStatus;
       var sh = $('cnSheet'); if (S.open && sh && sh.querySelector('.cn-settings') && !(document.activeElement && document.activeElement.id === 'cnKey')) openSettings();
     },
     _metaNote: function (msg) { if (S.open) toast(msg); },
+    // back from the player (or from anywhere else in Android): same screen, same place, and the sheet the film
+    // was started from comes back; after finishing an episode it's the next episode's sheet
     _resumed: function () {
       if (!S.open) return;
+      dropKeyboard();
       S.progress = json(call('cinemaProgress'), S.progress) || S.progress;
-      render();
+      var from = S.returnDetail; S.returnDetail = null;
+      if (sheetOpen() && !from) return;
+      refreshView();
+      var it = from && findItem(from);
+      if (it) { var p = prog(it), nx = it.kind === 'episode' && p && p.done ? nextEp(it) : null; openDetail(nx || it); }
     }
   };
 })();
