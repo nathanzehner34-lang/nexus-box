@@ -108,7 +108,7 @@ try{
  const W=200,H=120,px=new Uint8Array(W*H*4);
  const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.25,mid:.25,high:.25,energy:.35,beat:.1,orbR:.105,quality:1,
    bgA:0,bgB:0,bgMix:0,flow:1,surge:0,build:0,bphase:.5,burst:0,bAge:9,bPow:0,recoil:0,
-   c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75],tapP:[0,0,9]};
+   c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75]};
  function render(over){const u=Object.assign({},base,over);
   for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null)throw new Error('missing uniform '+k);
    if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}

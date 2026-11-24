@@ -54,10 +54,19 @@
   // used while the two are crossfading.
   var glProgs = {}, glUs = {}, glVariant = '';
   var GL_UNIFORMS = ['res', 'orbC', 'T', 'zph', 'bass', 'mid', 'high', 'energy', 'beat', 'orbR', 'quality',
-    'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tapP',
+    'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tOn', 'tch', 'tcv', 'cbs', 'trA', 'trB',
     'build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'f1', 'f2', 'f3', 'f4', 'snare', 'hat'];
   var glScale = .42, glScaleMax = .42, glQuality = 0, glSlowFrames = 0, glFastFrames = 0, glFrames = 0;
-  var sceneT = 0, flowPhase = 0, flowMix = 0, flowTarget = 0, bgFrom = 0, bgTo = 0, bgMix = 0, classicWeight = 1, surge = 0, tapAt = { x: 0, y: 0, age: 9 }, flowCanvasCleared = false;
+  var sceneT = 0, flowPhase = 0, flowMix = 0, flowTarget = 0, bgFrom = 0, bgTo = 0, bgMix = 0, classicWeight = 1, surge = 0, flowCanvasCleared = false;
+  // ---- Energy Flow touch: up to four fingers, each a hold/drag point; taps seed colour bursts; drags leave a wake ----
+  // touchN is how many wake points the shader takes: 12, 6 on a GPU with few uniform slots, 0 = touch compiled out.
+  var touchN = 12, flowTouches = [], flowBursts = [], flowBurstNext = 0, flowWake = [], flowStroke = 0, flowWakeSeq = 0, flowHueSeed = .1;
+  var flowGestures = { tap: 0, hold: 0, drag: 0, multi: 0 }, flowTouchOn = 0;
+  for (var ti = 0; ti < 4; ti++) {
+    flowTouches.push({ id: -1, down: false, x: 0, y: 0, sx: 0, sy: 0, lx: 0, ly: 0, lt: 0, wx: 0, wy: 0, vx: 0, vy: 0, t0: 0, attract: 0, contact: 0, hue: 0, dragging: false, stroke: 0, held: false });
+    flowBursts.push({ x: 0, y: 0, age: 9, hue: 0 });
+  }
+  var touchBuf = { tch: new Float32Array(16), tcv: new Float32Array(16), cbs: new Float32Array(16), trA: new Float32Array(48), trB: new Float32Array(48) };
   // Music analysis for Energy Flow: fast/slow envelopes per band feed build-up and drop detection,
   // and a beat clock keeps the field pulsing in time even when a kick is missed.
   var bassFast = 0, bassSlow = .01, bassPeak = .02, energyFast = .08, energySlow = .08, highFast = 0, highSlow = 0;
@@ -91,7 +100,7 @@
     "uniform vec2 res, orbC;",
     "uniform float T, zph, bass, mid, high, energy, beat, orbR, quality, bgA, bgB, bgMix, flow, surge;",
     "uniform float build, bphase, burst, bAge, bPow, recoil, snare, hat;",
-    "uniform vec3 c1, c2, c3, tapP;",
+    "uniform vec3 c1, c2, c3;",
     "uniform vec3 f1, f2, f3, f4;",
     "float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
     "vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}",
@@ -313,10 +322,80 @@
     " }",
     " return o;",
     "}",
+    "// ---------- ENERGY FLOW: TOUCH ----------",
+    "// Fingers bend the field's own sampling space and recolour its own light, so every gesture is",
+    "// made of the field itself rather than drawn over it. Compiled out of the Orb Experience build.",
+    "#ifndef NO_TOUCH",
+    "#ifndef FT_N",
+    "#define FT_N 12",
+    "#endif",
+    "uniform float tOn;",
+    "uniform vec4 tch[4], tcv[4], cbs[4], trA[FT_N], trB[FT_N];",
+    "vec2 rot2(vec2 v,float a){float c=cos(a),s=sin(a);return vec2(c*v.x-s*v.y,s*v.x+c*v.y);}",
+    "// tch: x,y,attract,contact  tcv: vx,vy,hue,_  cbs: x,y,age,hue  trA: x,y,vx,vy  trB: age,hue,link,power",
+    "void touchField(vec2 p,float t,out vec2 disp,out vec3 tint,out float tw,out float lift,out vec3 glow){",
+    " disp=vec2(0.);tint=vec3(0.);tw=0.;lift=0.;glow=vec3(0.);",
+    " float pulse=1.+beat*.35+energy*.25;",
+    " // Touch and hold: the surrounding energy is drawn in, wound gently round the fingertip, and",
+    " // luminous motes stream inward along it.",
+    " for(int i=0;i<4;i++){vec4 c=tch[i];if(c.z+c.w<.002)continue;",
+    "  vec2 d=p-c.xy;float r2=dot(d,d);if(r2>2.6)continue;vec4 v=tcv[i];",
+    "  float fall=exp(-r2*7.5);",
+    "  // near: gather and wind in; far: the whole field leans and reaches toward the finger",
+    "  float k=c.z*((.42+bass*.22)*fall+.34*exp(-r2*1.9))*(1.+.1*sin(t*2.3+float(i)));",
+    "  disp+=c.xy+rot2(d,c.z*fall*fall*.85)*(1.+k)-p;",
+    "  vec3 hc=flowPal(v.z);",
+    "  tint+=hc*fall*c.z*.55;tw+=fall*c.z*.55;",
+    "  lift+=fall*(.18*c.w+.55*c.z);",
+    "  glow+=mix(hc,vec3(1.),.2)*exp(-r2*130.)*(c.w*.13+c.z*.2)*pulse;",
+    "  if(c.z>.02&&r2<.16){",
+    "   float r=sqrt(r2),ang=atan(d.y,d.x)/6.28319*34.;float id=floor(ang),af=fract(ang)-.5;",
+    "   vec2 h=hash2(vec2(id,float(i)*7.1+3.3));",
+    "   float rp=fract(h.x-t*(.22+h.y*.3+energy*.2))*.34;",
+    "   float mr=(r-rp-.018)/.03;float mote=exp(-mr*mr-af*af*r*r*3800.)*smoothstep(.03,.11,rp)*smoothstep(.34,.2,rp)*step(.55,h.y);",
+    "   glow+=mix(flowPal(v.z+h.y*.25),vec3(1.),.25)*mote*c.z*.3*pulse;",
+    "  }",
+    " }",
+    " // Drag: the field is carried along each stroke and left as a soft wake that diffuses and fades.",
+    " for(int i=0;i<FT_N-1;i++){vec4 b=trB[i];if(b.z<.5)continue;",
+    "  vec4 A=trA[i],B=trA[i+1],b2=trB[i+1];",
+    "  vec2 ab=B.xy-A.xy;float h=clamp(dot(p-A.xy,ab)/max(dot(ab,ab),1e-6),0.,1.);",
+    "  vec2 dd=p-A.xy-ab*h;",
+    "  float ag=mix(b.x,b2.x,h),wid=.05+ag*.075;",
+    "  float f=exp(-dot(dd,dd)/(wid*wid))*exp(-ag*1.35)*smoothstep(3.2,2.3,ag)*mix(b.w,b2.w,h);",
+    "  if(f<.003)continue;",
+    "  vec2 vel=mix(A.zw,B.zw,h);",
+    "  float wisp=noise(vec2((float(i)+h)*1.7-t*.9,dot(dd,dd)*400.+t*.3));",
+    "  disp-=vel*f*.075;",
+    "  disp+=vec2(-vel.y,vel.x)*(wisp-.5)*f*.06;",
+    "  float hu=mix(b.y,b2.y,h)+h*.12+wisp*.18;",
+    "  tint+=flowPal(hu)*f*.9;tw+=f*.9;",
+    "  lift+=f*(.45+wisp*.35);",
+    "  glow+=mix(flowPal(hu+.08),vec3(1.),.3)*f*f*smoothstep(.35,.8,wisp)*.16*pulse;",
+    " }",
+    " // Tap: a burst of colour soaks outward through the field with an uneven, living edge.",
+    " for(int i=0;i<4;i++){vec4 c=cbs[i];if(c.z>3.5)continue;",
+    "  vec2 d=p-c.xy;float r=length(d),ag=c.z;if(r>.62)continue;",
+    "  float front=(1.-exp(-ag*2.1))*.42;",
+    "  float ang=atan(d.y,d.x);",
+    "  float wob=noise(vec2(cos(ang),sin(ang))*1.8+c.w*37.+ag*.35)*.65+noise(d*6.+c.w*19.)*.45;",
+    "  float edge=max(front*(.62+wob*.6),.001);",
+    "  float fade=exp(-ag*.8)*smoothstep(3.5,2.4,ag);",
+    "  float w=smoothstep(edge,edge*.35,r)*fade;",
+    "  float le=(r-edge)/(.04+ag*.06);float lead=exp(-le*le)*fade*smoothstep(.0,.12,ag);",
+    "  vec3 bc=flowPal(c.w+r*1.1+wob*.3);bc=mix(bc,flowPal(c.w+.5),.25*smoothstep(.0,.15,r));",
+    "  tint+=bc*(w+lead*.7)*1.5;tw+=(w+lead*.7)*1.5;",
+    "  lift+=lead*.8+w*.35;",
+    "  disp+=d/max(r,.001)*lead*.028;",
+    "  glow+=mix(flowPal(c.w),vec3(1.),.4)*exp(-r*r*(240.+ag*500.))*exp(-ag*3.5)*.45*pulse;",
+    " }",
+    "}",
+    "#endif",
     "vec3 flowScene(vec2 p,float t){",
-    " vec2 tp=tapP.xy;float tAge=tapP.z,tStr=exp(-tAge*1.4)*step(tAge,4.);",
-    " vec2 dTap=p-tp;float rTap=length(dTap);",
-    " p+=dTap/max(rTap,.001)*exp(-pow((rTap-tAge*.45)/.12,2.))*.05*tStr;",
+    "#ifndef NO_TOUCH",
+    " vec2 tDisp=vec2(0.);vec3 tTint=vec3(0.),tGlow=vec3(0.);float tW=0.,tLift=0.;",
+    " if(tOn>.001){touchField(p,t,tDisp,tTint,tW,tLift,tGlow);p+=tDisp;}",
+    "#endif",
     " p-=vec2(.09*sin(t*.045),.05*cos(t*.06));",
     " // The blast wave pushes the whole formation outward, then it settles back.",
     " float shock=bPow*exp(-pow((length(p)-bAge*1.75)/(.16+bAge*.4),2.))*step(bAge,3.);",
@@ -347,11 +426,19 @@
     " col+=mix(flowPal(sh.y*.6+.05),vec3(1.),.3)*spk*(.06+high*1.2+hat*.9)*smoothstep(.02,.25,dot(col,vec3(.3,.5,.2)));",
     " // the snare: a sharp flare of colour through the field's ridges",
     " col+=flowPal(.62+t*.01)*snare*.35*smoothstep(.05,.4,dot(col,vec3(.3,.5,.2)));",
+    "#ifndef NO_TOUCH",
+    " if(tOn>.001){",
+    "  // touch colour soaks into the energy that is already there, then lights it",
+    "  float L=dot(col,vec3(.3,.5,.2));",
+    "  vec3 tc=tTint/max(tW,.001);float k=clamp(tW,0.,1.)*.82;",
+    "  col=mix(col,tc*L*1.75,k*smoothstep(.0,.06,L))+tc*k*.03;",
+    "  col*=1.+tLift*(1.+beat*.35+energy*.25);",
+    "  col+=tGlow;",
+    " }",
+    "#endif",
     " // keep the colour when the field is loud: a soft knee instead of burning to white",
     " col=col/(1.+dot(col,vec3(.3,.45,.25))*.55);",
     " if(burst>.001)col+=supernova(p,bAge,bPow);",
-    " col*=1.+tStr*exp(-rTap*3.)*.7;",
-    " col+=mix(f3,vec3(1.),.5)*tStr*exp(-pow((rTap-tAge*.45)/.07,2.))*.45;",
     " return col;",
     "}",
     "void main(){",
@@ -574,7 +661,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       var ids = parts[1].split(',').map(Number), a = ids[0], b = ids.length > 1 ? ids[1] : a;
       src = src.replace(BG_LINE, 'vec3 background(float id,vec2 p,float t){' + (a === b ? '' : 'if(abs(id-' + a + '.)<.5)return ' + BG_FNS[a] + '(p,t);') + 'return ' + BG_FNS[b] + '(p,t);}');
     }
-    return (variant === 'orb' ? '#define NO_FLOW\n' : variant === 'flow' ? '#define NO_ORB\n' : '') + src;
+    var touch = touchN > 0 ? '#define FT_N ' + touchN + '\n' : '#define NO_TOUCH\n';
+    return (variant === 'orb' ? '#define NO_FLOW\n#define NO_TOUCH\n' : (variant === 'flow' ? '#define NO_ORB\n' : '') + touch) + src;
   }
   function bgKey(variant) {
     if (variant === 'flow' || variant === 'ink') return variant;
@@ -593,6 +681,12 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     } catch (e) {
       glProgs[variant] = null;
       try { console.warn('Party GL ' + variant + ' build: ' + e.message); } catch (err) {}
+      // A GPU that cannot fit the touch layer still gets the full Energy Flow, with less or no touch.
+      if (variant !== 'ink' && variant.indexOf('orb') !== 0 && touchN > 0) {
+        touchN = touchN > 6 ? 6 : 0;
+        for (var k in glProgs) if (k !== 'ink' && k.indexOf('orb') !== 0) { if (glProgs[k]) gl.deleteProgram(glProgs[k]); delete glProgs[k]; }
+        return glBuild(variant);
+      }
     }
     return glProgs[variant];
   }
@@ -626,6 +720,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       gl = glCanvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: highMemory ? 'high-performance' : 'default' }) ||
         glCanvas.getContext('experimental-webgl', { alpha: false, antialias: false, depth: false });
       if (!gl) throw new Error('no webgl');
+      var fuv = 0; try { fuv = gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS) || 0; } catch (err) {}
+      touchN = fuv >= 128 ? 12 : fuv >= 72 ? 6 : 0;
       glBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
       if (!glUse(experience === 'flow' ? 'flow' : 'orb')) throw new Error('shader');
@@ -697,6 +793,110 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (burstPower > 0 && burstEnv < .002 && burstAge > .4) burstPower = 0;
     fieldRecoil = Math.max(0, fieldRecoil - s * fieldRecoil * 2.4 - s * .08);
   }
+  // ---- Energy Flow touch ----
+  // Envelopes ease in and out so the field gathers, follows and then settles back on its own;
+  // once everything has decayed the shader skips the touch layer and the idle scene is unchanged.
+  function flowTouchStep(s, now, eNorm, beatN) {
+    var on = 0, i, t;
+    for (i = 0; i < 4; i++) {
+      t = flowTouches[i];
+      var held = t.down ? (now - t.t0) / 1000 : 0;
+      var target = t.down && held > .16 ? (t.dragging ? .5 : 1) : 0;
+      if (t.down && !t.held && !t.dragging && held > .45) { t.held = true; flowGestures.hold++; }
+      // rising eases in; letting go eases out but always finishes (about 2.5 s), so the idle field returns exactly
+      if (target > t.attract) t.attract += (target - t.attract) * Math.min(1, s * 1.25);
+      else t.attract = Math.max(target, t.attract - s * (t.attract * .9 + .08));
+      if (t.down) t.contact += (1 - t.contact) * Math.min(1, s * 9);
+      else t.contact = Math.max(0, t.contact - s * (t.contact * 1.3 + .1));
+      var decay = Math.exp(-s * (t.down ? 5 : 3));
+      t.vx *= decay; t.vy *= decay;
+      // with music the touch colour drifts through the palette, faster when the mix is driving
+      t.hue = (t.hue + s * (.012 + eNorm * .09 + beatN * .04)) % 1;
+      on += t.attract + t.contact;
+    }
+    for (i = 0; i < 4; i++) { var b = flowBursts[i]; if (b.age < 9) { b.age += s; if (b.age > 3.5) b.age = 9; else on += 1; } }
+    for (i = flowWake.length - 1; i >= 0; i--) { flowWake[i].age += s; if (flowWake[i].age > 3.2) flowWake.splice(i, 1); }
+    flowTouchOn = on + flowWake.length;
+  }
+  function flowTouchUpload() {
+    var B = touchBuf, i, k, t;
+    for (i = 0; i < 4; i++) {
+      t = flowTouches[i]; k = i * 4;
+      B.tch[k] = (t.x - w * .5) / h; B.tch[k + 1] = -(t.y - h * .5) / h; B.tch[k + 2] = t.attract; B.tch[k + 3] = t.contact;
+      B.tcv[k] = t.vx / h; B.tcv[k + 1] = -t.vy / h; B.tcv[k + 2] = t.hue; B.tcv[k + 3] = 0;
+      var b = flowBursts[i];
+      B.cbs[k] = (b.x - w * .5) / h; B.cbs[k + 1] = -(b.y - h * .5) / h; B.cbs[k + 2] = b.age; B.cbs[k + 3] = b.hue;
+    }
+    // The wake: stored points plus a live head at each dragging finger, newest kept, grouped per stroke
+    // oldest-first so the shader can join neighbours into smooth segments.
+    var pts = flowWake.slice();
+    for (i = 0; i < 4; i++) { t = flowTouches[i]; if (t.down && t.dragging) pts.push({ x: t.x, y: t.y, vx: t.vx, vy: t.vy, age: 0, hue: t.hue, pow: 1, stroke: t.stroke, seq: 1e9 }); }
+    pts.sort(function (a, b) { return a.age - b.age; });
+    if (pts.length > touchN) pts.length = touchN;
+    pts.sort(function (a, b) { return a.stroke - b.stroke || a.seq - b.seq; });
+    for (i = 0; i < touchN; i++) {
+      var p = pts[i], q = pts[i + 1]; k = i * 4;
+      if (p) {
+        var sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy) / h, cap = sp > 2.6 ? 2.6 / sp : 1;
+        B.trA[k] = (p.x - w * .5) / h; B.trA[k + 1] = -(p.y - h * .5) / h; B.trA[k + 2] = p.vx / h * cap; B.trA[k + 3] = -p.vy / h * cap;
+        B.trB[k] = p.age; B.trB[k + 1] = p.hue; B.trB[k + 2] = q && q.stroke === p.stroke ? 1 : 0; B.trB[k + 3] = p.pow;
+      } else { B.trA[k] = B.trA[k + 1] = B.trA[k + 2] = B.trA[k + 3] = 0; B.trB[k] = 9; B.trB[k + 1] = B.trB[k + 2] = B.trB[k + 3] = 0; }
+    }
+    gl.uniform1f(glU.tOn, flowTouchOn);
+    gl.uniform4fv(glU.tch, B.tch); gl.uniform4fv(glU.tcv, B.tcv); gl.uniform4fv(glU.cbs, B.cbs);
+    gl.uniform4fv(glU.trA, B.trA.subarray(0, touchN * 4)); gl.uniform4fv(glU.trB, B.trB.subarray(0, touchN * 4));
+  }
+  function flowColourBurst(x, y, hue) {
+    var b = flowBursts[flowBurstNext]; flowBurstNext = (flowBurstNext + 1) % 4;
+    b.x = x; b.y = y; b.age = 0; b.hue = hue;
+  }
+  function flowTouchFor(id) { for (var i = 0; i < 4; i++) if (flowTouches[i].down && flowTouches[i].id === id) return flowTouches[i]; return null; }
+  function flowDown(e) {
+    var slot = null, i, downs = 0;
+    for (i = 0; i < 4; i++) {
+      var c = flowTouches[i]; if (c.down) { downs++; continue; }
+      if (!slot || c.attract + c.contact < slot.attract + slot.contact) slot = c;
+    }
+    if (!slot) return;
+    var p = point(e), now = performance.now();
+    flowHueSeed = (flowHueSeed + .382) % 1;
+    slot.id = e.pointerId; slot.down = true; slot.dragging = false; slot.held = false;
+    slot.x = slot.sx = slot.lx = slot.wx = p.x; slot.y = slot.sy = slot.ly = slot.wy = p.y; slot.lt = now; slot.t0 = now;
+    slot.vx = slot.vy = 0; slot.hue = (flowHueSeed + musicHue * .08) % 1; slot.stroke = ++flowStroke;
+    flowColourBurst(p.x, p.y, slot.hue);
+    // the whole field answers a touch a little, less for each extra finger already down
+    surge = Math.min(1.6, surge + .45 / (1 + downs * .6));
+    if (downs) flowGestures.multi++;
+    if (!downs) sound(260, .16);
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  function flowMove(e) {
+    var t = flowTouchFor(e.pointerId); if (!t) return;
+    var p = point(e), now = performance.now(), dt = Math.max(8, now - t.lt);
+    var ivx = (p.x - t.lx) / dt * 1000, ivy = (p.y - t.ly) / dt * 1000;
+    t.vx += (ivx - t.vx) * .45; t.vy += (ivy - t.vy) * .45;
+    t.x = p.x; t.y = p.y; t.lx = p.x; t.ly = p.y; t.lt = now;
+    if (!t.dragging && Math.hypot(p.x - t.sx, p.y - t.sy) > Math.max(12, h * .02)) {
+      t.dragging = true; flowGestures.drag++;
+      flowWake.push({ x: t.sx, y: t.sy, vx: t.vx, vy: t.vy, age: 0, hue: t.hue, pow: .8, stroke: t.stroke, seq: flowWakeSeq++ });
+      t.wx = t.sx; t.wy = t.sy;
+    }
+    if (t.dragging && Math.hypot(p.x - t.wx, p.y - t.wy) > h * .05) {
+      flowWake.push({ x: p.x, y: p.y, vx: t.vx, vy: t.vy, age: 0, hue: t.hue, pow: 1, stroke: t.stroke, seq: flowWakeSeq++ });
+      t.wx = p.x; t.wy = p.y;
+      if (flowWake.length > 24) flowWake.shift();
+    }
+  }
+  function flowUp(e) {
+    var t = flowTouchFor(e.pointerId); if (!t) return;
+    if (!t.dragging && !t.held) flowGestures.tap++;
+    if (t.dragging) flowWake.push({ x: t.x, y: t.y, vx: t.vx, vy: t.vy, age: 0, hue: t.hue, pow: 1, stroke: t.stroke, seq: flowWakeSeq++ });
+    t.down = false; t.id = -1; t.dragging = false;
+  }
+  function flowTouchReset(hard) {
+    for (var i = 0; i < 4; i++) { var t = flowTouches[i]; t.down = false; t.id = -1; t.dragging = false; if (hard) { t.attract = t.contact = 0; t.vx = t.vy = 0; flowBursts[i].age = 9; } }
+    if (hard) { flowWake.length = 0; flowTouchOn = 0; }
+  }
   function glDraw(now, dt) {
     if (!glOk || !gl) return false;
     if (gl.isContextLost && gl.isContextLost()) { glDestroy(); glFailed = false; return false; }
@@ -707,7 +907,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     flowPhase = (flowPhase + s * (.3 + eNorm * .65 + beatN * .5 + surge * 1.2)) % 1000;
     flowMix += (flowTarget - flowMix) * Math.min(1, s * 1.6); if (Math.abs(flowTarget - flowMix) < .002) flowMix = flowTarget;
     if (bgTo !== bgFrom) { bgMix = Math.min(1, bgMix + s / 1.3); if (bgMix >= 1) { bgFrom = bgTo; bgMix = 0; } }
-    surge = Math.max(0, surge - s * .9); tapAt.age = Math.min(9, tapAt.age + s);
+    surge = Math.max(0, surge - s * .9);
+    flowTouchStep(s, now, eNorm, beatN);
     glResize();
     inkStep(s, now, eNorm, mN);
     if (inkMix >= .5) return inkDraw(dt, s, eNorm, bN, mN, hN, beatN);
@@ -737,7 +938,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     var a3 = [c3m[0] + (c1[0] - c3m[0]) * k3, c3m[1] + (c1[1] - c3m[1]) * k3, c3m[2] + (c1[2] - c3m[2]) * k3];
     gl.uniform3f(glU.c1, a1[0], a1[1], a1[2]); gl.uniform3f(glU.c2, c2[0], c2[1], c2[2]);
     gl.uniform3f(glU.c3, a3[0], a3[1], a3[2]);
-    gl.uniform3f(glU.tapP, (tapAt.x - w * .5) / h, -(tapAt.y - h * .5) / h, tapAt.age);
+    if (glU.tOn) flowTouchUpload();
     for (var fi = 0; fi < 4; fi++) {
       var fc = tint(flowRgb[fi] || presets[preset].accent, 1);
       gl.uniform3f(glU['f' + (fi + 1)], fc[0], fc[1], fc[2]);
@@ -920,6 +1121,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   }
   function setExperience(name) {
     if (experiences.indexOf(name) < 0 || (name === 'flow' && glFailed) || (name === 'ink' && (glFailed || inkFailed))) return;
+    if (name !== 'flow') flowTouchReset(false);
     experience = name; flowCanvasCleared = false;
     if (name === 'ink') {
       inkTarget = 1;
@@ -1354,12 +1556,9 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     } else { lastTap = { orb: o, time: now, x: x, y: y }; sound(420, .08); }
   }
   canvas.addEventListener('pointerdown', function (e) {
+    if (active && experience === 'flow' && glOk && !gesture && !inkG) { flowDown(e); e.preventDefault(); return; }
     if (!active || gesture || e.isPrimary === false) return;
     if (experience === 'ink' && glOk) { if (!inkG) inkDown(e); else e.preventDefault(); return; }
-    if (experience === 'flow' && glOk) {
-      var fp = point(e); tapAt.x = fp.x; tapAt.y = fp.y; tapAt.age = 0; surge = Math.min(1.6, surge + .55); sound(260, .16);
-      e.preventDefault(); return;
-    }
     var p = point(e), nearest = null, best = 1e9;
     for (var i = 0; i < orbs.length; i++) {
       var dx = orbs[i].x - p.x, dy = orbs[i].y - p.y, d = Math.sqrt(dx * dx + dy * dy);
@@ -1372,6 +1571,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     e.preventDefault();
   });
   canvas.addEventListener('pointermove', function (e) {
+    if (flowTouchFor(e.pointerId)) { if (active) flowMove(e); e.preventDefault(); return; }
     if (inkG) { if (inkG.id === e.pointerId && active) inkMove(e); return; }
     if (!gesture || gesture.id !== e.pointerId || !active) return;
     var p = point(e), total = Math.hypot(p.x - gesture.startX, p.y - gesture.startY);
@@ -1387,6 +1587,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     gesture.lastX = p.x; gesture.lastY = p.y; e.preventDefault();
   });
   function release(e, cancelled) {
+    if (e && flowTouchFor(e.pointerId)) { flowUp(e); return; }
     if (inkG) { if (!e || inkG.id === e.pointerId) inkUp(e, cancelled); return; }
     if (!gesture || (e && gesture.id !== e.pointerId)) return;
     var g = gesture, p = e ? point(e) : { x: g.lastX, y: g.lastY }, held = performance.now() - g.started;
@@ -1549,7 +1750,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (active || document.hidden) return;
     active = true; runId++; lastFrame = 0;
     resize();
-    bgFrom = bgTo; bgMix = 0; flowMix = flowTarget; tapAt.age = 9;
+    bgFrom = bgTo; bgMix = 0; flowMix = flowTarget; flowTouchReset(true);
     inkMix = inkTarget; inkG = null; inkTwist.on = false; inkTwist.str = inkTwist.wind = 0; blastPow = 0; blastAge = 9; inkCols = null; glOpacity = 'x';
     buildUp = 0; beatPhase = 1; beatConfidence = 0; burstPower = 0; burstEnv = 0; burstAge = 9; fieldRecoil = 0;
     bassFast = 0; bassSlow = .01; bassPeak = .02; energyFast = energySlow = .08; highFast = highSlow = 0;
@@ -1570,7 +1771,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (raf) cancelAnimationFrame(raf); raf = 0;
     if (pollTimer) clearInterval(pollTimer); pollTimer = 0;
     clearTimeout(idleTimer); if (root.classList.contains('party-idle')) root.classList.remove('party-idle');
-    selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0; inkG = null; inkTwist.on = false;
+    selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0; inkG = null; inkTwist.on = false; flowTouchReset(true);
     try { if (window.Android && Android.meterDetail) Android.meterDetail(false); } catch (e) {}
     ctx.clearRect(0, 0, w, h);
     glDestroy();
@@ -1607,6 +1808,9 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active, variant: glVariant,
       build: buildUp, beatPhase: beatPhase, beatPeriod: beatPeriod, beatConfidence: beatConfidence, burst: burstEnv, burstPower: burstPower, burstAge: burstAge, burstCount: burstCount, recoil: fieldRecoil,
       bassFast: bassFast, bassSlow: bassSlow, energyFast: energyFast, energySlow: energySlow,
+      touch: { n: touchN, on: flowTouchOn, down: flowTouches.filter(function (t) { return t.down; }).length, wake: flowWake.length, gestures: { tap: flowGestures.tap, hold: flowGestures.hold, drag: flowGestures.drag, multi: flowGestures.multi },
+        attract: Math.max(flowTouches[0].attract, flowTouches[1].attract, flowTouches[2].attract, flowTouches[3].attract), contact: Math.max(flowTouches[0].contact, flowTouches[1].contact, flowTouches[2].contact, flowTouches[3].contact),
+        bursts: flowBursts.filter(function (b) { return b.age < 9; }).length },
       music: { bass: bassLevel, mid: midLevel, high: highLevel, energy: musicLevel, beat: beatPulse, snare: snareEnv, hat: hatEnv, snareHits: snareHits, hatHits: hatHits, detail: performance.now() - detailAt < 600 },
       ink: { mix: inkMix, failed: inkFailed, frames: inkFrames, t: inkT, swirl: inkSwirl, blast: blastEnv, blastCount: inkBlastCount, palette: preset,
         gestures: { burst: inkGestures.burst, twist: inkGestures.twist, drag: inkGestures.drag, splash: inkGestures.splash, inject: inkGestures.inject },

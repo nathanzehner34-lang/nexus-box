@@ -96,10 +96,10 @@ try{
  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
  const l=gl.getAttribLocation(p,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
  const W=160,H=90,px=new Uint8Array(W*H*4);
- const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.2,mid:.2,high:.2,energy:.3,beat:0,orbR:.105,quality:0,bgA:0,bgB:0,bgMix:0,flow:0,surge:0,c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],tapP:[0,0,9],
+ const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.2,mid:.2,high:.2,energy:.3,beat:0,orbR:.105,quality:0,bgA:0,bgB:0,bgMix:0,flow:0,surge:0,c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],
    build:0,bphase:.5,burst:0,bAge:9,bPow:0,recoil:0,f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75]};
  function render(over){const u=Object.assign({},base,over);for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null){if(k!=='surge')throw new Error('missing uniform '+k);continue;}
-  if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
+  if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===16)gl.uniform4fv(L,new Float32Array(v));else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
   let r=0,g=0,bl=0,lum=0,black=0,lit=0;const cells=new Array(48).fill(0);
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4,L=.299*px[i]+.587*px[i+1]+.114*px[i+2];r+=px[i];g+=px[i+1];bl+=px[i+2];lum+=L;if(L<4)black++;if(L>30)lit++;cells[Math.floor(y/H*6)*8+Math.floor(x/W*8)]+=L;}
@@ -114,7 +114,7 @@ try{
  R.orbQuiet=render({bass:0,beat:0,energy:0,high:0});R.orbLoud=render({bass:1,beat:1,energy:1,high:1});
  R.flow=render({flow:1});R.flowBigOrb=render({flow:1,orbR:.4,orbC:[.3,.1]});
  R.flowQuiet=render({flow:1,bass:0,mid:0,high:0,energy:0,beat:0});R.flowLoud=render({flow:1,bass:1,mid:1,high:1,energy:1,beat:1});
- R.flowLater=render({flow:1,T:33.1,zph:13.6});R.flowTap=render({flow:1,tapP:[.2,.1,.35]});R.flowSurge=render({flow:1,surge:1.4});
+ R.flowLater=render({flow:1,T:33.1,zph:13.6});R.flowTap=render({flow:1,tOn:1,cbs:[.2,.1,.6,.1,0,0,9,0,0,0,9,0,0,0,9,0]});R.flowSurge=render({flow:1,surge:1.4});
  R.flowQ1=render({flow:1,quality:1});
  R.transition=[.1,.3,.5,.7,.9].map(f=>render({flow:f,bgA:3,bgB:3}));
  R.orbVsFlow=diff(R.classic,R.flow);R.flowOrbIndependent=diff(R.flow,R.flowBigOrb);R.flowMusic=diff(R.flowQuiet,R.flowLoud);R.flowMotion=diff(R.flow,R.flowLater);R.flowTapDiff=diff(R.flow,R.flowTap);R.flowSurgeDiff=diff(R.flow,R.flowSurge);R.orbMusic=diff(R.orbQuiet,R.orbLoud);
