@@ -29,7 +29,7 @@ assert(app.includes("filter(function (k) { return k !== 'ego'; }).map(function (
 assert(app.includes("case 'env': openEnvironments(); break;") && html.includes('data-act="env"') && html.includes('<script src="env.js"></script>'), 'Environments is wired to the home screen and the engine is loaded');
 assert(!app.includes('data-envsw="audio"') && !app.includes("group('sound', 'Music response'") && env.includes('function music() { return null; }'),
   'the home-screen backgrounds have no music setting and never follow the music');
-assert(app.includes('SPOTIFY EXIT BUTTON') && java.includes('private void showExitBubble()') && java.includes('hideExitBubble();') && fs.readFileSync(path.join(root, 'app/src/main/AndroidManifest.xml'), 'utf8').includes('SYSTEM_ALERT_WINDOW'),
+assert(app.includes('Show a "‹ NEXUS" button over Spotify') && java.includes('private void showExitBubble()') && java.includes('hideExitBubble();') && fs.readFileSync(path.join(root, 'app/src/main/AndroidManifest.xml'), 'utf8').includes('SYSTEM_ALERT_WINDOW'),
   'Spotify gets a floating back-to-Nexus button that Settings can allow and switch off');
 // ---- design system ----
 for (const token of ['--nx-glass', '--nx-line', '--nx-r', '--fs-title', '--fs-label', '--nx-gap', '--nx-icon', '--nx-fast', '--nx-ease']) assert(css.includes(token + ':'), token + ' design token is defined');
