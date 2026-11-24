@@ -102,6 +102,7 @@ public class MainActivity extends Activity {
     };
     private final Runnable drivesChanged = () -> { if (cinema != null) cinema.volumesChanged(); };
     private String appsCache = null;
+    private Bridge bridge;
     private volatile boolean meterOn = false;
     // ---- Audio focus: while Nexus talks or listens it holds "transient" focus, which makes Spotify & co
     //      pause cleanly and resume by themselves when Nexus lets go (no volume jumps, no fake button presses).
@@ -116,7 +117,7 @@ public class MainActivity extends Activity {
     private volatile boolean spPlaying = false;
     private volatile long spTime = 0;
     private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { labelCache = null; appsCache = null; launchCache.clear(); }
+        @Override public void onReceive(Context c, Intent i) { labelCache = null; appsCache = null; launchCache.clear(); ui.removeCallbacks(preloadApps); ui.postDelayed(preloadApps, 3000); }
     };
     private volatile long spPos = -1, spPosAt = 0; private volatile int spLen = 0;
     private final BroadcastReceiver spotifyReceiver = new BroadcastReceiver() {
@@ -186,7 +187,8 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient());
-        web.addJavascriptInterface(new Bridge(), "Android");
+        bridge = new Bridge();
+        web.addJavascriptInterface(bridge, "Android");
         setContentView(web);
         cinema = new CinemaLibrary(this, this::js);
         try { cinemaMeta = new CinemaMeta(this, this::js); } catch (Throwable ignored) {}
@@ -218,6 +220,8 @@ public class MainActivity extends Activity {
         // wake Spotify up quietly in the background so tapping it opens fast (started sooner than before,
         // since the very first thing many people do after the truck boots is open Spotify)
         ui.postDelayed(this::warmSpotify, 1200);
+        // build the app list (names + icons) in the background, so All Apps and app buttons open at once
+        ui.postDelayed(preloadApps, 9000);
         try {
             IntentFilter pf = new IntentFilter();
             pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -782,6 +786,59 @@ public class MainActivity extends Activity {
             } else startActivity(i);
             ui.postDelayed(() -> { Intent back = new Intent(this, MainActivity.class); back.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK); try { startActivity(back); } catch (Exception ignored) {} }, spotify ? 3500 : 4500);
         } catch (Exception e) { js("Nexus._toast && Nexus._toast('Could not start that song')"); }
+    }
+
+    // App names and icons are read once in the background (slow on the X3: every icon is drawn and encoded),
+    // so opening All Apps or an app button never waits for it.
+    private final Runnable preloadApps = () -> pool.execute(() -> {
+        try { labels(); } catch (Throwable ignored) {}
+        try { if (bridge != null) bridge.getApps(); } catch (Throwable ignored) {}
+    });
+
+    // Resume music where it left off WITHOUT opening Spotify's screen. Spotify remembers the last song and
+    // position itself; this just presses its play button from the background. Tries, in order: the player
+    // Nexus can see (notification access), Spotify's own media session (through the background connection
+    // Nexus already keeps), a play button press sent straight to Spotify (also wakes it if it was closed),
+    // and finally the system-wide play button.
+    private void resumeMusic() {
+        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (am.isMusicActive()) return;
+        boolean sent = false;
+        try {
+            MediaController c = activeController();
+            if (c != null) { c.getTransportControls().play(); sent = true; }
+        } catch (Exception ignored) {}
+        if (!sent) {
+            try {
+                if (spotifyWarm != null && spotifyWarm.isConnected()) {
+                    new MediaController(this, spotifyWarm.getSessionToken()).getTransportControls().play();
+                    sent = true;
+                }
+            } catch (Exception ignored) {}
+        }
+        if (!sent) sent = spotifyMediaButton(KeyEvent.KEYCODE_MEDIA_PLAY);
+        if (!sent) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
+        // if nothing started (e.g. Spotify was fully closed and slow to wake), try once more shortly
+        ui.postDelayed(() -> {
+            try {
+                if (!am.isMusicActive()) {
+                    if (!spotifyMediaButton(KeyEvent.KEYCODE_MEDIA_PLAY)) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY);
+                }
+            } catch (Exception ignored) {}
+        }, 3500);
+    }
+
+    private boolean spotifyMediaButton(int code) {
+        try {
+            getPackageManager().getPackageInfo("com.spotify.music", 0);
+            for (int action : new int[]{KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+                Intent i = new Intent(Intent.ACTION_MEDIA_BUTTON);
+                i.setPackage("com.spotify.music");
+                i.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(action, code));
+                sendBroadcast(i);
+            }
+            return true;
+        } catch (Exception e) { return false; }
     }
 
     // Starts Spotify's background service (no screen) so the app is already loaded when you tap it.
@@ -1720,17 +1777,20 @@ public class MainActivity extends Activity {
         public void setPref(String key, String value) { prefs.edit().putString("p_" + key, value).apply(); }
 
         @JavascriptInterface
-        public String getApps() {
+        public synchronized String getApps() {
             if (appsCache != null) return appsCache;
             JSONArray arr = new JSONArray();
             PackageManager pm = getPackageManager();
             List<ResolveInfo> list = launchables();
-            Collections.sort(list, (a, b) -> String.valueOf(a.loadLabel(pm)).compareToIgnoreCase(String.valueOf(b.loadLabel(pm))));
+            // read each name once (reading it inside the sort read every name many times over)
+            final java.util.Map<ResolveInfo, String> names = new java.util.HashMap<>();
+            for (ResolveInfo ri : list) names.put(ri, String.valueOf(ri.loadLabel(pm)));
+            Collections.sort(list, (a, b) -> names.get(a).compareToIgnoreCase(names.get(b)));
             for (ResolveInfo ri : list) {
                 if (ri.activityInfo.packageName.equals(getPackageName())) continue;
                 try {
                     JSONObject o = new JSONObject();
-                    o.put("label", String.valueOf(ri.loadLabel(pm)));
+                    o.put("label", names.get(ri));
                     o.put("pkg", ri.activityInfo.packageName);
                     o.put("cls", ri.activityInfo.name);
                     o.put("icon", iconBase64(ri.loadIcon(pm)));
@@ -2036,12 +2096,13 @@ public class MainActivity extends Activity {
                         }
                     }
                 } catch (Exception ignored) {}
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
                 switch (action) {
                     case "next": sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT); break;
                     case "prev": sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS); break;
                     case "pause": sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE); break;
-                    case "play": sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY); break;
-                    default: sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); break;
+                    case "play": resumeMusic(); break;
+                    default: if (am.isMusicActive()) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE); else resumeMusic(); break;
                 }
             });
         }
@@ -2057,6 +2118,10 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void audioHold(boolean on) { hold(on); }
+
+        // Start the music where it left off (used at start-up and by the music buttons)
+        @JavascriptInterface
+        public void musicResume() { ui.post(MainActivity.this::resumeMusic); }
 
         @JavascriptInterface
         public boolean isMusicActive() {

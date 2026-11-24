@@ -825,3 +825,22 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .cn-research input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: var(--nx-r-pill); border: 1px solid var(--nx-line); background: rgba(255,255,255,.05); color: var(--nx-ink); font: inherit; font-size: var(--fs-body); user-select: text; -webkit-user-select: text; }
 .cn-settings .cn-sheet-txt { margin-top: 0; padding-top: 26px; }
 .cn-attrib { margin: 16px 0 0; color: var(--nx-ink-3); font-size: var(--fs-caption); line-height: 1.4; }
+
+/* ---------- Music bar over the experiences (musicbar.js) ---------- */
+#nxMusic { position: absolute; left: 50%; top: clamp(10px, 2.4vh, 22px); transform: translate(-50%, 0); z-index: 12;
+  display: flex; align-items: center; gap: 6px; max-width: min(560px, 62vw); padding: 6px 16px 6px 6px; border-radius: 999px;
+  background: rgba(10, 12, 22, .62); border: 1px solid rgba(255, 255, 255, .12); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #eef2fb; pointer-events: auto;
+  transition: opacity .45s ease, transform .45s cubic-bezier(.2, .8, .2, 1); font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
+#nxMusic.nxm-hide { opacity: 0; transform: translate(-50%, -14px); pointer-events: none; }
+#nxMusic .nxm-b { flex: none; width: 46px; height: 46px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; padding: 0; color: inherit; }
+#nxMusic .nxm-b svg { width: 22px; height: 22px; fill: currentColor; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#nxMusic .nxm-main { width: 52px; height: 52px; background: rgba(255, 255, 255, .92); color: #0a0c16; }
+#nxMusic .nxm-main svg { width: 24px; height: 24px; }
+#nxMusic .nxm-b.nxm-hit { transform: scale(.88); }
+#nxMusic .nxm-b:active { background: rgba(255, 255, 255, .16); }
+#nxMusic .nxm-main:active { background: #fff; }
+#nxMusic .nxm-t { min-width: 0; display: flex; flex-direction: column; margin-left: 6px; line-height: 1.2; }
+#nxMusic .nxm-t b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#nxMusic .nxm-t span { font-size: 12px; color: rgba(225, 232, 245, .65); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#nxMusic.nxm-playing .nxm-main { box-shadow: 0 0 18px rgba(140, 220, 255, .55); }

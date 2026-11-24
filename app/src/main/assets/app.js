@@ -205,7 +205,11 @@
     $('boot').classList.add('hidden');
     $('panel').classList.add('hidden');
     showHome();
-    return playIntro().then(function () { booting = false; });
+    return playIntro().then(function () {
+      booting = false;
+      // carry on with the music from where it was left, without opening Spotify (Settings can turn this off)
+      if (pref('musicOnStart') !== '0' && A && A.musicResume) setTimeout(function () { try { A.musicResume(); } catch (e) {} }, 600);
+    });
   }
 
   function showHome() {
@@ -1481,8 +1485,10 @@
       '<div class="field"><label>SONG ANNOUNCEMENTS (PARTY MODE)</label>' +
       '<span class="btn go" id="sNotif">ALLOW NEXUS TO SEE WHAT\'S PLAYING</span>' +
       '<div class="hint">Opens Android settings. Turn Nexus ON in the list, then come back. If your box says it\'s unavailable, do this instead: open Spotify → Settings (gear) → scroll to "Device broadcast status" → turn it ON. Nexus will then see your songs.</div></div>' +
-      '<div class="field"><label>SPOTIFY EXIT BUTTON</label>' +
+      '<div class="field"><label>SPOTIFY</label>' +
       switchHtml('data-toggle="exitBubble"', 'Show a "‹ NEXUS" button over Spotify', pref('exitBubble') !== '0') +
+      switchHtml('data-toggle="musicOnStart"', 'Start my music when Nexus starts (carries on from the last song)', pref('musicOnStart') !== '0') +
+      switchHtml('data-toggle="musicBar"', 'Show music buttons over Liquid Dreams, Night Drive and Visuals', pref('musicBar') !== '0') +
       (A && A.exitBubbleAllowed && !A.exitBubbleAllowed() ? '<span class="btn go" id="sExitAllow">ALLOW THE EXIT BUTTON</span><div class="hint">Opens Android settings. Turn on "Allow display over other apps" for Nexus, then come back.</div>' : '') +
       '<div class="hint">While Spotify is open, tap the floating button to come straight back to Nexus. Drag it to move it.</div></div>' +
       '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Prismatic Dimension, Floating Energy, Cosmic Aurora, Neural Flow or Bioluminescent Abyss, and adjust motion, brightness and quality. They move on their own and do not react to music.</div>' +
