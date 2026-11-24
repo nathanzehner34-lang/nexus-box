@@ -1553,7 +1553,8 @@
     ['clip_collapse', '🏙', 'CITY COLLAPSE', 'A city breaking into glittering debris', 'City Collapse'],
     ['clip_printer', '🖨', 'MONEY PRINTER', 'The presses running hot', 'Money Printer'],
     ['clip_benjamin', '💵', 'BENJAMIN', 'The face on the hundred', 'Benjamin'],
-    ['clip_freshcash', '💸', 'FRESH CASH', 'Crisp bills under the light', 'Fresh Cash']
+    ['clip_freshcash', '💸', 'FRESH CASH', 'Crisp bills under the light', 'Fresh Cash'],
+    ['clip_darkvalley', '🌲', 'DARK VALLEY', 'Red signals over a misty forest lake', 'Dark Valley']
   ];
   // ---- Shared control markup (design system components) ----
   function switchHtml(attrs, label, on) {

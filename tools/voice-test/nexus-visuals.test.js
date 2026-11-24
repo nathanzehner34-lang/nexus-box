@@ -11,9 +11,9 @@ const xp = fs.readFileSync(path.join(A, 'experiences.js'), 'utf8');
 const app = fs.readFileSync(path.join(A, 'app.js'), 'utf8');
 const html = fs.readFileSync(path.join(A, 'index.html'), 'utf8');
 const java = fs.readFileSync(path.join(A, '../java/com/nexus/box/MainActivity.java'), 'utf8');
-const order = JSON.parse(JSON.stringify(['clip_mix', 'clip_coins', 'clip_skulls', 'clip_cityfire', 'clip_inferno', 'clip_serpent', 'clip_idol', 'clip_frenzy', 'clip_run', 'clip_collapse', 'clip_printer', 'clip_benjamin', 'clip_freshcash']));
+const order = JSON.parse(JSON.stringify(['clip_mix', 'clip_coins', 'clip_skulls', 'clip_cityfire', 'clip_inferno', 'clip_serpent', 'clip_idol', 'clip_frenzy', 'clip_run', 'clip_collapse', 'clip_printer', 'clip_benjamin', 'clip_freshcash', 'clip_darkvalley']));
 const catalogIds = Array.from(app.slice(app.indexOf('var VISUALS = ['), app.indexOf('];', app.indexOf('var VISUALS = ['))).matchAll(/\['([^']+)'/g), m => m[1]);
-assert.deepStrictEqual(catalogIds, order, 'the Visuals menu lists the cinematic mix and the twelve scenes (Molten Flag removed)');
+assert.deepStrictEqual(catalogIds, order, 'the Visuals menu lists the cinematic mix and the thirteen scenes (Molten Flag removed)');
 const clipDir = path.join(A, 'clips');
 const clips = fs.readdirSync(clipDir).filter(f => f.endsWith('.mp4'));
 assert.deepStrictEqual(clips.sort(), order.map(k => k.slice(5) + '.mp4').sort(), 'one continuous reel per scene plus the mix, and nothing left over (' + clips.join(', ') + ')');
@@ -21,7 +21,7 @@ assert(!/flag|Molten/i.test(vis) && !/clip_flag|MOLTEN FLAG/.test(app) && !fs.ex
 // seamless playback: each scene is one looping reel, so nothing loads mid-scene and nothing goes black
 assert(vis.includes("v.loop = true;") && !/\.prototype\.cut\b/.test(vis) && !/fx\.dip/.test(vis), 'scenes loop one continuous reel: no mid-scene loads, no black beat dips');
 const total = clips.reduce((n, f) => n + fs.statSync(path.join(clipDir, f)).size, 0);
-assert(total < 80e6, 'clips stay light for the box (' + (total / 1e6).toFixed(1) + ' MB)');
+assert(total < 90e6, 'clips stay light for the box (' + (total / 1e6).toFixed(1) + ' MB)');
 for (const k of order.slice(1)) assert(fs.existsSync(path.join(clipDir, k.slice(5) + '.jpg')), k + ' has a film still for its card');
 assert(app.includes('Film visuals by Beeple'), 'the clips are credited');
 // The box's WebView serves the page and the clips from file:///android_asset: a CORS request on a file URL always

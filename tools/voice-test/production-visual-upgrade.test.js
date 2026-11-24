@@ -13,7 +13,7 @@ const galleryIds = Array.from(gallery.matchAll(/\['([^']+)'/g), match => match[1
 
 assert(html.includes('data-act="liquiddreams"') && app.includes("case 'liquiddreams': openExperience(name);"), 'Liquid Dreams is a home-screen experience');
 assert(app.includes("pref('homeVer') === '4'") && app.includes("'liquiddreams'") && app.includes("'5'"), 'existing custom home layouts gain Liquid Dreams without resetting preferences');
-assert.deepStrictEqual(galleryIds, ['clip_mix', 'clip_coins', 'clip_skulls', 'clip_cityfire', 'clip_inferno', 'clip_serpent', 'clip_idol', 'clip_frenzy', 'clip_run', 'clip_collapse', 'clip_printer', 'clip_benjamin', 'clip_freshcash'], 'the Visuals catalog lists the six new themes in order');
+assert.deepStrictEqual(galleryIds, ['clip_mix', 'clip_coins', 'clip_skulls', 'clip_cityfire', 'clip_inferno', 'clip_serpent', 'clip_idol', 'clip_frenzy', 'clip_run', 'clip_collapse', 'clip_printer', 'clip_benjamin', 'clip_freshcash', 'clip_darkvalley'], 'the Visuals catalog lists the six new themes in order');
 assert(xp.includes('function isVisual(name)') && xp.includes('NXV.start(name)') && !xp.includes('VX_ORDER'), 'Visuals themes dispatch to the new engine and the old one is gone');
 assert(galleryIds.length === new Set(galleryIds).size, 'the gallery has no duplicate or stale selection entries');
 assert(xp.includes('function renderAtmosphere(now)') && xp.includes('renderAtmosphere(now);'), 'the utility experiences keep their atmospheric pass');
