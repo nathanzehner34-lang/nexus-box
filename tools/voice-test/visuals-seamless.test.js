@@ -29,8 +29,14 @@ const H = require('./nxv-harness.js');
       R.scenes[k]={len, black, n, minLum:+minLum.toFixed(1), stall, loops, reloads, err:NXV.debug().theme.err};
     }
     // scene after scene, as Play favourites does it
-    let black2=0, n2=0;
-    for (const k of NXV.order.slice(1,6)) { NXV.stop(true); NXV.start(k); const t0=Date.now(); while(Date.now()-t0<1800){ await wait(30); const l=seen(); n2++; if(l>=0&&l<3) black2++; } }
+    // every scene in turn, and back round to the first: no black, and the new scene is moving quickly
+    let black2=0, n2=0; R.handover=[];
+    for (const k of NXV.order.slice(1).concat([NXV.order[1]])) {
+      NXV.stop(true); NXV.start(k); const t0=Date.now(); let moving=0, last=-1;
+      while(Date.now()-t0<2200){ await wait(30); const l=seen(); n2++; if(l>=0&&l<3) black2++;
+        const vv=document.querySelector('#xp video'); if(!moving && vv && vv.readyState>=2 && +getComputedStyle(vv).opacity>.5){ if(last>=0 && vv.currentTime!==last) moving=Date.now()-t0; last=vv.currentTime; } }
+      R.handover.push([k, moving]);
+    }
     R.chain={black:black2, n:n2}; NXV.stop(false); R.videosAfter=document.querySelectorAll('#xp video').length;
   `);
   for (const [k, s] of Object.entries(R.scenes)) {
@@ -41,7 +47,9 @@ const H = require('./nxv-harness.js');
     assert(s.stall < 700, k + ' never freezes (' + s.stall + ' ms without a new frame)');
   }
   assert.strictEqual(R.chain.black, 0, 'one scene flows into the next without black (' + JSON.stringify(R.chain) + ')');
+  assert.strictEqual(R.handover.length, Object.keys(R.scenes).length, 'every scene was chained, ending back on the first');
+  R.handover.forEach(([k, ms]) => assert(ms > 0 && ms < 1500, k + ' is moving within 1.5 s of being chosen (' + ms + ' ms)'));
   assert(R.maxVideos <= 1 && R.videosAfter === 0, 'one video at a time, released at the end');
   console.log('Visuals seamless: ' + Object.keys(R.scenes).length + ' scenes loop with no black, no reloads and no freezes; scene changes hold the last picture. ' +
-    Object.entries(R.scenes).map(([k, s]) => k.slice(5) + ' ' + s.len.toFixed(1) + 's').join(', '));
+    Object.entries(R.scenes).map(([k, s]) => k.slice(5) + ' ' + s.len.toFixed(1) + 's').join(', ') + '. Hand-overs (ms): ' + R.handover.map(h => h[0].slice(5) + ' ' + h[1]).join(', '));
 })().catch(e => { console.error(e); process.exit(1); });
