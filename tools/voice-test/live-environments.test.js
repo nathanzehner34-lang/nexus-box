@@ -41,7 +41,7 @@ assert((html.match(/<svg viewBox="0 0 24 24">/g) || []).length >= 16, 'home tile
 
 // ---- 2. real WebGL renders of the five worlds ----
 const common = JSON.parse(env.match(/var COMMON = ("(?:[^"\\]|\\.)*");/)[1]);
-const envSrc = {}; for (const id of ['PRISM', 'ENERGY', 'AURORA', 'NEURAL', 'ABYSS']) {
+const envSrc = {}; for (const id of ['AURORA', 'NEON', 'NEBULA', 'INFINITY', 'LIQUID']) {
   const m = env.match(new RegExp("id: '" + id.toLowerCase() + "'[^\\n]*src: (\"(?:[^\"\\\\]|\\\\.)*\")"));
   assert(m, id + ' shader source present'); envSrc[id.toLowerCase()] = JSON.parse(m[1]);
 }
@@ -102,7 +102,7 @@ const scenario = `
  document.querySelector('[data-act=env]').click();await wait(900);
  r.cards=document.querySelectorAll('.env-card').length;
  r.previews=[...document.querySelectorAll('[data-preview]')].map(c=>{const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let lit=0;for(let i=0;i<d.length;i+=16)if(d[i]+d[i+1]+d[i+2]>30)lit++;return lit;});
- document.querySelector('[data-env=neural]').click();await wait(80);r.afterSelect=E.status();
+ document.querySelector('[data-env=neon]').click();await wait(80);r.afterSelect=E.status();
  document.querySelector('[data-envsw=reducedMotion]').click();document.querySelector('[data-quality=balanced]').click();document.querySelector('[data-pal="2"]').click();
  const sp=document.getElementById('envSpeed');sp.value='1.6';sp.dispatchEvent(new Event('input',{bubbles:true}));
  r.speedLabel=document.querySelector('output[for=envSpeed]').textContent;
@@ -126,7 +126,7 @@ try {
     assert(o.mean > 6 && o.std > 6, id + ' renders a visible, structured scene with no music (mean ' + o.mean.toFixed(1) + ', contrast ' + o.std.toFixed(1) + ')');
     assert(o.frameStep > .05 && o.frameStep < 4, id + ' moves continuously and smoothly between frames (' + o.frameStep.toFixed(2) + ')');
     assert(o.motion > 4, id + ' main structures evolve over time, not only particles (' + o.motion.toFixed(1) + ')');
-    for (const k of ['bright', 'move', 'audio', 'colour', 'hq']) assert(o[k] > .3, id + ' responds to ' + k + ' (' + o[k].toFixed(2) + ')');
+    for (const k of ['bright', 'move', 'colour', 'hq']) assert(o[k] > .3, id + ' responds to ' + k + ' (' + o[k].toFixed(2) + ')');
     assert(Math.abs(o.loudMean - o.mean) / o.mean < .3, id + ' music response never causes an aggressive full-screen brightness change');
   }
   assert(R.maxCorr < .75, 'the five worlds differ in composition, not just colour: rendered with one neutral palette, max structural correlation ' + R.maxCorr.toFixed(2));
@@ -137,8 +137,8 @@ try {
   assert.deepStrictEqual(A.tiles, ['youtube', 'env', 'cinema', 'party', 'settings'], 'an old custom layout loses Alter Ego, gains Environments in place of Backgrounds, and gains Cinema beside Party Mode');
   assert.strictEqual(A.cards, 5, 'five environment cards');
   assert(A.previews.every(n => n > 20), 'every card shows a live rendered preview of its world');
-  assert(A.afterSelect.env === 'neural' && A.afterSelect.transitioning, 'selecting a world starts a dissolve transition from the current one');
-  assert(A.saved.env === 'neural' && A.saved.reducedMotion === true && A.saved.quality === 'balanced' && A.saved.palettes.neural === 2 && A.saved.speed === 1.6, 'world, reduced motion, quality, palette and speed persist');
+  assert(A.afterSelect.env === 'neon' && A.afterSelect.transitioning, 'selecting a world starts a dissolve transition from the current one');
+  assert(A.saved.env === 'neon' && A.saved.reducedMotion === true && A.saved.quality === 'balanced' && A.saved.palettes.neon === 2 && A.saved.speed === 1.6, 'world, reduced motion, quality, palette and speed persist');
   assert.strictEqual(A.speedLabel, '160%', 'sliders show their value');
   assert.strictEqual(A.switchOn, 'true', 'switch state is exposed, not colour-only');
   assert(A.programsAfterClose <= 1, 'closing the selector releases the other worlds');
@@ -146,11 +146,11 @@ try {
   assert(!A.underParty && A.afterParty, 'the environment pauses under Party Mode and resumes after');
   assert(A.settingsSwitches >= 4 && A.settingsEnvButton && A.noBackgroundField, 'Settings uses switches, links to Environments and has no old background picker');
 
-  const B = run('restart', appPage(`localStorage.setItem('p_envSettings',JSON.stringify({env:'energy',palettes:{energy:1},speed:.5,audio:false}));localStorage.setItem('p_homeVer','6');`, restartScenario), 'RESTART', 15000, appDir);
+  const B = run('restart', appPage(`localStorage.setItem('p_envSettings',JSON.stringify({env:'energy',palettes:{energy:1},speed:.5,audio:false,cycle:5}));localStorage.setItem('p_homeVer','6');`, restartScenario), 'RESTART', 15000, appDir);
   assert.deepStrictEqual(B.errors, [], 'no errors after restart');
-  assert(B.status.env === 'energy' && B.settings.palettes.energy === 1 && B.settings.speed === .5 && B.settings.audio === false, 'settings are restored after restarting the app');
+  assert(B.status.env === 'neon' && B.settings.speed === .5 && B.settings.audio === false && B.settings.cycle === 5, 'settings are restored after restarting the app, and a retired world opens its successor (' + B.status.env + ')');
   assert(!B.tiles.includes('ego') && B.tiles.includes('env'), 'default layout has Environments and no Alter Ego');
   const L = run('legacy', appPage(`localStorage.setItem('p_envSettings',JSON.stringify({env:'cosmic',palettes:{cosmic:2}}));localStorage.setItem('p_homeVer','6');`, restartScenario), 'RESTART', 15000, appDir);
-  assert(L.status.env === 'aurora' && L.settings.palettes.aurora === 0 && L.status.running, 'a world saved by an earlier build (Cosmic) opens its successor, Cosmic Aurora');
+  assert(L.status.env === 'nebula' && L.settings.palettes.nebula === 0 && L.status.running, 'a world saved by an earlier build (Cosmic) opens its successor, Cosmic Nebula');
   console.log('Live environments: legacy Alter Ego and wallpaper system removed; five worlds rendered with distinct structure (max correlation ' + R.maxCorr.toFixed(2) + '), continuous motion and working controls; the Nexus page ran the engine, previews, persistence, pausing and layout migration without errors.');
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }

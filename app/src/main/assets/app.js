@@ -1491,7 +1491,7 @@
       switchHtml('data-toggle="musicBar"', 'Show music buttons over Liquid Dreams, Night Drive and Visuals', pref('musicBar') !== '0') +
       (A && A.exitBubbleAllowed && !A.exitBubbleAllowed() ? '<span class="btn go" id="sExitAllow">ALLOW THE EXIT BUTTON</span><div class="hint">Opens Android settings. Turn on "Allow display over other apps" for Nexus, then come back.</div>' : '') +
       '<div class="hint">While Spotify is open, tap the floating button to come straight back to Nexus. Drag it to move it.</div></div>' +
-      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Prismatic Dimension, Floating Energy, Cosmic Aurora, Neural Flow or Bioluminescent Abyss, and adjust motion, brightness and quality. They move on their own and do not react to music.</div>' +
+      '<div class="field"><label>LIVE ENVIRONMENT</label><div class="hint">The animated world behind the Nexus screens: choose Aurora World, Neon Dimension, Cosmic Nebula, Abstract Infinity or Liquid Universe, cycle through them, and adjust motion, brightness and quality. They move on their own and do not react to music.</div>' +
       '<span class="btn go" id="sEnv">OPEN ENVIRONMENTS</span></div>' +
       '<div class="field"><label>SYSTEM</label>' +
       '<span class="btn" id="sReplay">REPLAY STARTUP</span><span class="btn" id="sAndroid">ANDROID SETTINGS</span>' +
@@ -1593,6 +1593,10 @@
         var c = p.colors.map(function (x) { return 'rgb(' + x.map(function (v) { return Math.round(Math.min(1, v) * 255); }).join(',') + ')'; });
         return '<button type="button" class="chip-btn' + (st.palettes[st.env] === i ? ' selected' : '') + '" data-pal="' + i + '"><span class="dot" style="background:linear-gradient(135deg,' + c[0] + ',' + c[1] + ' 55%,' + c[2] + ')"></span>' + esc(p.name) + '</button>';
       }).join('') + '</div>' +
+      '<div class="section-title">Cycle worlds</div><div class="chips">' +
+        '<button type="button" class="chip-btn" id="envNext">NEXT WORLD ›</button>' +
+        [[0, 'Off'], [1, 'Every 1 min'], [3, 'Every 3 min'], [5, 'Every 5 min'], [10, 'Every 10 min']].map(function (c) {
+          return '<button type="button" class="chip-btn' + ((st.cycle || 0) === c[0] ? ' selected' : '') + '" data-cycle="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>' +
       '<div class="switch-row">' + switchHtml('data-envsw="reducedMotion"', 'Reduced motion', st.reducedMotion) + '</div>' +
       group('motion', 'Motion', rangeHtml('envSpeed', 'Animation speed', R.speed[0], R.speed[1], .05, st.speed) + rangeHtml('envMovement', 'Movement intensity', R.movement[0], R.movement[1], .05, st.movement) + rangeHtml('envColor', 'Colour transition speed', R.colorSpeed[0], R.colorSpeed[1], .05, st.colorSpeed)) +
       group('look', 'Look &amp; quality', rangeHtml('envBright', 'Brightness', R.brightness[0], R.brightness[1], .05, st.brightness) +
@@ -1608,6 +1612,8 @@
     function redo() { openEnvironments(); }
     Array.prototype.forEach.call(document.querySelectorAll('details.group'), function (d) { d.addEventListener('toggle', function () { openGroups[d.getAttribute('data-group')] = d.open; openEnvironments.open = openGroups; }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-env]'), function (el) { el.addEventListener('click', function () { E.select(el.getAttribute('data-env')); caption(el.querySelector('b').textContent.toUpperCase()); redo(); }); });
+    $('envNext').addEventListener('click', function () { var id = E.next(1); var e = E.ENVIRONMENTS.filter(function (x) { return x.id === id; })[0]; if (e) caption(e.name.toUpperCase()); redo(); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cycle]'), function (el) { el.addEventListener('click', function () { E.set('cycle', +el.getAttribute('data-cycle')); redo(); }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-pal]'), function (el) { el.addEventListener('click', function () { E.set('palette', +el.getAttribute('data-pal')); redo(); }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-envsw]'), function (el) { el.addEventListener('click', function () { var k = el.getAttribute('data-envsw'); E.set(k, !E.settings()[k]); redo(); }); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-quality]'), function (el) { el.addEventListener('click', function () { E.set('quality', el.getAttribute('data-quality')); redo(); }); });
