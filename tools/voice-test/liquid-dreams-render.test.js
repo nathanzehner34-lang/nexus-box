@@ -54,7 +54,7 @@ try {
  const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
  const loc=gl.getAttribLocation(program,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
  const PAL=${JSON.stringify(palettes)},bytes=new Uint8Array(128*72*4);
- const base={res:[128,72],envA:0,envB:0,envMix:0,flowT:21.3,bassL:.25,midL:.25,highL:.25,moveAmt:.6,detailAmt:.6,complexity:.5,brightness:1,quality:0,gravPos:[.15,0],gravStr:0,gravSpin:0,touchHue:0,spectral:0,colorPhase:.2,energyL:0,spectralO:0,colorWave:[0,0,0,0],palette:'deepteal'};
+ const base={res:[128,72],musX:[0,0,0,9],envA:0,envB:0,envMix:0,flowT:21.3,bassL:.25,midL:.25,highL:.25,moveAmt:.6,detailAmt:.6,complexity:.5,brightness:1,quality:0,gravPos:[.15,0],gravStr:0,gravSpin:0,touchHue:0,spectral:0,colorPhase:.2,energyL:0,spectralO:0,colorWave:[0,0,0,0],palette:'deepteal'};
  function render(over){const u=Object.assign({},base,over),p=PAL[u.palette].c,o=PAL[u.oldPalette||u.palette].c;delete u.oldPalette;if(!over||!('spectralO' in over))u.spectralO=u.spectral;for(let i=0;i<4;i++){u['palN'+i]=p[i];u['palO'+i]=o[i];}
   for(const [name,value] of Object.entries(u)){if(name==='palette')continue;const l=gl.getUniformLocation(program,name);if(l===null){if(name==='res'||name.startsWith('pal'))throw new Error('missing shader input '+name);continue;}
    if(!Array.isArray(value))gl.uniform1f(l,value);else if(value.length===2)gl.uniform2f(l,value[0],value[1]);else if(value.length===3)gl.uniform3f(l,value[0],value[1],value[2]);else gl.uniform4f(l,value[0],value[1],value[2],value[3]);}
@@ -64,21 +64,22 @@ try {
   const n=128*72,mean=sum/n;return {hash:hash>>>0,mean,std:Math.sqrt(Math.max(0,sq/n-mean*mean)),lum};}
  function corr(a,b){let ma=0,mb=0;for(let i=0;i<a.length;i++){ma+=a[i];mb+=b[i];}ma/=a.length;mb/=b.length;let s=0,sa=0,sb=0;for(let i=0;i<a.length;i++){const x=a[i]-ma,y=b[i]-mb;s+=x*y;sa+=x*x;sb+=y*y;}return s/Math.sqrt(sa*sb+1e-9);}
  function diff(a,b){let d=0;for(let i=0;i<a.length;i++)d+=Math.abs(a[i]-b[i]);return d/a.length;}
- const envs=[],sameColour=[];for(let e=0;e<6;e++){const f=render({envA:e,envB:e});envs.push({hash:f.hash,mean:f.mean,std:f.std});sameColour.push(f.lum);}
- let maxCorr=-1;for(let a=0;a<6;a++)for(let b=a+1;b<6;b++)maxCorr=Math.max(maxCorr,corr(sameColour[a],sameColour[b]));
+ const NE=8;
+ const envs=[],sameColour=[];for(let e=0;e<NE;e++){const f=render({envA:e,envB:e});envs.push({hash:f.hash,mean:f.mean,std:f.std});sameColour.push(f.lum);}
+ let maxCorr=-1;for(let a=0;a<NE;a++)for(let b=a+1;b<NE;b++)maxCorr=Math.max(maxCorr,corr(sameColour[a],sameColour[b]));
  const paletteHashes=Object.keys(PAL).map(k=>render({envA:4,envB:4,palette:k,spectral:PAL[k].s}).hash);
  const controls={};const ref=render({envA:2,envB:2});
  for(const [name,over] of Object.entries({bass:{bassL:.9},mid:{midL:.9},treble:{highL:.9},movement:{moveAmt:1.2},detail:{detailAmt:1.2},complexity:{complexity:1},brightness:{brightness:1.4},speed:{flowT:24.3},twoFinger:{touchHue:.8},spectral:{spectral:.9},energy:{energyL:.9}}))controls[name]=diff(ref.lum,render(Object.assign({envA:2,envB:2},over)).lum);
  const perEnvAudio=[],restraint=[],smooth=[];
- for(let e=0;e<6;e++){const quiet=render({envA:e,envB:e,bassL:0,midL:0,highL:0}),loud=render({envA:e,envB:e,bassL:1,midL:1,highL:1});
+ for(let e=0;e<NE;e++){const quiet=render({envA:e,envB:e,bassL:0,midL:0,highL:0}),loud=render({envA:e,envB:e,bassL:1,midL:1,highL:1});
   perEnvAudio.push(diff(quiet.lum,loud.lum));restraint.push(Math.abs(loud.mean-quiet.mean)/Math.max(1,quiet.mean));
   const a=render({envA:e,envB:e,flowT:30}),b=render({envA:e,envB:e,flowT:30.05});smooth.push(diff(a.lum,b.lum));}
  // Gravity Point: share of the screen within the field that visibly moves, per experience; drag; recovery
- const gravity=[];for(let e=0;e<6;e++){const a=render({envA:e,envB:e}),g=render({envA:e,envB:e,gravStr:1,gravSpin:1.5}),moved=render({envA:e,envB:e,gravStr:1,gravSpin:1.5,gravPos:[-.45,.1]}),rel=render({envA:e,envB:e,gravStr:0});
+ const gravity=[];for(let e=0;e<NE;e++){const a=render({envA:e,envB:e}),g=render({envA:e,envB:e,gravStr:1,gravSpin:1.5}),moved=render({envA:e,envB:e,gravStr:1,gravSpin:1.5,gravPos:[-.45,.1]}),rel=render({envA:e,envB:e,gravStr:0});
   let changed=0,inField=0;for(let y=0;y<72;y++)for(let x=0;x<128;x++){const ux=(x+.5-64)/72,uy=(y+.5-36)/72;if(Math.hypot(ux-.15,uy)<.45){inField++;const i=y*128+x;if(Math.abs(a.lum[i]-g.lum[i])>6)changed++;}}
   gravity.push({share:changed/inField,whole:diff(a.lum,g.lum),dragged:diff(g.lum,moved.lum),recovered:diff(a.lum,rel.lum)});}
  // Colour Wave: inside the spreading front the new palette is fully in place, outside it the old one is untouched
- const pulse=[];for(let e=0;e<6;e++){const oldP=render({envA:e,envB:e,palette:'violet'}),newP=render({envA:e,envB:e,palette:'aurora'}),w=render({envA:e,envB:e,palette:'aurora',oldPalette:'violet',colorWave:[.15,0,.5,1]});
+ const pulse=[];for(let e=0;e<NE;e++){const oldP=render({envA:e,envB:e,palette:'violet'}),newP=render({envA:e,envB:e,palette:'aurora'}),w=render({envA:e,envB:e,palette:'aurora',oldPalette:'violet',colorWave:[.15,0,.5,1]});
   let inNew=0,inOld=0,outOld=0,ni=0,no=0;
   for(let y=0;y<72;y++)for(let x=0;x<128;x++){const ux=(x+.5-64)/72,uy=(y+.5-36)/72,i=y*128+x,r=Math.hypot(ux-.15,uy);if(r<.25){inNew+=Math.abs(w.lum[i]-newP.lum[i]);inOld+=Math.abs(w.lum[i]-oldP.lum[i]);ni++;}else if(r>.75){outOld+=Math.abs(w.lum[i]-oldP.lum[i]);no++;}}
   pulse.push({inNew:inNew/ni,inOld:inOld/ni,outOld:outOld/no,done:diff(render({envA:e,envB:e,palette:'aurora',oldPalette:'violet',colorWave:[.15,0,3,1]}).lum,newP.lum)});}
@@ -108,9 +109,9 @@ window.__audio={meterOff:0,stopTalking:0};window.NX={A:{setPref:(k,v)=>{store['p
  const d0=D();result.firstFrame={first:d0.firstFrame,opacity:d0.canvasOpacity,backdrop:!!document.getElementById('xp').style.background};
  result.envButtons=ui.querySelectorAll('[data-env]').length;result.colorButtons=ui.querySelectorAll('[data-color]').length;result.sliders=ui.querySelectorAll('input[type=range][data-setting]').length;
  result.gl=[...document.querySelectorAll('#xp canvas')].some(c=>c.id!=='xpc'&&c.style.display==='block');
- // dock: Experience cycles all six and wraps; colour stays
+ // dock: Experience cycles all eight and wraps; colour stays
  const audio0=Object.assign({},window.__audio); const startColor=saved().color,startEnv=saved().env,seq=[];
- for(let i=0;i<6;i++){ui.querySelector('[data-action="next"]').click();seq.push(saved().env);}
+ for(let i=0;i<8;i++){ui.querySelector('[data-action="next"]').click();seq.push(saved().env);}
  result.cycle={seq,start:startEnv,colorsKept:saved().color===startColor};
  // Color Shift cycles palettes; experience stays
  const envBefore=saved().env,shifts=[];for(let i=0;i<3;i++){ui.querySelector('[data-action="shift"]').click();shifts.push(saved().color);}
@@ -147,7 +148,7 @@ window.__audio={meterOff:0,stopTalking:0};window.NX={A:{setPref:(k,v)=>{store['p
 
 try {
   const r = runPage('shader', shaderPage, 'SHADER_RESULT');
-  assert.strictEqual(new Set(r.envs.map(e => e.hash)).size, 6, 'all six environments render different frames');
+  assert.strictEqual(new Set(r.envs.map(e => e.hash)).size, 8, 'all eight environments render different frames');
   r.envs.forEach((e, i) => assert(e.mean > 4 && e.std > 2.5, 'environment ' + i + ' renders visible, non-flat artwork even with the music stopped'));
   assert(r.maxCorr < .85, 'environments differ in structure, not just colour (max luminance correlation ' + r.maxCorr.toFixed(2) + ')');
   assert.strictEqual(new Set(r.paletteHashes).size, 14, 'all fourteen palettes produce visibly different output');
@@ -168,7 +169,7 @@ try {
   const a = runPage('app', appPage, 'APP_RESULT', 20000);
   assert.deepStrictEqual(a.errors, [], 'Liquid Dreams raised no browser errors');
   assert(a.gl, 'Liquid Dreams draws with the GPU in the 2 GB profile');
-  assert.strictEqual(a.envButtons, 6, 'six environment buttons');
+  assert.strictEqual(a.envButtons, 8, 'eight environment buttons');
   assert.strictEqual(a.colorButtons, 15, 'fourteen palettes plus Signature (the Music Reactive option is gone)');
   assert.strictEqual(a.sliders, 8, 'eight working adjustment sliders');
   assert.deepStrictEqual(a.migrated, { env: 'iridescence', color: 'aurora', complexity: 1.8, audio: 1.2, touch: true, v: 3 }, 'saved settings from the earlier Liquid Dreams migrate');
@@ -181,7 +182,7 @@ try {
   assert.strictEqual(a.track, 'Test Song — Test Artist', 'current track is shown');
   assert(!a.atmosphereDrawn, 'no shared colour-cycling overlay is drawn over Liquid Dreams');
   assert(a.firstFrame.first && a.firstFrame.opacity === '1' && a.firstFrame.backdrop, 'a palette backdrop covers start-up and the first GPU frame fades in (no black frame)');
-  assert.deepStrictEqual(a.cycle.seq, ['ether', 'chrome', 'cosmic', 'organic', 'deepflow', 'iridescence'], 'Experience button steps through all six and wraps back to the first');
+  assert.deepStrictEqual(a.cycle.seq, ['ether', 'chrome', 'cosmic', 'organic', 'world', 'bloom', 'deepflow', 'iridescence'], 'Experience button steps through all eight and wraps back to the first');
   assert(a.cycle.colorsKept, 'cycling experiences keeps the selected palette');
   assert.deepStrictEqual(a.shift.shifts, ['obsidian', 'arctic', 'electric'], 'Color Shift steps through the palettes and wraps round');
   assert(a.shift.envKept && a.shift.label === 'Electric Blue & Violet', 'Color Shift leaves the experience alone and names the palette');
@@ -195,7 +196,7 @@ try {
   assert(a.controlsOpen, 'Controls opens the full panel');
   assert(a.closed, 'the dock Exit button closes Liquid Dreams and removes its controls');
   assert(a.afterExit.debug === 'undefined' && !a.afterExit.canvasOpacity.includes('0') && a.afterExit.meterOff >= 1, 'exit releases the renderer, resets the shared canvas and stops the audio meter');
-  console.log('WebGL rendered six experiences, fourteen palettes, Gravity Point (field share ' + r.gravity.map(g => Math.round(g.share * 100) + '%').join('/') + '), Color Pulse, music response and liquid transitions; the 2 GB app run cycled experiences and Color Shift independently, handled tap, hold, drag and release, and exited cleanly.');
+  console.log('WebGL rendered eight experiences, fourteen palettes, Gravity Point (field share ' + r.gravity.map(g => Math.round(g.share * 100) + '%').join('/') + '), Color Pulse, music response and liquid transitions; the 2 GB app run cycled experiences and Color Shift independently, handled tap, hold, drag and release, and exited cleanly.');
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

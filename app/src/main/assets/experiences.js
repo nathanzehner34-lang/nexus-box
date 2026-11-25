@@ -341,6 +341,8 @@ uniform vec3 palN0, palN1, palN2, palN3, palO0, palO1, palO2, palO3;
 uniform vec2 gravPos;
 uniform float gravStr, gravSpin, touchHue, spectral, spectralO, colorPhase, energyL, kickL, hatL;
 uniform vec4 colorWave;
+// musX: snare, build-up, drop, seconds since the last kick (drives rings and pulses that travel outward)
+uniform vec4 musX;
 // the palette each pixel uses: the new one inside a spreading colour wave, the previous one outside it
 vec3 pal0, pal1, pal2, pal3;
 float OCT, SPEC;
@@ -363,31 +365,58 @@ vec3 rampLD(float x){
  return c;
 }
 float particlesLD(vec2 p,float t,float scale,float drift){vec2 g=p*scale+vec2(t*drift*.5,t*drift);vec2 id=floor(g),f=fract(g)-.5;vec2 h=hash2LD(id);float on=step(.86-detailAmt*.07,h.x);vec2 o=(h-.5)*.6+.12*vec2(sin(t*.7+h.y*6.),cos(t*.5+h.x*6.));float tw=.55+.45*sin(t*1.3+h.y*30.);return on*smoothstep(.09,.0,length(f-o))*tw;}
-// DEEP FLOW: ink dispersing through deep water
+// Hue rotation about the grey axis: a palette colour's neighbours and complements at the same brightness.
+vec3 hueRotLD(vec3 c,float a){vec3 k=vec3(.57735);float ca=cos(a);return c*ca+cross(k,c)*sin(a)+k*dot(k,c)*(1.-ca);}
+// A second colour family that harmonises with the palette: its ramp turned round the colour wheel.
+vec3 accLD(float x,float a){return max(hueRotLD(rampLD(x),a),0.);}
+// Sparkles: tiny points of light that twinkle (dens = share of cells lit).
+float sparkLD(vec2 p,float t,float sc,vec2 drift,float dens){vec2 g=p*sc+drift*t;vec2 id=floor(g);vec2 h=hash2LD(id);if(h.x<1.-dens)return 0.;vec2 f=fract(g)-.5-(h-.5)*.6;float tw=.5+.5*sin(t*(2.+h.y*3.)+h.x*40.);return exp(-dot(f,f)*(160.+h.y*120.))*(.35+.65*tw*tw);}
+// Out-of-focus motes close to the viewer: soft discs drifting slowly, a strong depth cue for little cost.
+float bokehLD(vec2 p,float t,float sc,vec2 drift){vec2 g=p*sc+drift*t;vec2 id=floor(g);vec2 h=hash2LD(id+17.);if(h.x<.8)return 0.;vec2 f=fract(g)-.5-(h-.5)*.5;float r=.12+.12*h.y;return smoothstep(r,r*.55,length(f))*(.6+.4*sin(t*.4+h.y*20.));}
+// A ring of pressure leaving the centre after each kick: 1 on the ring front, fading as it spreads.
+float kickRingLD(float r,float speed,float width){float ka=musX.w;return exp(-pow((r-ka*speed)/width,2.))*exp(-ka*1.8);}
+// DEEP FLOW: ink dispersing through deep water. Two inks (the palette's and a neighbouring hue) swirl
+// through each other under caustic light and slanting shafts from the surface; particles hang at three
+// depths and drift with the current. Bass billows the ink, mids stir it, treble lights the particles,
+// the snare sends a bioluminescent flash along the ink's lit edges.
 vec3 deepFlowLD(vec2 p,float t){
- float sw=.55+moveAmt*.55+bassL*.22;
+ float sw=.55+moveAmt*.55+bassL*.3;
  vec2 q=p*1.2+vec2(0.,t*.035);
  vec2 a=vec2(fbmLD(q+vec2(0.,t*.06),OCT),fbmLD(q+vec2(5.2,1.3)-vec2(t*.05,0.),OCT));
  vec2 b=vec2(fbmLD(q+sw*1.9*a+vec2(1.7,9.2)+t*.04,OCT),fbmLD(q+sw*1.9*a+vec2(8.3,2.8)-t*.03,OCT));
- vec2 wq=q+(sw*2.1+midL*.12)*b;
+ vec2 wq=q+(sw*2.1+midL*.35)*b;
  float d=fbmLD(wq,OCT),d2=fbmLD(wq+vec2(.035,.05),OCT);
- vec3 bg=mix(pal0*.4,pal1*.32,smoothstep(-.8,.8,p.y));
- float shaft=pow(max(0.,1.-abs(p.x*.75+p.y*.35-.1+sin(t*.07)*.12)),5.)*smoothstep(-.6,.7,p.y);
- bg+=rampLD(.7)*shaft*.14;
+ // deep water: darker below, caustic light dancing near the surface, shafts slanting down
+ vec3 bg=mix(pal0*.35,pal1*.4,smoothstep(-.9,.9,p.y));
+ float cn=noise(p*vec2(4.4,2.8)+vec2(t*.16,t*.1)+a*1.6);
+ bg+=rampLD(.8)*pow(1.-abs(cn*2.-1.),7.)*smoothstep(-.1,.9,p.y)*(.08+highL*.12);
+ float shafts=0.;
+ for(int i=0;i<2;i++){float fi=float(i);float x=p.x*.8+p.y*(.35+fi*.08)+sin(t*(.05+fi*.02)+fi*2.)*.25-.35+fi*.42;
+  shafts+=pow(max(0.,1.-abs(x)*(3.5-fi*.6)),4.)*(.55+.45*noise(vec2(x*3.,t*.15+fi)));}
+ bg+=rampLD(.72)*shafts*smoothstep(-.8,.9,p.y)*(.07+energyL*.07);
+ // far ink, out of focus, gives the water depth behind the main plume
+ float back=fbmLD(p*.55+vec2(t*.015,-t*.01)+a*.4,2.);
+ bg+=mix(rampLD(.45),accLD(.5,-1.05),.5)*smoothstep(.45,.8,back)*.17;
+ // the ink
  float ink=smoothstep(.3,.68,d),core=smoothstep(.62,.95,d);
  float lit=clamp((d2-d)*14.,-1.,1.);
- vec3 inkCol=mix(rampLD(.32+b.x*.3),rampLD(.6+a.y*.25),clamp(length(b-a)*1.6,0.,1.));
- vec3 col=mix(bg,inkCol*(.75+.6*max(lit,0.)),ink*.92);
- col=mix(col,pal0*.15,core*.5);
- col+=(rampLD(.95)*.28+rampLD(.62)*highL*.35*detailAmt)*pow(max(lit,0.),2.)*ink*(1.-core);
+ float two=smoothstep(-.12,.12,b.x-a.y+.12*sin(t*.06));
+ vec3 inkA=mix(rampLD(.32+b.x*.3),rampLD(.6+a.y*.25),clamp(length(b-a)*1.6,0.,1.));
+ vec3 inkB=accLD(.5+b.y*.32,1.05);
+ vec3 col=mix(bg,mix(inkA,inkB,two*.6)*(.72+.65*max(lit,0.)),ink*.92);
+ col=mix(col,pal0*.12,core*.5);
+ float edge=pow(max(lit,0.),2.)*ink*(1.-core);
+ col+=(rampLD(.9)*.22+accLD(.72,1.05)*(highL*.3+musX.x*.7))*edge;
  col+=rampLD(.85)*pow(clamp(b.y*1.15-.2,0.,1.),4.)*ink*.18;
- float back=fbmLD(p*.55+vec2(t*.015,-t*.01)+a*.4,3.);
- col+=rampLD(.5)*smoothstep(.45,.8,back)*.14*(1.-ink);
- col+=particlesLD(p,t,14.,.06)*(rampLD(.95)*.3+rampLD(.62)*highL*.9)*detailAmt;
+ // particles at three depths, carried by the current
+ vec2 adv=(a-.5)*.3;
+ col+=sparkLD(p+adv,t,26.,vec2(.05,.12),.07+highL*.09)*(rampLD(.9)*.45+accLD(.8,1.05)*hatL*.9)*detailAmt;
+ col+=sparkLD(p*.7+adv*.5+3.,t*.7,14.,vec2(.03,.07),.05)*rampLD(.75)*.25*detailAmt;
+ col+=bokehLD(p+adv*1.6,t,3.4,vec2(.02,.05))*mix(rampLD(.7),accLD(.7,1.05),.4)*(.05+energyL*.05+kickL*.07);
  return col;
 }
 // IRIDESCENCE: translucent liquid glass with thin-film colour
-float glassHLD(vec2 p,float t){float h=0.;for(int i=0;i<7;i++){float fi=float(i);if(fi>=4.+complexity*3.)break;vec2 c=vec2(sin(t*(.07+fi*.017)+fi*1.9)*.7,cos(t*(.06+fi*.013)+fi*2.7)*.36);float r=.17+.1*fract(fi*.618)+.04*sin(fi*2.1+t*.09)+bassL*.035*moveAmt;vec2 d=p-c;h+=exp(-dot(d,d)/(r*r));}return h+(.08*moveAmt+midL*.06)*(noise(p*1.7+vec2(t*.05,-t*.04))-.5);}
+float glassHLD(vec2 p,float t){float h=0.;for(int i=0;i<7;i++){float fi=float(i);if(fi>=5.+complexity*2.)break;vec2 c=vec2(sin(t*(.07+fi*.017)+fi*1.9)*.7,cos(t*(.06+fi*.013)+fi*2.7)*.36);float r=.1+.15*fract(fi*.618+.2)+.04*sin(fi*2.1+t*.09)+bassL*.04*moveAmt;vec2 d=p-c;h+=exp(-dot(d,d)/(r*r));}return h+(.08*moveAmt+midL*.06)*(noise(p*1.7+vec2(t*.05,-t*.04))-.5);}
 vec3 glassBgLD(vec2 q,float t){
  vec3 c=pal0*.45+pal1*.22*smoothstep(-.9,.9,q.y);
  c+=rampLD(.55)*pow(.5+.5*sin(q.x*2.2+q.y*3.1+t*.03),8.)*.16;
@@ -414,48 +443,87 @@ vec3 iridescenceLD(vec2 p,float t){
  vec2 g=vec2(hx-h,hy-h)/e;
  float mask=smoothstep(.5,.55,h);
  g+=highL*detailAmt*.25*vec2(sin(p.y*38.+t*1.6),cos(p.x*34.-t*1.4))*mask;
+ // each kick sends a ripple ring across the glass from the centre
+ {float rr=length(p);g+=p/max(rr,.01)*sin((rr-musX.w*.9)*55.)*kickRingLD(rr,.9,.09)*2.2*mask;}
  vec3 n=normalize(vec3(-g*.28,1.));
  float fres=pow(1.-n.z,1.2);
- vec3 bg=glassBgLD(p,t);
+ // distant coloured lights behind the glass, out of focus (seen directly and bent by the bubbles)
+ vec3 lightC=mix(rampLD(.8),accLD(.75,2.1),.5);
+ vec3 bg=glassBgLD(p,t)+lightC*bokehLD(p,t,2.6,vec2(.012,.02))*.22;
  vec2 o=n.xy*.32;
- vec3 refr=vec3(glassBgLD(p-o*1.08,t).r,glassBgLD(p-o,t).g,glassBgLD(p-o*.92,t).b)*1.25;
+ vec3 refr=vec3(glassBgLD(p-o*1.08,t).r,glassBgLD(p-o,t).g,glassBgLD(p-o*.92,t).b)*1.25+lightC*bokehLD(p-o,t,2.6,vec2(.012,.02))*.28;
  refr*=mix(vec3(1.),rampLD(.8),.2);
- vec3 film=.5+.5*cos(6.2832*(h*.6+fres*1.6+t*.012+vec3(0.,.33,.67)));
+ // the thin film swirls inside each bubble; the mids stir it faster
+ float swirl=noise(p*3.2+vec2(t*.08,-t*.05)+g*.05)*(.6+midL*.8);
+ vec3 film=.5+.5*cos(6.2832*(h*.6+fres*1.6+swirl+musX.x*.18+t*.012+vec3(0.,.33,.67)));
  vec3 rim=mix(rampLD(.9),film*rampLD(.95)*1.5,.28)*pow(fres,1.5)*1.6;
  float spec=pow(max(dot(reflect(-normalize(vec3(-.45,.55,.7)),n),vec3(0.,0.,1.)),0.),30.)*.6;
  float soft=pow(max(dot(reflect(-normalize(vec3(-.4,.6,.7)),n),vec3(0.,0.,1.)),0.),9.)*.14;
  float caust=pow(max(0.,1.-length(n.xy)*2.4),4.)*smoothstep(.65,1.3,h)*.22;
- vec3 glass=refr*.95+rim+rampLD(.95)*caust+(spec+soft)*(mix(vec3(1.),pal3,.3)*.95+rampLD(.62)*highL*.3);
+ // the film itself: marbled bands of colour swirling across each bubble like oil on a soap film
+ float marb=sin((swirl*3.+h*2.2+fres*2.)*3.1416+noise(p*6.+vec2(-t*.1,t*.07))*2.);
+ vec3 filmBody=mix(film,film*mix(rampLD(.75),accLD(.7,2.),.5+.5*marb)*1.7,.55);
+ vec3 glass=refr*.55+filmBody*(.2+.32*smoothstep(-.3,1.,marb)+.25*fres)+rim+rampLD(.9)*caust+(spec+soft)*(mix(vec3(1.),pal3,.3)*.8+rampLD(.62)*highL*.3);
  glass+=rampLD(.98)*(smoothstep(.5,.515,h)-smoothstep(.515,.57,h))*.35;
  float shadow=smoothstep(.25,.6,glassHLD(p+vec2(-.05,.07),t))*(1.-mask);
  return mix(bg*(1.-shadow*.45)+microBubblesLD(p,t),glass,mask);
 }
-// ETHER: floating silk ribbons in soft atmospheric light
+// ETHER: floating silk ribbons in soft atmospheric light. Far silk hangs out of focus behind; a beam of
+// light falls through dust motes; each ribbon shades along its length into a neighbouring hue, its
+// folds catch the light, and after every kick a swell runs along it.
 vec3 etherLD(vec2 p,float t){
- vec3 col=mix(pal0*.55,pal1*.55,smoothstep(-.9,.9,p.y*.8-p.x*.25));
- col+=rampLD(.7)*smoothstep(.35,.8,fbmLD(p*1.1+vec2(t*.02,0.),3.))*.1;
- col+=rampLD(.9)*exp(-dot(p-vec2(-.55,.42),p-vec2(-.55,.42))*1.6)*.18;
- float n=3.+floor(complexity*2.+.5);
- for(int i=0;i<5;i++){float fi=float(i);if(fi>=n)break;float x=p.x;
+ vec3 col=mix(pal0*.25,pal1*.16,smoothstep(-.9,.9,p.y*.8-p.x*.25));
+ col+=rampLD(.6)*smoothstep(.4,.8,fbmLD(p*1.1+vec2(t*.02,0.),3.))*.07;
+ col+=rampLD(.8)*exp(-dot(p-vec2(-.55,.42),p-vec2(-.55,.42))*1.6)*.14;
+ // far silk, out of focus
+ for(int i=0;i<2;i++){float fi=float(i);float y=sin(p.x*(.6+fi*.2)+t*(.07+fi*.03)+fi*3.)*.3+.25-fi*.55;
+  col+=mix(rampLD(.45),accLD(.55,1.2),.5)*exp(-pow((p.y-y)/.16,2.))*.07;}
+ // a beam of light falling from the upper left, with dust turning in it
+ float bx=p.x+.55+(p.y-.5)*.55,beam=exp(-bx*bx*5.)*smoothstep(-.9,.6,p.y);
+ col+=rampLD(.85)*beam*(.06+energyL*.05);
+ col+=sparkLD(p,t*.5,22.,vec2(.02,-.03),.12+highL*.1)*beam*rampLD(.95)*(.6+hatL)*detailAmt;
+ // the ribbons' colours, computed once (each ribbon mixes between them)
+ vec3 rLo=rampLD(.25),rHi=rampLD(.62),aLo=accLD(.35,.95),aHi=accLD(.68,1.6),eC=accLD(.7,1.2);
+ float n=4.+floor(complexity*2.+.5),glit=0.;
+ for(int i=0;i<6;i++){float fi=float(i);if(fi>=n)break;float x=p.x;
   float amp=(.22+.05*fi)*(.55+moveAmt*.45);
-  float y=sin(x*(.85+fi*.11)+t*(.16+fi*.017)+fi*1.7)*amp+.09*sin(x*2.3-t*.21+fi*2.)+(fi-(n-1.)*.5)*.16+bassL*.04*sin(x*1.4+fi);
-  float w=.055+.035*sin(x*1.3+t*.19+fi*2.4)+.012*fi,d=(p.y-y)/w;
-  float body=smoothstep(1.,.35,abs(d)),twist=sin(x*2.6+t*.27+fi*2.1+midL*.8),sheen=pow(.5+.5*cos(d*1.7+twist*2.2),4.);
-  col=mix(col,rampLD(.35+fi*.11+sheen*.35)*(.6+sheen*.9),body*(.18+.35*sheen));
-  col+=(rampLD(.85)+rampLD(.62)*highL*detailAmt)*(exp(-abs(p.y-y)*22.)*.035+exp(-abs(p.y-y)*5.)*.025);}
- col+=particlesLD(p*.7,t*.6,8.,.03)*rampLD(1.)*.35*detailAmt;
+  // a swell that runs along the ribbon after each kick
+  float sw=exp(-pow((x+1.1-musX.w*(1.4+fi*.15))*2.6,2.))*exp(-musX.w*1.2)*(.06+bassL*.04);
+  float y=sin(x*(.85+fi*.11)+t*(.16+fi*.017)+fi*1.7)*amp+.09*sin(x*2.3-t*.21+fi*2.)+(fi-(n-1.)*.5)*.16+bassL*.05*sin(x*1.4+fi)+sw;
+  float w=.055+.035*sin(x*1.3+t*.19+fi*2.4)+.012*fi+midL*.012,d=(p.y-y)/w;
+  float body=smoothstep(1.,.35,abs(d)),across=d*.5+.5,twist=sin(x*2.6+t*.27+fi*2.1+midL*1.2),sheen=pow(.5+.5*cos(d*1.7+twist*2.2),4.);
+  vec3 silk=mix(mix(rLo,rHi,fi*.12+sheen*.45),mix(aLo,aHi,fract(fi*.37)+sheen*.3),clamp(smoothstep(-.6,.9,sin(x*.7+t*.05+fi*1.3))*.75+(across-.5)*.4,0.,1.));
+  col=mix(col,silk*(.22+sheen*1.15),body*(.45+.4*sheen));
+  float edgeL=exp(-abs(p.y-y)*22.);
+  col+=(eC+rHi*highL*detailAmt)*(edgeL*.05+exp(-abs(p.y-y)*5.)*.02);
+  glit=max(glit,body*sheen);}
+ // glitter along the folds with the treble (one pass for every ribbon)
+ col+=accLD(.85,1.1)*sparkLD(p*vec2(1.,3.),t,16.,vec2(.3,0.),.1+highL*.15)*glit*(.2+highL*.8)*detailAmt;
+ // fine luminous threads weaving between the ribbons, trembling with the treble
+ for(int i=0;i<3;i++){float fi=float(i);float y=sin(p.x*(1.6+fi*.4)-t*(.22+fi*.05)+fi*2.4)*.32+.12*sin(p.x*3.7+t*.3+fi)+(fi-1.)*.25;
+  y+=highL*.012*sin(p.x*40.+t*6.+fi);
+  float dy=abs(p.y-y);col+=mix(rHi,aHi,.6+fi*.15)*(exp(-dy*110.)*.3+exp(-dy*25.)*.05)*(.5+energyL*.4+highL*.4+musX.x*.9)*detailAmt;}
+ col+=particlesLD(p*.7,t*.6,8.,.03)*rampLD(1.)*.3*detailAmt;
+ col+=bokehLD(p,t,2.8,vec2(.015,.01))*mix(rampLD(.8),accLD(.8,1.2),.5)*(.05+kickL*.05);
  return col;
 }
 // LIQUID CHROME: molten mirror surface in a studio light environment
-float chromeHLD(vec2 p,float t){vec2 q=p*1.6;q+=.45*(.45+moveAmt*.6)*vec2(sin(q.y*1.1+t*.17),cos(q.x*.95-t*.14));q+=(.22*(.4+complexity)+midL*.15)*vec2(sin(q.y*2.4-t*.11),cos(q.x*2.1+t*.13));float h=.5*sin(q.x*1.4+t*.12)*cos(q.y*1.6-t*.1)+.3*sin((q.x+q.y)*2.1+t*.15)+.2*sin(q.x*2.9-q.y*1.2-t*.11);return h*(1.+bassL*.35);}
+float chromeHLD(vec2 p,float t){float rr=length(p);float ring=sin((rr-musX.w*.85)*30.)*kickRingLD(rr,.85,.12)*.12;vec2 q=p*1.6;q+=.45*(.45+moveAmt*.6)*vec2(sin(q.y*1.1+t*.17),cos(q.x*.95-t*.14));q+=(.22*(.4+complexity)+midL*.15)*vec2(sin(q.y*2.4-t*.11),cos(q.x*2.1+t*.13));float h=.5*sin(q.x*1.4+t*.12)*cos(q.y*1.6-t*.1)+.3*sin((q.x+q.y)*2.1+t*.15)+.2*sin(q.x*2.9-q.y*1.2-t*.11);return h*(1.+bassL*.35)+ring;}
+// The studio the chrome reflects: a soft horizon, key lights, and slowly moving coloured light panels (the
+// palette's accent and a complementary hue), so the metal carries colour as it flows.
 vec3 studioLD(vec3 r){
- float y=r.y+.1*r.x;
+ float y=r.y+.1*r.x,t=flowT;
  vec3 c=mix(pal0*.35,pal1*.5,smoothstep(-1.,-.1,y));
  c=mix(c,mix(pal1,pal3,.55),smoothstep(-.15,.35,y));
  c=mix(c,pal1*.6,smoothstep(.45,1.,y));
- c+=pal3*.9*exp(-pow((y-.05)*28.,2.));
- c+=pal3*1.1*smoothstep(.1,.05,abs(r.x+.4))*smoothstep(.1,.2,y)*smoothstep(.9,.65,y);
+ c+=mix(pal3,pal2,.3)*.6*exp(-pow((y-.05)*28.,2.));
+ c+=mix(pal3,pal2,.2)*.75*smoothstep(.1,.05,abs(r.x+.4))*smoothstep(.1,.2,y)*smoothstep(.9,.65,y);
  c+=pal2*.28*smoothstep(.3,.04,abs(r.x-.45))*smoothstep(-.7,-.4,y)*smoothstep(.05,-.15,y);
+ // coloured panels drifting across the studio; the mids slide them, the snare flares them
+ float px1=r.x-.15-.35*sin(t*.06),px2=r.x+.1-.4*sin(t*.045+2.);
+ c+=accLD(.72,2.2)*smoothstep(.09,.03,abs(px1))*smoothstep(-.3,0.,y)*smoothstep(.6,.3,y)*(.55+midL*.4+musX.x*.6);
+ c+=rampLD(.7)*smoothstep(.07,.02,abs(px2))*smoothstep(-.8,-.5,y)*smoothstep(-.1,-.35,y)*(.6+energyL*.4);
+ c+=accLD(.6,-1.6)*.35*exp(-pow((y+.55+.1*sin(t*.05+r.x*2.))*9.,2.));
  return c;
 }
 vec3 chromeLD(vec2 p,float t){
@@ -465,6 +533,10 @@ vec3 chromeLD(vec2 p,float t){
  vec3 n=normalize(vec3(-g*.42,1.)),r=reflect(vec3(0.,0.,-1.),n);
  vec3 c=studioLD(r)*mix(vec3(1.),pal2*1.4,.15);
  c*=.55+.45*smoothstep(-.8,.5,h);
+ // an anodised sheen: thin-film colour where the surface turns away, swirling with the flow
+ float gz=1.-n.z;
+ vec3 ano=.5+.5*cos(6.2832*(h*1.3+gz*3.+t*.02+vec3(0.,.33,.67)));
+ c+=mix(ano,ano*rampLD(.8)*1.5,.4)*smoothstep(.02,.25,gz)*(.11+midL*.1+energyL*.08)*(.4+.6*dot(c,vec3(.3,.5,.2)));
  c+=pal3*pow(max(dot(n,normalize(vec3(-.3,.45,.85))),0.),140.)*.8;
  // glints: tiny four-point stars that flare and fade, only on the brightest highlights
  vec2 gg=p*7.;vec2 gi=floor(gg);vec2 gh=hash2LD(gi+31.);
@@ -472,48 +544,258 @@ vec3 chromeLD(vec2 p,float t){
   float tw=pow(max(0.,sin(t*(.5+gh.y*.6)+gh.x*40.)),4.);
   float star=exp(-abs(gf.x)*80.-abs(gf.y)*8.)+exp(-abs(gf.y)*80.-abs(gf.x)*8.)+exp(-dot(gf,gf)*500.)*1.5;
   c+=mix(vec3(1.),pal3,.25)*star*tw*smoothstep(.4,.8,dot(c,vec3(.3,.5,.2)))*.75*detailAmt;}
+ // droplets of chrome thrown off the surface by the bass, glinting as they fall back
+ vec2 dg=p*vec2(9.,6.)+vec2(0.,t*.6);vec2 di=floor(dg);vec2 dh=hash2LD(di+5.);
+ if(dh.x>.9){vec2 df=fract(dg)-.5-(dh-.5)*.5;float dr=.11*(.6+dh.y*.6)*(.7+bassL*.6);float dd=length(df);
+  vec3 dn=normalize(vec3(df/dr,sqrt(max(0.,1.-dot(df,df)/(dr*dr)))));
+  c=mix(c,studioLD(reflect(vec3(0.,0.,-1.),dn))*1.1+pal3*pow(max(dot(dn,normalize(vec3(-.3,.45,.85))),0.),60.)*.6,smoothstep(dr,dr*.85,dd)*(.4+bassL*.6)*detailAmt);}
  float frame=smoothstep(1.45,.3,length(p*vec2(.7,1.)));
  return mix(pal0*.15,c,frame);
 }
-// COSMIC MELT: slow nebula flowing like melting light
+// COSMIC MELT: nebulae flowing like melting light. Two gases (the palette's and an ionised second gas in
+// a neighbouring hue) melt through each other around a bright star-forming core; dark dust lanes cross
+// them, fine filaments glow, and stars hang at three depths. Bass swells and brightens the gas, kicks pulse
+// the core, mids drive the flow, treble sets the stars twinkling.
 vec3 cosmicLD(vec2 p,float t){
  vec2 q=p*1.05;q.y+=t*.018;
  vec2 w=vec2(fbmLD(q*1.2+vec2(t*.02,0.),OCT),fbmLD(q*1.2+vec2(4.7,t*.015),OCT));
  w+=.22*(moveAmt+bassL*.3)*vec2(sin(q.y*1.7+t*.11),0.);
- float n=fbmLD(q*1.6+w*(2.4+midL*.2),OCT),dust=fbmLD(q*3.1-w*1.3+7.,3.),wisp=fbmLD(q*2.4-w*1.8+2.,OCT);
- float neb=pow(smoothstep(.28,.82,n),1.5);
- vec3 col=pal0*.2+rampLD(.25+n*.5)*neb*1.15;
- col+=rampLD(.45+w.y*.3)*pow(smoothstep(.45,.8,wisp),2.)*.45;
- col+=rampLD(.8+w.x*.2)*pow(smoothstep(.55,.88,n),2.)*.9;
- col*=1.-smoothstep(.45,.75,dust)*.65;
- vec2 cp=p-vec2(.18*sin(t*.04),.06*cos(t*.05));
- col+=rampLD(.92)*(exp(-length(cp)*2.6)*(.18+bassL*.06)+exp(-length(cp)*14.)*.18)*(.35+neb);
- col+=particlesLD(p,t*.15,22.,.01)*(vec3(.9,.95,1.)*.6+rampLD(.62)*highL*.8)*detailAmt;
- col+=particlesLD(p*1.7+3.,t*.2,30.,.008)*rampLD(1.)*.4*detailAmt;
+ float n=fbmLD(q*1.6+w*(2.4+midL*.6),OCT),dust=fbmLD(q*3.1-w*1.3+7.,3.),wisp=fbmLD(q*2.4-w*1.8+2.,OCT);
+ float neb=pow(smoothstep(.2,.76,n),1.3)*(1.+bassL*.3);
+ float gas2=smoothstep(.38,.68,w.x+.15*sin(t*.05)-w.y*.3);
+ vec3 col=pal0*.2+mix(rampLD(.25+n*.5),accLD(.4+n*.45,-1.25),gas2*.7)*neb*1.2;
+ col+=mix(rampLD(.45+w.y*.3),accLD(.6,-1.25),gas2*.5)*pow(smoothstep(.45,.8,wisp),2.)*.5;
+ col+=rampLD(.78+w.x*.2)*pow(smoothstep(.55,.88,n),2.)*(.85+bassL*.35);
+ // glowing filaments threading the gas; the treble sharpens them
+ float fil=pow(1.-abs(wisp*2.-1.),9.+highL*6.);
+ col+=accLD(.8,-1.25+gas2)*fil*neb*(.3+highL*.5+musX.x*.6);
+ col*=1.-smoothstep(.45,.75,dust)*.68;
+ col*=1.3;
+ // a few bright stars with diffraction spikes, flaring with the hats
+ {vec2 bg=p*2.6+vec2(t*.004,0.);vec2 bi=floor(bg);vec2 bh=hash2LD(bi+41.);
+  if(bh.x>.78){vec2 bf=fract(bg)-.5-(bh-.5)*.5;float sp=exp(-abs(bf.x)*60.-abs(bf.y)*7.)+exp(-abs(bf.y)*60.-abs(bf.x)*7.);
+   col+=mix(rampLD(.95),accLD(.9,1.),bh.y)*(exp(-dot(bf,bf)*900.)*1.2+sp*.35)*(.5+.3*sin(t*.8+bh.y*30.)+hatL*.6)*detailAmt;}}
+ // the star-forming core: breathes with the bass, a pulse of light leaves it on each kick
+ vec2 cp=p-vec2(.18*sin(t*.04),.06*cos(t*.05));float cr=length(cp);
+ col+=rampLD(.9)*(exp(-cr*2.6)*(.18+bassL*.1)+exp(-cr*14.)*(.2+kickL*.25))*(.35+neb);
+ col+=accLD(.85,-1.25)*kickRingLD(cr,.7,.07)*.35*(.3+neb);
+ // stars at three depths drifting at different speeds; the near ones twinkle with the treble and the hats
+ col+=particlesLD(p+vec2(t*.002,0.),t*.15,22.,.01)*(rampLD(.95)*.55+rampLD(.62)*highL*.8)*detailAmt;
+ col+=particlesLD(p*1.7+3.+vec2(t*.001,0.),t*.2,30.,.008)*rampLD(1.)*.35*detailAmt;
+ col+=sparkLD(p+vec2(t*.006,0.),t,9.,vec2(0.),.05)*mix(rampLD(1.),accLD(.9,1.),.4)*(.4+highL*.8+hatL*.9)*detailAmt;
  return col;
 }
-// ORGANIC: translucent living membranes
+// ORGANIC: translucent living membranes. Out-of-focus cells drift behind; granules stream through each
+// cell's interior; membranes shimmer in a neighbouring hue; nuclei glow. Bass swells the cells, each kick
+// sends a ripple out through every membrane, mids stir the cytoplasm, treble lights the granules.
 vec3 cellsLD(vec2 p,float t,out vec2 dv){vec2 i=floor(p),f=fract(p);float f1=8.,f2=8.,id=0.;dv=vec2(0.);for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(float(x),float(y)),h=hash2LD(i+g),o=.5+.36*sin(t*(.18+h*.14)+h*6.2832);vec2 r=g+o-f;float d=length(r);if(d<f1){f2=f1;f1=d;id=h.x;dv=r;}else if(d<f2)f2=d;}return vec3(f1,f2,id);}
 vec3 organicLD(vec2 p,float t){
- float breath=1.+.035*sin(t*.3)+bassL*.05*moveAmt;
- vec2 warp=(.3+.25*moveAmt)*(1.+midL*.4)*(vec2(fbmLD(p*1.2+t*.04,3.),fbmLD(p*1.2+4.-t*.035,3.))-.47);
+ float breath=1.+.035*sin(t*.3)+bassL*.07*moveAmt;
+ vec2 warp=(.3+.25*moveAmt)*(1.+midL*.5)*(vec2(fbmLD(p*1.2+t*.04,3.),fbmLD(p*1.2+4.-t*.035,3.))-.47);
  vec2 dv,dv2;
  vec3 c=cellsLD((p+warp)*1.6/breath,t,dv);
- float gap=c.y-c.x,seam=1.-exp(-gap*gap*500.),rimIn=exp(-gap*8.);
+ float gap=c.y-c.x;
+ // a ripple runs out through every membrane after each kick
+ gap+=.06*sin(c.x*26.-musX.w*14.)*exp(-musX.w*2.2);
+ float seam=1.-exp(-gap*gap*500.),rimIn=exp(-gap*8.);
  vec3 c2=cellsLD((p+warp*.4)*3.4+vec2(t*.015,0.)+9.,t*.7,dv2);
  vec3 col=mix(pal0*.4,pal1*.2,smoothstep(-.9,.9,p.y));
- col+=rampLD(.35+c2.z*.2)*exp(-(c2.y-c2.x)*7.)*.16*(.4+complexity);
+ col+=mix(rampLD(.35+c2.z*.2),accLD(.4,1.4),.45)*exp(-(c2.y-c2.x)*7.)*.26*(.4+complexity);
  float memb=.55+.45*fbmLD(p*3.+c.z*9.+t*.03,3.);
- vec3 body=rampLD(.22+c.z*.3)*(.1+.28*smoothstep(.75,0.,c.x))+rampLD(.62+c.z*.22)*rimIn*.9*memb+rampLD(.97)*pow(rimIn,6.)*.45;
+ // membranes shimmer between the palette and a neighbouring hue
+ vec3 membC=mix(rampLD(.62+c.z*.22),accLD(.62+c.z*.2,1.2),.5+.5*sin(c.z*12.+t*.2+gap*20.));
+ vec3 body=rampLD(.22+c.z*.3)*(.1+.28*smoothstep(.75,0.,c.x))+membC*rimIn*(.9+musX.x*.5)*memb+rampLD(.95)*pow(rimIn,6.)*.4;
  float gloss=exp(-dot(dv-vec2(.17,-.17),dv-vec2(.17,-.17))*22.)*smoothstep(.02,.15,gap);
- body+=mix(rampLD(.9),vec3(1.),.3)*gloss*.22;
+ body+=mix(rampLD(.9),vec3(1.),.2)*gloss*.2;
+ // granules streaming through each cell's interior, stirred by the mids, lit by the treble
+ {vec2 gq=dv*7.+vec2(t*(.25+midL*.35),t*.1)+c.z*13.;vec2 gi=floor(gq),gh=hash2LD(gi);vec2 gf=fract(gq)-.5-(gh-.5)*.5;
+  float gran=step(.55,gh.x)*smoothstep(.2,.06,length(gf))*(.6+.4*sin(t*1.5+gh.y*30.));
+  body+=mix(rampLD(.78),accLD(.78,1.2),gh.y)*gran*smoothstep(.12,.4,c.x)*(.18+highL*.5+hatL*.4)*detailAmt;}
  col=mix(col*.8+pal1*.08,body*1.15+col*.35,.88*seam);
- float nuc=exp(-c.x*c.x*80.)*(.55+.45*sin(t*.5+c.z*20.));
- col+=(rampLD(.8)*.22+rampLD(.62)*highL*.3*detailAmt)*nuc*seam;
+ // nuclei: a glowing core with a ring, pulsing in their own time and on the kick
+ // nuclei: a glowing core with a ring, in a contrasting hue, pulsing in their own time and on the kick
+ float nb=.55+.45*sin(t*.5+c.z*20.);
+ float nuc=exp(-c.x*c.x*45.)*nb,nring=exp(-pow((c.x-.15-.02*kickL)*30.,2.))*.5;
+ col+=accLD(.72,-1.1)*(nuc*(.45+kickL*.35+bassL*.15)+nring*(.25+highL*.3))*seam;
+ col+=rampLD(.9)*exp(-c.x*c.x*300.)*nb*.25*seam;
  col+=particlesLD(p*.9,t*.3,10.,.02)*rampLD(.9)*.25*detailAmt;
+ col+=bokehLD(p,t,2.6,vec2(.01,.02))*mix(rampLD(.7),accLD(.7,1.2),.5)*(.05+kickL*.05);
  return col;
 }
-vec3 envLD(float id,vec2 p,float t){if(id<.5)return deepFlowLD(p,t);if(id<1.5)return iridescenceLD(p,t);if(id<2.5)return etherLD(p,t);if(id<3.5)return chromeLD(p,t);if(id<4.5)return cosmicLD(p,t);return organicLD(p,t);}
+// LIQUID WORLD: a small living ocean world turning in space. Liquid seas in the palette's colours flow
+// over its face in currents and bands; clouds drift above them and cast soft shadows; the night side
+// glows with bioluminescent veins; a coloured atmosphere rims the limb. A tilted ring of glowing
+// droplets circles it (passing behind and in front), a small moon orbits, and stars and a far nebula
+// sit behind. Bass swells the tides and the atmosphere, mids drive the currents and clouds, treble and
+// hats sparkle the ring and the night lights, kicks send a wave of light round the ring.
+vec2 worldRingLD(vec2 d,out float front){
+ // d in planet radii; the ring plane is tilted toward the viewer: (radius, angle) on the ring
+ vec2 q=vec2(d.x*.94-d.y*.34,d.x*.34+d.y*.94);
+ vec2 e=vec2(q.x,q.y/.26);
+ front=step(q.y,0.);
+ return vec2(length(e),atan(e.y,e.x));
+}
+vec3 worldLD(vec2 p,float t){
+ // deep space: a far nebula and stars at two depths
+ vec3 col=pal0*.3;
+ float nb=fbmLD(p*.8+vec2(t*.008,0.)+4.,3.);
+ col+=mix(rampLD(.35),accLD(.45,1.7),smoothstep(.3,.7,noise(p*.6+9.)))*smoothstep(.42,.85,nb)*.2;
+ col+=particlesLD(p+vec2(t*.001,0.),t*.2,26.,.004)*rampLD(1.)*.45*detailAmt;
+ col+=sparkLD(p,t,11.,vec2(.004,0.),.06)*mix(rampLD(1.),accLD(.9,1.),.4)*(.35+highL*.6+hatL*.6)*detailAmt;
+ vec2 c=vec2(-.06+.03*sin(t*.03),.02+.02*cos(t*.025));
+ float R=.29*(1.+bassL*.025+kickL*.012);
+ vec2 d=(p-c)/R;float r2=dot(d,d),r=sqrt(r2);
+ float ringFront;vec2 rg=worldRingLD(d,ringFront);
+ // the ring: bands of glowing droplets between 1.35 and 2.15 radii, each band turning at its own speed
+ float band=smoothstep(1.33,1.4,rg.x)*smoothstep(2.18,2.08,rg.x)*(.55+.45*sin(rg.x*26.+1.));
+ float spin=rg.y+t*(.12+midL*.08)/rg.x;
+ vec2 rc=vec2(spin*38.,rg.x*16.);vec2 ri=floor(rc);vec2 rh=hash2LD(ri);
+ vec2 rf=fract(rc)-.5-(rh-.5)*.6;
+ float drop=step(.55,rh.x)*exp(-dot(rf,rf)*(14.+rh.y*20.));
+ float wave=exp(-pow((rg.x-1.3-musX.w*1.1)*5.,2.))*exp(-musX.w*1.5);
+ vec3 ringC=mix(rampLD(.55+rg.x*.15),accLD(.7,1.7),rh.y*.6)*(band*(.16+musX.x*.12)+drop*band*(.55+highL*.7+hatL*.5)+band*wave*.7);
+ // the ring is lit on the day side and darkened where the planet shadows it
+ float ringLit=.45+.55*smoothstep(-.6,.8,-d.x+d.y*.3);
+ if(ringFront<.5&&r2>1.)col+=ringC*ringLit;
+ // a small moon on its own orbit
+ float ma=t*.09;vec2 mp=c+R*vec2(cos(ma)*2.6,sin(ma)*.72-.15);float mR=R*.13;
+ bool moonFront=sin(ma)<0.;
+ vec2 md=(p-mp)/mR;float m2=dot(md,md);
+ vec3 moon=vec3(0.);float mA=0.;
+ if(m2<1.){vec3 mn=vec3(md,sqrt(1.-m2));float crat=fbmLD(md*2.5+7.,3.);
+  moon=mix(rampLD(.3),rampLD(.75),crat)*(.08+.9*max(dot(mn,normalize(vec3(-.7,.4,.6))),0.));mA=smoothstep(1.,.92,sqrt(m2));}
+ if(!moonFront)col=mix(col,moon,mA);
+ // atmosphere outside the limb
+ vec3 Ld=normalize(vec3(-.65,.45,.62));
+ vec3 atmC=mix(rampLD(.5),accLD(.6,1.7),.3);
+ // (outside the limb, added after the disc so the edge has no dark seam)
+ float o=max(r-1.,0.);
+ vec3 atmo=atmC*(exp(-o*13.)*.28+exp(-o*3.5)*.05)*(.3+.7*smoothstep(-.6,.6,dot(normalize(vec3(d,0.)),Ld)))*(1.+bassL*.35);
+ float disc=0.;
+ if(r<1.){
+  vec3 n=vec3(d,sqrt(1.-r2));
+  // turn the world: the surface is sampled from the rotated surface point (no seam anywhere)
+  float sa=t*.06,cs=cos(sa),sn=sin(sa);
+  vec3 s=vec3(cs*n.x+sn*n.z,n.y,-sn*n.x+cs*n.z);
+  vec2 su=vec2(s.x+s.z*.8,s.y*1.15+s.z*.35)*1.6;
+  // currents: faster near the equator, stirred by the mids, swelled by the bass
+  vec2 cw=vec2(fbmLD(su+vec2(t*.02,0.),OCT),fbmLD(su+vec2(5.2,1.3)-vec2(0.,t*.015),OCT));
+  float lat=s.y;
+  vec2 cur=su+cw*(1.8+midL*.8)+vec2(t*.05*(1.-lat*lat)*(1.+midL*.6),0.);
+  float sea=fbmLD(cur,OCT),sea2=fbmLD(cur*2.3+cw*1.5+3.,3.);
+  float bands=.5+.5*sin(lat*9.+sea*5.+t*.04);
+  vec3 surf=mix(rampLD(.12+sea*.3),rampLD(.38+sea*.35),smoothstep(.4,.7,sea));
+  surf=mix(surf,accLD(.45+sea2*.25,1.7),smoothstep(.42,.72,sea2)*.6);
+  surf=mix(surf,rampLD(.62),pow(bands,6.)*.3);
+  // tides: the bass lifts bright crests along the currents
+  surf+=rampLD(.85)*pow(smoothstep(.55,.85,sea),3.)*(.18+bassL*.35);
+  // lighting: soft terminator, ocean glint, rim
+  float dif=dot(n,Ld),day=smoothstep(-.15,.35,dif);
+  vec3 lit=surf*(.1+1.15*max(dif,0.));
+  lit+=rampLD(.9)*pow(max(dot(reflect(-Ld,n),vec3(0.,0.,1.)),0.),28.)*(.35+.4*smoothstep(.5,.3,sea))*day;
+  // night side: bioluminescent veins that twinkle with the treble
+  float vein=pow(1.-abs(sea2*2.-1.),12.);
+  lit+=accLD(.85,1.7)*vein*(1.-day)*(.25+highL*.6+hatL*.6+kickL*.3);
+  // clouds above the sea, drifting on their own and shadowing it
+  vec2 cu=vec2(s.x*1.1+s.z*.6,s.y*1.5)*2.2+vec2(t*.03,0.)+cw*.6;
+  float cl=smoothstep(.56,.8,fbmLD(cu,4.)),cls=smoothstep(.56,.8,fbmLD(cu+vec2(.06,-.04),4.));
+  lit*=1.-cls*.35;
+  lit=mix(lit,mix(rampLD(.72),pal3,.15)*(.12+.8*max(dif,0.)),cl*.6);
+  // atmosphere inside the limb and a thin bright edge on the day side
+  float fres=pow(1.-n.z,2.5);
+  lit+=atmC*fres*(.45+bassL*.3)*(.3+.7*smoothstep(-.4,.6,dif));
+  disc=1.-smoothstep(.985,1.,r);
+  col=mix(col,lit*.82,disc);
+ }
+ col+=atmo*(1.-disc*.6);
+ if(moonFront)col=mix(col,moon,mA);
+ if(ringFront>.5)col+=ringC*ringLit*(r2<1.?.95:1.);
+ return col;
+}
+// BLOOM: a bioluminescent creature drifting in the deep. A translucent bell with glowing radial canals
+// and a frilled rim swims in pulses: the bass and every kick squeeze the bell, push it up and send a
+// wave of light down its tentacles; the mids sway the tentacles and its frilled arms; the treble and
+// the hi-hats sparkle the beads along them and the drifting marine snow. Smaller creatures float far
+// behind in the haze, and light filters down from the surface.
+float bellLD(vec2 d,float W,float H,float t,out float rimD){
+ // returns the bell's coverage; rimD: distance to the frilled rim (for the glow)
+ vec2 e=vec2(d.x/W,d.y/H);
+ float ang=atan(e.x,e.y+.2);
+ float frill=-.12+.06*sin(e.x*22.+t*2.4)+.03*sin(e.x*9.-t*1.3);
+ float dome=length(e);
+ rimD=abs(e.y-frill)*H;
+ return smoothstep(1.02,.96,dome)*smoothstep(frill-.03,frill+.03,e.y);
+}
+vec3 bloomLD(vec2 p,float t){
+ // the deep: light from above, slanting shafts, marine snow at three depths
+ vec3 col=mix(pal0*.3,pal1*.26,smoothstep(-.9,1.,p.y));
+ float shafts=0.;
+ for(int i=0;i<3;i++){float fi=float(i);float x=p.x*.9-p.y*(.25+fi*.07)+sin(t*(.04+fi*.015)+fi*2.)*.25+.3-fi*.4;
+  shafts+=pow(max(0.,1.-abs(x)*(3.2-fi*.5)),4.)*(.55+.45*noise(vec2(x*3.,t*.12+fi)));}
+ col+=rampLD(.7)*shafts*smoothstep(-.7,1.,p.y)*.08;
+ col+=sparkLD(p+vec2(0.,t*.015),t*.6,30.,vec2(.01,-.03),.07+highL*.06)*rampLD(.85)*(.35+hatL*.6)*detailAmt;
+ col+=bokehLD(p,t*.8,3.,vec2(.01,-.02))*mix(rampLD(.65),accLD(.6,1.3),.5)*.07;
+ // two small creatures far behind, dim and soft in the haze
+ for(int k=0;k<2;k++){float fk=float(k);
+  vec2 fc=vec2(-.62+fk*1.15+.08*sin(t*.05+fk*3.),.18-fk*.3+.05*sin(t*.09+fk));
+  float rd;float fb=bellLD(p-fc,.075,.06,t*.8+fk*4.,rd);
+  float ft=0.;if(abs(p.x-fc.x)<.12)for(int j=0;j<4;j++){float fj=float(j);float y=fc.y-p.y;float x=fc.x+(fj-1.5)*.03+.015*sin(y*14.-t*1.6+fj)*y*6.;
+   ft+=exp(-pow((p.x-x)/.004,2.))*smoothstep(0.,.01,y)*smoothstep(.22,.05,y);}
+  col+=mix(rampLD(.6),accLD(.65,1.3+fk),.5)*(fb*.22+exp(-rd*90.)*fb*.2+ft*.18)*(.7+bassL*.3);}
+ // the swim pulse: the bass and each kick squeeze the bell; it drifts up on each pulse and sinks slowly
+ float sq=clamp(kickL*.75+bassL*.35,0.,1.)*(.6+moveAmt*.5);
+ vec2 c=vec2(.04*sin(t*.07),.16+.05*sin(t*.21)+sq*.025);
+ float W=.31*(1.-.13*sq),H=.23*(1.+.1*sq);
+ vec2 d=p-c;
+ float rimD,bell=bellLD(d,W,H,t,rimD);
+ vec2 e=vec2(d.x/W,d.y/H);
+ // tentacles hanging from the rim, swaying with the mids; a pulse of light runs down them after each kick
+ vec3 tent=vec3(0.);
+ for(int i=0;i<9;i++){float fi=float(i);
+  float x0=(fi/8.*2.-1.)*W*.82,y=c.y-H*.1-p.y;
+  if(y<0.)continue;
+  float sway=(.035+midL*.03)*sin(y*(6.+fi*.4)-t*(1.3+midL*.6)+fi*1.7)*min(y*3.,1.)+.04*sin(t*.15+fi)*y;
+  float x=c.x+x0*(1.+y*.25)+sway;
+  float wid=.0055*(1.-y*.9)+.0015;
+  float dd=abs(p.x-x);
+  if(dd>.06)continue;
+  float len=.85+.1*sin(fi*2.3);
+  float along=smoothstep(len,len*.6,y);
+  float core=exp(-pow(dd/wid,2.))*along;
+  float pulse=exp(-pow((y-musX.w*.75)*9.,2.))*exp(-musX.w*1.1);
+  float beads=pow(.5+.5*sin(y*60.-t*3.+fi*2.),10.)*(.3+highL*.8+hatL*.6);
+  tent+=mix(rampLD(.55+fi*.03),accLD(.7,1.3),.4+.3*sin(fi))*core*(.35+pulse*1.6+beads*.7);
+  tent+=rampLD(.85)*exp(-pow(dd/(wid*4.),2.))*along*pulse*.25;}
+ // frilled oral arms in the middle: wide, translucent, curling in a neighbouring hue
+ for(int i=0;i<3;i++){float fi=float(i);float y=c.y-p.y;if(y<0.)break;
+  float x=c.x+(fi-1.)*.045+(.04+midL*.03)*sin(y*5.-t*(.9+midL*.4)+fi*2.)*min(y*4.,1.);
+  float w=.022*(1.-y*1.3)*(.8+.2*sin(y*40.-t*2.+fi));
+  float a=smoothstep(w,w*.3,abs(p.x-x))*smoothstep(.55,.2,y);
+  float fr=pow(abs(sin(y*45.+fi*3.-t*1.5)),3.);
+  tent+=accLD(.5+fr*.2,1.1+fi*.15)*a*(.18+fr*.25)*(1.+kickL*.4);}
+ col+=tent*detailAmt*1.2+tent*(1.-detailAmt)*.6;
+ // the bell: translucent, brightest at its rim and along the radial canals, gonads glowing inside
+ float lr=length(e);
+ float ang=atan(e.x,e.y+.25);
+ float wob=noise(e*3.+vec2(t*.2,0.));
+ float canals=pow(abs(cos(ang*8.+.3*sin(t*.3)+wob*.6)),18.)*smoothstep(.15,.6,lr)*(.6+.4*wob);
+ float tex=fbmLD(e*4.+vec2(t*.05,-t*.04),3.);
+ float rings=pow(.5+.5*sin(lr*18.-t*1.2-musX.w*6.),12.)*.4;
+ vec2 gq=vec2(e.x*1.4,e.y*1.8-.35);
+ float gon=pow(.5+.5*cos(atan(gq.y,gq.x)*4.+t*.2),3.)*exp(-pow((length(gq)-.32)*9.,2.));
+ vec3 bellC=mix(rampLD(.3+tex*.2),rampLD(.6),lr)*(.16+.5*pow(lr,3.)+.18*tex);
+ bellC+=mix(rampLD(.8),accLD(.8,1.3),.35)*canals*(.35+highL*.4);
+ bellC+=accLD(.75,-1.2)*gon*(.55+bassL*.4+kickL*.4);
+ bellC+=rampLD(.75)*rings*(.3+energyL*.4);
+ bellC+=rampLD(.92)*pow(lr,8.)*.4;
+ float rimGlow=exp(-rimD*70.)*smoothstep(1.05,.85,length(vec2(e.x,max(e.y,0.))));
+ col=mix(col,col*.55+bellC,bell*.85);
+ col+=mix(rampLD(.85),accLD(.85,1.3),.5)*rimGlow*(.4+musX.x*.6+kickL*.4)*(1.-bell*.5);
+ // its own glow in the water around it
+ col+=rampLD(.6)*exp(-length(d*vec2(1.,1.3))*3.5)*(.06+sq*.08);
+ return col;
+}
+vec3 envLD(float id,vec2 p,float t){if(id<.5)return deepFlowLD(p,t);if(id<1.5)return iridescenceLD(p,t);if(id<2.5)return etherLD(p,t);if(id<3.5)return chromeLD(p,t);if(id<4.5)return cosmicLD(p,t);if(id<5.5)return organicLD(p,t);if(id<6.5)return worldLD(p,t);return bloomLD(p,t);}
 void main(){
  vec2 uv=(gl_FragCoord.xy-.5*res)/res.y;
  OCT=clamp(3.+complexity*1.6+quality*.8,3.,6.);
@@ -567,7 +849,7 @@ void main(){
   // One small program per experience: the box's GPU only runs the code of the experience on screen
   // (a single program holding all six ran every experience's code for every pixel, 3 to 15x slower).
   // During a change the new experience is drawn over the old one through the same liquid noise front.
-  var LD_FNS = ['deepFlowLD', 'iridescenceLD', 'etherLD', 'chromeLD', 'cosmicLD', 'organicLD'];
+  var LD_FNS = ['deepFlowLD', 'iridescenceLD', 'etherLD', 'chromeLD', 'cosmicLD', 'organicLD', 'worldLD', 'bloomLD'];
   function ldEnvShader(i) {
     return LIQUID_DREAMS_SHADER
       .replace(/vec3 envLD\(float id,vec2 p,float t\)\{[^\n]*\}/, 'vec3 envLD(float id,vec2 p,float t){return ' + LD_FNS[i] + '(p,t);}')
@@ -576,7 +858,7 @@ void main(){
       .replace('gl_FragColor=vec4(clamp(col,0.,1.),1.);', 'gl_FragColor=vec4(clamp(col,0.,1.),ldA);');
   }
 
-  // LIQUID DREAMS — six composed GPU experiences with rich palettes, independent Experience and
+  // LIQUID DREAMS — eight composed GPU experiences with rich palettes, independent Experience and
   // Color Shift cycling, Colour Wave (tap) and Gravity Point (press and hold) touch interaction.
   var LD_ENVIRONMENTS = [
     { id: 'deepflow', name: 'Deep Flow', note: 'Ink through deep water', palette: 'deepteal' },
@@ -584,7 +866,9 @@ void main(){
     { id: 'ether', name: 'Ether', note: 'Silk in soft light', palette: 'violet' },
     { id: 'chrome', name: 'Liquid Chrome', note: 'Molten mirror', palette: 'chrome' },
     { id: 'cosmic', name: 'Cosmic Melt', note: 'Flowing nebulae', palette: 'obsidian' },
-    { id: 'organic', name: 'Organic', note: 'Living membranes', palette: 'aurora' }
+    { id: 'organic', name: 'Organic', note: 'Living membranes', palette: 'aurora' },
+    { id: 'world', name: 'Liquid World', note: 'A living ocean world', palette: 'flowing' },
+    { id: 'bloom', name: 'Bloom', note: 'Living light in the deep', palette: 'ultraviolet' }
   ];
   // Four stops each (deep shadow, body, accent, highlight). s = spectral amount: how strongly the
   // palette re-hues the liquid across the full spectrum while keeping its light and shade.
@@ -622,7 +906,7 @@ void main(){
     // detection, tempo, build-ups and drops. Falls back to the beat tracker if it isn't loaded.
     var NM = window.NXV && NXV.musicTick ? NXV : null;
     if (NM) { try { NM.musicReset(); if (A && A.meterDetail) A.meterDetail(true); } catch (e) {} }
-    var kickL = 0, hatL = 0, tempoK = 1, kickSeen = 0, hatSeen = 0;
+    var kickL = 0, hatL = 0, tempoK = 1, kickSeen = 0, hatSeen = 0, kickAt = -1e9, musX = [0, 0, 0, 9];
     var envIds = LD_ENVIRONMENTS.map(function (e) { return e.id; });
     var colors = ['signature'].concat(LD_SHIFT_ORDER);
     var defaults = { v: 3, env: 'deepflow', color: 'electric', speed: 1, movement: 1, audio: 1, bass: 1, colorSpeed: 1, brightness: 1, detail: 1, complexity: 1, lowMotion: false, touch: true };
@@ -957,7 +1241,9 @@ void main(){
         sMid = ease(sMid, live ? M6.lowmid * .4 + M6.mid * .6 : 0, dt, 160, 800);
         sHigh = ease(sHigh, live ? Math.max(M6.high * .6 + M6.air * .4, M6.hat * .7) : 0, dt, 60, 340);
         sEnergy = ease(sEnergy, live ? Math.min(1.2, M6.energy * 1.15) : 0, dt, 250, 1400);
-        if (live && M6.kickHit) { beatHit = Math.min(1, beatHit + .55 + M6.strength * .45); kickSeen++; }
+        if (live && M6.kickHit) { beatHit = Math.min(1, beatHit + .55 + M6.strength * .45); kickSeen++; kickAt = now; }
+        // snare, build-up, drop and the time since the last kick: rings and pulses travel outward from each kick
+        musX = [live ? M6.snare : 0, live ? M6.build : 0, M6.dropEnv || 0, Math.min(9, (now - kickAt) / 1000)];
         if (live && M6.hatHit) hatSeen++;
         // strong kicks in busy passages step the colours along the palette's own flow (never off-palette)
         if (live && M6.kickHit && M6.strength > .8 && M6.energy > .45) colorPhase += .012 * state.colorSpeed * (low ? .4 : 1);
@@ -1014,6 +1300,7 @@ void main(){
           dream.f('envA', passes[pass]); dream.f('envB', passes[pass]); dream.f('envMix', pass === 1 ? mixEased : 0);
           dream.f('flowT', flow); dream.f('bassL', bassL); dream.f('midL', midL); dream.f('highL', highL); dream.f('energyL', energyL);
           dream.f('kickL', Math.min(1, kickL * react * state.bass)); dream.f('hatL', Math.min(1, hatL * react));
+          dream.v4a('musX', [Math.min(1, musX[0] * react), musX[1], musX[2], musX[3]]);
           dream.f('moveAmt', moveNow * .6 * (1 + energyL * .35 + beatHit * .25 * (low ? .4 : 1))); dream.f('detailAmt', detail); dream.f('complexity', complexity);
           dream.f('brightness', state.brightness); dream.f('quality', HIGH_MEMORY_DEVICE ? 1 : 0);
           var old = wave ? wave.from : palette;

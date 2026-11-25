@@ -30,7 +30,7 @@ function runPage(name, html) {
   if (!m) throw new Error((run.stdout.match(/ERROR=([\s\S]*?)<\/pre>/) || [])[1] || name + ': no result ' + run.stderr.slice(-400));
   return JSON.parse(m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
 }
-const ENVS = ['deepflow', 'iridescence', 'ether', 'chrome', 'cosmic', 'organic'];
+const ENVS = ['deepflow', 'iridescence', 'ether', 'chrome', 'cosmic', 'organic', 'world', 'bloom'];
 const SHIFT = ['electric', 'pink', 'rainbow', 'ultraviolet', 'flowing', 'neon', 'midnight', 'deepteal', 'violet', 'chrome', 'iridescent', 'aurora', 'obsidian', 'arctic'];
 function page(mem) {
   const oldSettings = JSON.stringify({ v: 3, env: 'ether', color: 'music', speed: 1.2, audio: 0, bass: 1 });
@@ -66,10 +66,10 @@ window.__audio={meterOn:0,meterOff:0,stopTalking:0};window.NX={A:{setPref:(k,v)=
  window.BEAT.e=.02;window.BEAT.k=0;window.BEAT.mid=0;window.BEAT.high=0;window.BEAT.bass=0;window.BEAT.level=.02;await wait(3000);R.reactQuiet=D().react;window.BEAT.e=.9;window.BEAT.k=.9;window.BEAT.mid=.8;window.BEAT.high=.8;window.BEAT.bass=.9;window.BEAT.level=.9;await wait(2500);R.reactLoud=D().react;
  window.BEAT.e=.5;window.BEAT.k=.6;window.BEAT.mid=.5;window.BEAT.high=.5;window.BEAT.bass=.5;window.BEAT.level=.5;
  click('[data-env="deepflow"]');click('[data-color="neon"]');
- // ---- Visual Play All: each interval, all six in order, palette untouched
+ // ---- Visual Play All: each interval, all eight in order, palette untouched
  R.visual={};
  click('[data-play="visual"]');
- for(const secs of [10,30,60]){click('[data-play-secs="visual:'+secs+'"]');const col=S().color;const steps=secs===10?7:3;const ch=await watch('env',secs*1000*steps+500);
+ for(const secs of [10,30,60]){click('[data-play-secs="visual:'+secs+'"]');const col=S().color;const steps=secs===10?9:3;const ch=await watch('env',secs*1000*steps+500);
   R.visual[secs]={seq:ch.map(c=>c.v),gaps:gaps(ch),colorKept:S().color===col,stored:P().visual.secs,colorSecs:P().color.secs};}
  click('[data-play="visual"]');R.visualOff=(await watch('env',25000)).length;
  // ---- Colour Play All: each interval, every palette in order, experience untouched
@@ -108,16 +108,16 @@ for (const mem of [2, 8]) {
   assert.deepStrictEqual(r.oldLook, { env: 'cosmic', color: 'electric' }, 'a saved look that used Music Reactive still loads' + tag);
   assert.deepStrictEqual(r.violetLook, { env: 'organic', color: 'violet' }, 'ordinary saved looks load unchanged' + tag);
   assert(r.audioFloor >= .3, 'a saved sensitivity of zero is raised so music always reacts' + tag);
-  assert.strictEqual(r.react.length, 18);
+  assert.strictEqual(r.react.length, ENVS.length * 3);
   r.react.forEach(x => assert(x.bass > .05 && x.mid > .05 && x.high > .05 && x.energy > .05, 'music drives bass, mid, treble and energy in ' + x.env + ' / ' + x.col + tag + ' ' + JSON.stringify(x)));
   assert(r.react.some(x => x.beat > .05), 'beat detection produces visual impacts' + tag);
   assert(r.sensMin >= .3 && r.reactAtMin.bass > .02 && r.reactAtMin.mid > .02, 'reactivity stays on at the lowest sensitivity' + tag);
   assert(r.reactLoud.energy > r.reactQuiet.energy * 2 && r.reactLoud.bass > r.reactQuiet.bass, 'loud passages react more strongly than quiet ones' + tag);
   for (const secs of [10, 30, 60]) {
     const v = r.visual[secs];
-    assert(v.seq.length >= (secs === 10 ? 6 : 2), 'Visual Play All ' + secs + 's advances' + tag + ' ' + JSON.stringify(v));
-    v.seq.forEach((e, i) => { if (i) assert.strictEqual(ENVS.indexOf(e), (ENVS.indexOf(v.seq[i - 1]) + 1) % 6, 'Visual Play All goes in order without skipping' + tag); });
-    if (secs === 10) assert.strictEqual(new Set(v.seq).size, 6, 'Visual Play All visits all six experiences' + tag);
+    assert(v.seq.length >= (secs === 10 ? 8 : 2), 'Visual Play All ' + secs + 's advances' + tag + ' ' + JSON.stringify(v));
+    v.seq.forEach((e, i) => { if (i) assert.strictEqual(ENVS.indexOf(e), (ENVS.indexOf(v.seq[i - 1]) + 1) % ENVS.length, 'Visual Play All goes in order without skipping' + tag); });
+    if (secs === 10) assert.strictEqual(new Set(v.seq).size, 8, 'Visual Play All visits all eight experiences' + tag);
     v.gaps.forEach(g => assert(Math.abs(g - secs) <= 1, 'Visual Play All ' + secs + 's interval holds (' + g + 's)' + tag));
     assert(v.colorKept && v.stored === secs && v.colorSecs === 20, 'Visual Play All keeps the palette and its own interval' + tag);
   }
@@ -140,4 +140,4 @@ for (const mem of [2, 8]) {
   assert.strictEqual(r.afterReopen, 1, 'repeated reopening never duplicates cycling (one change in 30 s)' + tag);
   assert(r.frames > 20 && r.gpu, 'rendering continues normally' + tag);
 }
-console.log('Liquid Dreams: Visual Play All (10s/30s/1min) and Colour Play All (10s/20s/30s) cycle in order, independently and together; music reactivity is on in all six experiences with every palette; Music Reactive option removed with saved settings and looks migrated; settings persist; exit and reopen leave no running timers (2 GB and 8 GB profiles).');
+console.log('Liquid Dreams: Visual Play All (10s/30s/1min) and Colour Play All (10s/20s/30s) cycle in order, independently and together; music reactivity is on in all eight experiences with every palette; Music Reactive option removed with saved settings and looks migrated; settings persist; exit and reopen leave no running timers (2 GB and 8 GB profiles).');

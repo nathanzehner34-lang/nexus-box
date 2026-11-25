@@ -1,5 +1,6 @@
 // Records Party Mode playing the test songs, with the music, as an MP4 for looking at the result.
 // Usage: node party-video.js <out.mp4> <wavDir> <experience:song:from-to[:option=value...]> ...
+//   (experience: orb, flow, ink, or ld-<id> for a Liquid Dreams experience, with color=<palette>)
 //   e.g. node party-video.js flow.mp4 /tmp/songs flow:edm:0-42 ink:dnb:0-20:preset=neon orb:rock:0-20:backdrop=aurora
 // The WAV files come from make_songs.py (same folder).
 const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
@@ -16,14 +17,20 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'partyvid-'));
     const o = {}; opts.forEach(x => { const [k, v] = x.split('='); o[k] = v; });
     const dir = path.join(work, 'seg' + n); fs.mkdirSync(dir);
     await session(async ({ ev, shot, advance, enter, sleep }) => {
-      await enter(experience);
+      if (experience.startsWith('ld-')) {
+        // Liquid Dreams: open it on this experience (and palette), controls hidden
+        await ev(`localStorage.setItem('p_liquidDreams.settings',JSON.stringify({v:3,env:${JSON.stringify(experience.slice(3))},color:${JSON.stringify(o.color || 'signature')}}))`);
+        await ev(`document.querySelector('[data-act=liquiddreams]').click()`);
+        for (let i = 0; i < 80; i++) { await sleep(100); if (await ev('!!(window.XP&&XP.liquidDebug)')) break; }
+        await ev(`(function(){var u=document.querySelector('.ld-ui');if(u)u.style.display='none';})()`);
+      } else await enter(experience);
       if (o.preset) await ev(`document.querySelector('[data-preset=${o.preset}]').click()`);
       if (o.backdrop) await ev(`NexusParty.setBackdrop(${JSON.stringify(o.backdrop)})`);
       if (o.mode) await ev(`document.querySelector('[data-mode=${o.mode}]').click()`);
       // switch the page to the virtual clock, let the running frame loop move onto it, hide the controls,
       // then let the experience's transition finish before the music starts
       await ev('__vtOn()'); await sleep(150);
-      await ev(`document.getElementById('party').classList.add('party-idle')`); await sleep(900);
+      await ev(`(function(){var p=document.getElementById('party');if(p)p.classList.add('party-idle');})()`); await sleep(900);
       await advance(3000); await sleep(1500);
       const frames = SONGS.songs[song].frames.slice(Math.round(from * 20), Math.round(to * 20));
       await ev('__play(' + JSON.stringify(frames) + ')');

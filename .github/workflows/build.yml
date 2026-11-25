@@ -68,6 +68,7 @@ jobs:
           SOAK_ROUNDS=4 node tools/voice-test/soak-switching.test.js
           node tools/voice-test/liquid-dreams-development.test.js
           node tools/voice-test/liquid-dreams-render.test.js
+          node tools/voice-test/liquid-dreams-collection.test.js
           node --check tools/voice-test/liquid-dreams-playall.test.js
           node --check tools/voice-test/liquid-dreams-music.test.js
           node tools/voice-test/party-mode-render.test.js
