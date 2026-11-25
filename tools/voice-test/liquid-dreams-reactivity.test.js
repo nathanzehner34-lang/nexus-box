@@ -78,11 +78,13 @@ const SCEN = (oldPath) => `
   const ui = document.querySelector('.ld-ui'), env0 = XP.liquidDebug().env, pal0 = XP.liquidDebug().palette;
   const mus = play({ bpm: 120, kick: .5, snare: .2, hat: .1, pad: .05 }, 4000, 1);
   ui.querySelector('[data-action="next"]').click(); await wait(300); ui.querySelector('[data-action="shift"]').click(); await wait(300);
+  // (read the switch before the tap below: a tap starts a colour wave to a random palette, which may happen to be the first one again)
+  const envSw = XP.liquidDebug().env, palSw = XP.liquidDebug().palette;
   const sp = ui.querySelector('[data-setting="audio"]'); sp.value = '1.6'; sp.dispatchEvent(new Event('input', { bubbles: true })); sp.dispatchEvent(new Event('change', { bubbles: true }));
   const xpEl = document.getElementById('xp'), Rc = xpEl.getBoundingClientRect(), ev = (t, x, y) => xpEl.dispatchEvent(new PointerEvent(t, { clientX: Rc.left + x * Rc.width, clientY: Rc.top + y * Rc.height, pointerId: 7, bubbles: true, cancelable: true }));
   ev('pointerdown', .3, .4); await wait(60); ev('pointerup', .3, .4); await wait(150); R.pulse = !!XP.liquidDebug().wave;
   ev('pointerdown', .6, .5); await wait(600); R.gravity = XP.liquidDebug().gravity.strength; ev('pointerup', .6, .5);
-  await mus; R.afterControls = XP.liquidDebug(); R.switched = { env: [env0, R.afterControls.env], pal: [pal0, R.afterControls.palette] };
+  await mus; R.afterControls = XP.liquidDebug(); R.switched = { env: [env0, envSw], pal: [pal0, palSw] };
   document.querySelector('.ld-ui [data-action="exit"]').click(); await wait(400);
   R.closed = !XP.active; R.detailLog = window.__detail.slice();
 `;
