@@ -62,8 +62,9 @@ fs.rmSync(tmp, { recursive: true, force: true });
     await ev(`localStorage.setItem('p_liquidDreams.settings',JSON.stringify({v:3,env:'deepflow',color:'signature'}))`);
     await ev(`(function(){var t=document.querySelector('[data-act=liquiddreams]');if(t)t.click();})()`);
     for (let i = 0; i < 80; i++) { await sleep(100); if (await ev('!!(window.XP&&XP.liquidDebug)')) break; }
-    await ev(`window.__frame=function(){var g=document.getElementById('xpc').nextSibling;var c=document.createElement('canvas');c.width=64;c.height=36;var x=c.getContext('2d');x.drawImage(g,0,0,64,36);var d=x.getImageData(0,0,64,36).data,w=0,s=0,n=0,a=[];for(var i=0;i<d.length;i+=4){var mx=Math.max(d[i],d[i+1],d[i+2]),mn=Math.min(d[i],d[i+1],d[i+2]),L=.299*d[i]+.587*d[i+1]+.114*d[i+2];if(L>205&&(mx-mn)<45)w++;if(mx>40){s+=(mx-mn)/mx;n++;}a.push(L);}return {white:w/(d.length/4),sat:n?s/n:0,px:a};}`);
+    await ev(`window.__frame=function(){var x0=document.getElementById('xpc'),g=null;[].slice.call(x0.parentNode.querySelectorAll('canvas')).forEach(function(c){if(!g&&c!==x0&&c.width>1&&c.getContext('webgl'))g=c;});if(!g)throw new Error('Liquid Dreams GL canvas not found');var c=document.createElement('canvas');c.width=64;c.height=36;var x=c.getContext('2d');x.drawImage(g,0,0,64,36);var d=x.getImageData(0,0,64,36).data,w=0,s=0,n=0,a=[];for(var i=0;i<d.length;i+=4){var mx=Math.max(d[i],d[i+1],d[i+2]),mn=Math.min(d[i],d[i+1],d[i+2]),L=.299*d[i]+.587*d[i+1]+.114*d[i+2];if(L>205&&(mx-mn)<45)w++;if(mx>40){s+=(mx-mn)/mx;n++;}a.push(L);}return {white:w/(d.length/4),sat:n?s/n:0,px:a};}`);
     await ev('__vtOn()'); await sleep(150); await advance(1500);
+    for (let i = 0; i < 40 && !(await ev('(function(){var d=XP.liquidDebug();return d.gpu&&d.frames>3;})()')); i++) await advance(250);
     const R = {};
     for (const id of IDS) {
       await ev(`(function(){var b=document.querySelector('.ld-ui [data-env="${id}"]');b.click();})()`);
