@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const assert = require('assert');
+const { FLOW, PALETTE, SETTER } = require('./party-gl-fixture');
 
 // Party Mode upgrade: renders the real Party shader (Orb Experience backgrounds + hero orb, Energy Flow)
 // in a real browser WebGL context and measures pixels, then opens the real app page and operates
@@ -97,9 +98,10 @@ try{
  const l=gl.getAttribLocation(p,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
  const W=160,H=90,px=new Uint8Array(W*H*4);
  const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.2,mid:.2,high:.2,energy:.3,beat:0,orbR:.105,quality:0,bgA:0,bgB:0,bgMix:0,flow:0,surge:0,c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],
-   build:0,bphase:.5,burst:0,bAge:9,bPow:0,recoil:0,f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75]};
+   build:0,bphase:.5,burst:0,bAge:9,bPow:0,recoil:0,...${JSON.stringify(FLOW)}};
+ ${PALETTE} ${SETTER}
  function render(over){const u=Object.assign({},base,over);for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null){if(k!=='surge')throw new Error('missing uniform '+k);continue;}
-  if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===16)gl.uniform4fv(L,new Float32Array(v));else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
+  setU(L,v);}
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
   let r=0,g=0,bl=0,lum=0,black=0,lit=0;const cells=new Array(48).fill(0);
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4,L=.299*px[i]+.587*px[i+1]+.114*px[i+2];r+=px[i];g+=px[i+1];bl+=px[i+2];lum+=L;if(L<4)black++;if(L>30)lit++;cells[Math.floor(y/H*6)*8+Math.floor(x/W*8)]+=L;}
@@ -145,7 +147,7 @@ assert(S.flowOrbIndependent < .01, 'Energy Flow contains no orb (orb size/positi
 assert(S.flowLoud.lit > S.flowQuiet.lit * 1.3, 'the field expands with the music (' + S.flowQuiet.lit.toFixed(2) + ' -> ' + S.flowLoud.lit.toFixed(2) + ')');
 
 assert(S.flowLoud.lum > S.flowQuiet.lum + 2 && S.flowMusic > 4, 'Energy Flow is calmer when quiet and more dramatic when loud');
-assert(S.flowMotion > 3, 'Energy Flow moves continuously');
+assert(S.flowMotion > 3, 'Energy Flow moves continuously (' + S.flowMotion.toFixed(2) + ')');
 assert(S.flowTapDiff > .3 && S.flowSurgeDiff > .3, 'Energy Flow responds to touch and Bass Cannon surge');
 S.transition.forEach((f, i) => assert(f.lum > 8 && f.black < .6, 'experience transition step ' + i + ' has no black frame'));
 

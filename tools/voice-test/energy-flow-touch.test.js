@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const assert = require('assert');
+const { FLOW, PALETTE, SETTER } = require('./party-gl-fixture');
 
 // Energy Flow touch: renders the real Party shader with the touch layer and measures pixels
 // (idle and Orb builds must match the previous release exactly; each gesture must change the field
@@ -96,14 +97,15 @@ try{
  const wakeOff=n=>{const a=[];for(let i=0;i<n;i++)a.push(9,0,0,0);return a;};
  const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.2,mid:.2,high:.2,energy:.3,beat:.05,orbR:.105,quality:1,
    bgA:0,bgB:0,bgMix:0,flow:1,surge:0,build:0,bphase:.6,burst:0,bAge:9,bPow:0,recoil:0,snare:0,hat:0,
-   c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75],tapP:[0,0,9],
+   c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75],tapP:[0,0,9],...${JSON.stringify(FLOW)},
    tOn:0,tch:z16,tcv:z16,cbs:off4,trA:new Array(48).fill(0),trB:wakeOff(12)};
  const shots={};
+ ${PALETTE} ${SETTER}
  function render(name,over,keep){const prog=progs[name];gl.useProgram(prog);const l=gl.getAttribLocation(prog,'p');gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
   const u=Object.assign({},base,over);
   for(const [k,v] of Object.entries(u)){let key=k,L=gl.getUniformLocation(prog,k);if(L===null)continue;
    if(['tch','tcv','cbs','trA','trB'].includes(k)){gl.uniform4fv(L,new Float32Array(name==='flow6'&&(k==='trA'||k==='trB')?v.slice(0,24):v));continue;}
-   if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
+   setU(L,v);}
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
   if(keep)shots[keep]=document.getElementById('c').toDataURL('image/png');
   return px.slice();}
@@ -216,11 +218,9 @@ const scenario = `
   if (shots) for (const [k, v] of Object.entries(S.shots)) fs.writeFileSync(path.join(shots, 'shader-' + k + '.png'), Buffer.from(v.split(',')[1], 'base64'));
   delete S.shots;
   console.log(JSON.stringify(S, null, 1));
-  if (previous) {
-    assert(S.idleVsOld.max <= 1, 'with no touch Energy Flow is pixel-identical to the previous release (max ' + S.idleVsOld.max + ')');
-    assert(S.idleLoudVsOld.max <= 1, 'music reactivity and the supernova are unchanged with no touch (max ' + S.idleLoudVsOld.max + ')');
-    assert(S.orbVsOld.max === 0, 'the Orb Experience build is pixel-identical to the previous release (max ' + S.orbVsOld.max + ')');
-  }
+  // (The touch release guarded that it left the idle field pixel-identical to 49d5584. The Party Mode
+  // quality overhaul rebuilt the field and recoloured the hero orb on purpose, so those identity checks
+  // are retired; the cost comparison against that release below still applies.)
   assert(S.noTouchVsIdle.max <= 1, 'the no-touch fallback build matches the idle field');
   assert(S.settled.max <= 1, 'once touch decays the field is exactly back to idle');
   // tap
@@ -236,7 +236,7 @@ const scenario = `
   assert(S.holdRelease.inside < S.hold.inside * .6, 'releasing lets the field relax');
   // drag
   assert(S.drag.inside > 8 && S.dragFar.inside < S.drag.inside * .3, 'dragging bends the field along the stroke only ' + JSON.stringify([S.drag, S.dragFar]));
-  assert(S.drag.sat > .35, 'the wake keeps rich colour');
+  assert(S.drag.sat > .35, 'the wake keeps rich colour (' + S.drag.sat.toFixed(2) + ')');
   assert(S.drag6.mean > .3, 'the reduced 6-point wake build still works');
   // multi
   assert(S.multiA.inside > 6 && S.multiB.inside > 6 && S.multiC.inside > 4, 'several fingers each shape their own area');
@@ -264,5 +264,5 @@ const scenario = `
   assert(A.backToFlow.gestures.tap > A.musicTouch.gestures.tap, 'touch works again after switching back');
   assert(A.exitTouch.on === 0 && A.exitTouch.down === 0, 'leaving Party clears touch');
   assert.strictEqual(A.mediaCalls, 0, 'touch never touches music playback');
-  console.log('Energy Flow touch: tap bursts, hold attraction, drag wake and multi-touch verified in pixels and in the real app; idle and Orb builds unchanged.');
+  console.log('Energy Flow touch: tap bursts, hold attraction, drag wake and multi-touch verified in pixels and in the real app; idle cost on par with the previous release.');
 })().catch(e => { console.error(e); process.exit(1); });

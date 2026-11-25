@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const assert = require('assert');
+const { FLOW, PALETTE, SETTER } = require('./party-gl-fixture');
 
 // Energy Flow upgrade: renders the real Party shader's Living Energy Field and Supernova Burst in a
 // browser WebGL context and measures pixels, then opens the real app page and plays five synthetic
@@ -16,13 +17,13 @@ assert(shaderSrc, 'Party shader is embedded in party.js');
 const shader = Function('return ' + shaderSrc)().join('\n');
 
 // ---------- Static integration ----------
-['noiseP', 'fbmP', 'flowPal', 'livingField', 'supernova', 'flowScene'].forEach(fn =>
+// The Energy Field: a living organism of five lobes (party.js moves them), twisting ribbons, a supernova.
+['flowPal', 'ribbon', 'supernova', 'flowScene'].forEach(fn =>
   assert(shader.includes(fn + '('), 'shader defines ' + fn));
-assert(!/vec3 ribbon\(/.test(shader), 'the old ribbon streams are gone, replaced by the energy field');
-['build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'f1', 'f2', 'f3', 'f4'].forEach(u =>
+['build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'lobe', 'fx', 'fy', 'fz', 'palT'].forEach(u =>
   assert(new RegExp('uniform[^;]*\\b' + u + '\\b').test(shader), 'shader declares uniform ' + u));
 // The field must not read the orb at all, or Energy Flow becomes Orb Mode.
-const flowBody = shader.slice(shader.indexOf('vec3 livingField'), shader.indexOf('void main()'));
+const flowBody = shader.slice(shader.indexOf('// ---------- ENERGY FLOW: LIVING'), shader.indexOf('void main()'));
 assert(!/orbR|orbC|heroOrb/.test(flowBody), 'Energy Flow never touches the hero orb');
 // Orb Experience code is untouched.
 ['vec4 heroOrb(', 'vec3 bgClassic(', 'vec3 bgSmoke(', 'vec3 bgAurora(', 'vec3 bgDeep(', 'vec3 bgIrid('].forEach(fn =>
@@ -108,10 +109,10 @@ try{
  const W=200,H=120,px=new Uint8Array(W*H*4);
  const base={res:[W,H],orbC:[0,0],T:31.7,zph:12.3,bass:.25,mid:.25,high:.25,energy:.35,beat:.1,orbR:.105,quality:1,
    bgA:0,bgB:0,bgMix:0,flow:1,surge:0,build:0,bphase:.5,burst:0,bAge:9,bPow:0,recoil:0,
-   c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],f1:[.12,.94,.85],f2:[.18,.48,1],f3:[.62,.29,1],f4:[1,.31,.75]};
+   c1:[.16,.92,1],c2:[.9,.98,1],c3:[.86,.38,.92],...${JSON.stringify(FLOW)}};
+ ${PALETTE} ${SETTER}
  function render(over){const u=Object.assign({},base,over);
-  for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null)throw new Error('missing uniform '+k);
-   if(!Array.isArray(v))gl.uniform1f(L,v);else if(v.length===2)gl.uniform2f(L,v[0],v[1]);else gl.uniform3f(L,v[0],v[1],v[2]);}
+  for(const [k,v] of Object.entries(u)){const L=gl.getUniformLocation(p,k);if(L===null)throw new Error('missing uniform '+k);setU(L,v);}
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
   let lum=0,lit=0,inner=0,innerN=0,outer=0,outerN=0,rim=0,rimN=0,rays=0,sat=0;
   const bytes=[];
@@ -121,7 +122,7 @@ try{
    const mx=Math.max(px[i],px[i+1],px[i+2]),mn=Math.min(px[i],px[i+1],px[i+2]);sat+=mx?(mx-mn)/mx:0;
    if(r<.12){inner+=L;innerN++;}
    if(r>.3&&r<.45){outer+=L;outerN++;}
-   if(r>.52){rim+=L;rimN++;if(L>140)rays++;}
+   if(r>.52){rim+=L;rimN++;if(Math.max(px[i],px[i+1],px[i+2])>200)rays++;}   // rays: vivid peak light (colour, not white)
    if(i%193===0)bytes.push(px[i]);}
   const n=W*H;
   return {lum:lum/n,lit:lit/n,inner:inner/innerN,outer:outer/outerN,rim:rim/rimN,rays:rays/rimN,sat:sat/n,bytes:bytes};}

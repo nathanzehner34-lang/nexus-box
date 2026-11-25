@@ -114,7 +114,7 @@ try{
   gl.viewport(0,0,W,H);gl.drawArrays(gl.TRIANGLES,0,3);gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px);
   let lum=0,lit=0,centre=0,cN=0,edge=0,eN=0,sat=0,satN=0,spec=0,r=0,g=0,bl=0;const bytes=[];
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){const i=(y*W+x)*4,L=.299*px[i]+.587*px[i+1]+.114*px[i+2];
-   lum+=L;if(L>40)lit++;if(L>190)spec++;
+   lum+=L;if(L>40)lit++;if(Math.max(px[i],px[i+1],px[i+2])>225)spec++;   // highlights: vivid peak light (colour, not white)
    const dx=(x-W/2)/H,dy=(y-H/2)/H,rr=Math.sqrt(dx*dx+dy*dy);
    if(rr<.22){centre+=L;cN++;} if(Math.abs(dx)>.72||Math.abs(dy)>.44){edge+=L;eN++;}
    const mx=Math.max(px[i],px[i+1],px[i+2]),mn=Math.min(px[i],px[i+1],px[i+2]);if(L>40){sat+=mx?(mx-mn)/mx:0;satN++;r+=px[i];g+=px[i+1];bl+=px[i+2];}}

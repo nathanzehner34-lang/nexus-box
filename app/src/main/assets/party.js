@@ -10,12 +10,12 @@
   if (!ctx) return;
 
   var modes = ['pulse', 'wave', 'vortex', 'chaos', 'ripple'];
-  // flow: the four Energy Flow gradient stops — turquoise, electric blue, ultraviolet, hot pink.
+  // flow: the six Energy Field colours, one wrapping gradient the field's colour travels through.
   var presets = {
-    orb: { accent: [39, 190, 255], colors: ['#28eaff', '#388bff', '#a568ff', '#ff53c8', '#ffe34f', '#e7fbff'], flow: ['#1ff0d8', '#2f7bff', '#9d4bff', '#ff4fc0'] },
-    voltage: { accent: [35, 122, 255], colors: ['#12dcff', '#3978ff', '#e6f5ff', '#ff55d3', '#ffd64e', '#837aff'], flow: ['#14e6ff', '#2a6bff', '#7a5cff', '#ff55d3'] },
-    aurora: { accent: [94, 99, 255], colors: ['#83e7ff', '#8398ff', '#b481ff', '#ff8bda', '#fff0a0', '#62d7ee'], flow: ['#6ef0e2', '#7f9bff', '#b481ff', '#ff8bda'] },
-    neon: { accent: [235, 71, 221], colors: ['#10e8ff', '#168cff', '#a43cff', '#fa3fba', '#ffe33f', '#d6fbff'], flow: ['#10e8ff', '#1a7cff', '#a43cff', '#fa3fba'] }
+    orb: { accent: [39, 190, 255], colors: ['#28eaff', '#388bff', '#a568ff', '#ff53c8', '#ffe34f', '#e7fbff'], flow: ['#1ff0d8', '#2f7bff', '#9d4bff', '#ff4fc0', '#ff8a3d', '#ffd34f'] },
+    voltage: { accent: [35, 122, 255], colors: ['#12dcff', '#3978ff', '#e6f5ff', '#ff55d3', '#ffd64e', '#837aff'], flow: ['#14e6ff', '#2a6bff', '#6a4bff', '#ff3fd0', '#c6ff2e', '#2dffb4'] },
+    aurora: { accent: [94, 99, 255], colors: ['#83e7ff', '#8398ff', '#b481ff', '#ff8bda', '#fff0a0', '#62d7ee'], flow: ['#6ef0e2', '#7f9bff', '#b481ff', '#ff8bda', '#9dff9a', '#4fd8ff'] },
+    neon: { accent: [235, 71, 221], colors: ['#10e8ff', '#168cff', '#a43cff', '#fa3fba', '#ffe33f', '#d6fbff'], flow: ['#10e8ff', '#1a7cff', '#a43cff', '#fa3fba', '#ff5a1f', '#ffe033'] }
   };
   var mode = 'pulse', preset = 'orb', active = false, raf = 0, runId = 0, pollTimer = 0, lastFrame = 0;
   var highMemory = false, frameInterval = 32;
@@ -29,6 +29,7 @@
   // The snare: a sharp flash of colour in a few orbs and a spray of particles from them.
   function onSnare(power) {
     snareEnv = Math.max(snareEnv, power); snareHits++;
+    if (experience === 'flow') flowSnare(power);
     if (experience !== 'orb') return;
     for (var n = 0; n < 3; n++) {
       var o = orbs[(snareHits * 7 + n * 5) % orbs.length];
@@ -55,7 +56,7 @@
   var glProgs = {}, glUs = {}, glVariant = '';
   var GL_UNIFORMS = ['res', 'orbC', 'T', 'zph', 'bass', 'mid', 'high', 'energy', 'beat', 'orbR', 'quality',
     'bgA', 'bgB', 'bgMix', 'flow', 'surge', 'c1', 'c2', 'c3', 'tOn', 'tch', 'tcv', 'cbs', 'trA', 'trB',
-    'build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'f1', 'f2', 'f3', 'f4', 'snare', 'hat'];
+    'build', 'bphase', 'burst', 'bAge', 'bPow', 'recoil', 'snare', 'hat', 'lobe', 'fx', 'fy', 'fz', 'palT'];
   var glScale = .42, glScaleMax = .42, glQuality = 0, glSlowFrames = 0, glFastFrames = 0, glFrames = 0;
   var sceneT = 0, flowPhase = 0, flowMix = 0, flowTarget = 0, bgFrom = 0, bgTo = 0, bgMix = 0, classicWeight = 1, surge = 0, flowCanvasCleared = false;
   // ---- Energy Flow touch: up to four fingers, each a hold/drag point; taps seed colour bursts; drags leave a wake ----
@@ -72,10 +73,109 @@
   var bassFast = 0, bassSlow = .01, bassPeak = .02, energyFast = .08, energySlow = .08, highFast = 0, highSlow = 0;
   var buildUp = 0, beatPhase = 1, beatPeriod = .5, beatConfidence = 0, lastBeatAt = 0, lastQuietAt = 0;
   var burstPower = 0, burstAge = 9, burstEnv = 0, lastBurstAt = 0, lastDropAt = 0, burstCount = 0, fieldRecoil = 0;
-  var flowRgb = [], musicHue = 0, colorDrive = 0;
+  var flowRgb = [], musicHue = 0, colorDrive = 0, palTex = null, palDirty = true;
+  // The Energy Field's six colours baked into a 64-texel wrapping gradient (smooth between neighbours).
+  function uploadFlowPalette() {
+    if (!gl) return;
+    if (!palTex) palTex = gl.createTexture();
+    var N = 64, data = new Uint8Array(N * 4), cols = flowRgb.length ? flowRgb : [[31, 240, 216], [47, 123, 255], [157, 75, 255], [255, 79, 192], [255, 138, 61], [255, 211, 79]];
+    for (var i = 0; i < N; i++) {
+      var x = i / N * cols.length, k = Math.floor(x), f = x - k; f = f * f * (3 - 2 * f);
+      var a = cols[k % cols.length], b = cols[(k + 1) % cols.length];
+      for (var c = 0; c < 3; c++) data[i * 4 + c] = Math.round(a[c] + (b[c] - a[c]) * f);
+      data[i * 4 + 3] = 255;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, palTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    palDirty = false;
+  }
+  // ---- Energy Field organism: five energy lobes that melt into one living body in the shader ----
+  // Each lobe orbits its own home round the field's centre and is held there by a spring, so the body
+  // is always moving: the bass swells it and kicks push the lobes outward, a build-up squeezes them
+  // together and spins them faster, a drop throws them apart (the body tears into fragments) and the
+  // springs draw them back until they melt into one again. Positions are in shader units (screen
+  // height = 1, centred).
+  var lobes = [], lobeBuf = new Float32Array(20), flowHueT = 0, flowSwirl = 0, flowSwirlV = 0, flowFrag = 0, flowTension = 0;
+  var groove = 0, punchAvg = 0, flowTwist = 0, flowTwistV = 0, ribPhase = 0, kickAge = 9, kickPow = 0, flowTilt = 0, flowCalm = 1, flowWander = 0, snareDir = 1, kickCount = 0;
+  // Adaptive band levels: each band against its own recent peak, so quiet recordings and loud ones
+  // both use the field's whole range (silence stays silent: there is a floor under every peak).
+  var adapt = { b: .3, m: .3, h: .3, e: .3, B: 0, M: 0, H: 0, E: 0 };
+  for (var li = 0; li < 5; li++) lobes.push({ x: 0, y: 0, vx: 0, vy: 0, a: li / 5 * 6.2832 + .4 * li, k: [1, .72, 1.18, .86, 1.04][li],
+    spin: [.16, -.11, .21, -.17, .13][li], r0: [.105, .085, .095, .075, .09][li], h0: li * .07, hue: li * .07, pulse: 0 });
+  function adaptBand(key, level, s, floor) {
+    var pk = adapt[key] = Math.max(level, adapt[key] * Math.exp(-s / 7), floor);
+    return clamp(level / (pk * .92), 0, 1);
+  }
+  function flowKick(power) {
+    kickAge = 0; kickPow = clamp(power, 0, 1.2); kickCount++;
+    for (var i = 0; i < 5; i++) {
+      var o = lobes[i], d = Math.sqrt(o.x * o.x + o.y * o.y) || .01, push = .55 * kickPow * (.6 + ((i * 7 + kickCount) % 5) * .15);
+      o.vx += o.x / d * push; o.vy += o.y / d * push; o.pulse = Math.max(o.pulse, kickPow);
+    }
+  }
+  function flowSnare(power) {
+    snareDir = (snareHits >> 3) % 2 ? -1 : 1;     // the twist changes direction every eight snares
+    flowSwirlV += snareDir * .55 * power; flowTwistV += snareDir * 1.6 * power;
+    flowHueT += .02 * power;
+  }
+  function flowFragment(power) {
+    flowFrag = Math.min(1.2, flowFrag + power * .6);
+    flowHueT += .12 + power * .05;                // a drop moves the whole field on to new colours
+    for (var i = 0; i < 5; i++) {
+      var o = lobes[i], ang = o.a + (i - 2) * .3, sp = (.9 + i % 3 * .35) * power;
+      o.vx += Math.cos(ang) * sp - Math.sin(ang) * sp * .4; o.vy += Math.sin(ang) * sp + Math.cos(ang) * sp * .4; o.pulse = 1;
+    }
+    flowSwirlV += snareDir * .9 * power;
+  }
+  function flowOrganismStep(s, eA, bA, mA, hA, beatN) {
+    var tempo = clamp(.5 / Math.max(.25, beatConfidence > .3 ? beatPeriod : .6), .6, 1.6);   // faster songs move faster
+    // calm: quiet or drumless passages (little groove, little energy) — the field slows and softens
+    var calmTarget = clamp(1.2 - eA * .4 - groove * 1.1, 0, 1);
+    flowCalm += (calmTarget - flowCalm) * Math.min(1, s / 2.5);
+    flowTension += (buildUp - flowTension) * Math.min(1, s * 2);
+    flowTilt += (clamp((hA - bA) * 1.4, -1, 1) - flowTilt) * Math.min(1, s / 2);
+    flowFrag = Math.max(0, flowFrag - s * (flowFrag * .8 + .05));
+    kickAge = Math.min(9, kickAge + s * (.9 + .4 * tempo));
+    flowSwirlV *= Math.exp(-s * 1.4);
+    var pace = 1 - flowCalm * .5;                 // quiet, drumless passages move slower and more gracefully
+    flowSwirl = (flowSwirl + s * ((.05 + mA * .22) * pace + flowTension * .5 + flowSwirlV) * (.7 + .3 * tempo)) % 6283.2;
+    // the twist (how much faster the core turns than the edge) is bounded: it winds up under a build-up
+    // and on snares, unwinds on its own, and slowly swings between directions, so the body alternates
+    // between a spiral, a tangle and an open bloom instead of winding ever tighter
+    var twistTarget = 1.1 * Math.sin(flowWander * .45) + flowTension * 1.6 * snareDir + mA * .4;
+    flowTwistV += ((twistTarget - flowTwist) * 2.2 - flowTwistV * 1.8) * s;
+    flowTwist = clamp(flowTwist + flowTwistV * s, -2.6, 2.6);
+    ribPhase = (ribPhase + s * ((.25 + mA * .8 + eA * .45) * pace + flowFrag * 1.5) * tempo) % 6283.2;
+    // colour travels with the drive of the music (the groove and the beat), gently on quiet music
+    flowHueT = (flowHueT + s * (.012 + groove * .03 + beatN * .03 + mA * .012 + flowTension * .05 + (1 - flowCalm) * .015)) % 1000;
+    flowWander += s * (.03 + eA * .05);
+    var cx = .07 * Math.sin(flowWander * .9) + .05 * Math.sin(flowWander * .37 + 2), cy = .04 * Math.cos(flowWander * .7 + 1);
+    // the orbit tightens under a build-up and opens out with energy; quiet music lets it drift wide and slow
+    var ring = (.1 + eA * .05 + flowCalm * .03) * (1 - flowTension * .55);
+    var stiff = 5 + flowTension * 9 - flowFrag * 3, damp = 2.2 + flowCalm * 1.2;
+    for (var i = 0; i < 5; i++) {
+      var o = lobes[i];
+      o.a += s * o.spin * ((.5 + mA * 1.3 + eA * .5) * pace + flowTension * 2.4) * tempo;
+      // the lobes share one part of the palette (the whole field travels through it via flowHueT), so
+      // each moment has a harmonious colour scheme rather than every colour at once
+      o.hue = o.h0 + .045 * Math.sin(flowWander * 1.3 + i * 1.7);
+      var hx = cx + Math.cos(o.a) * ring * o.k * 1.25, hy = cy + Math.sin(o.a) * ring * o.k * .9;
+      o.vx += ((hx - o.x) * stiff - o.vx * damp) * s; o.vy += ((hy - o.y) * stiff - o.vy * damp) * s;
+      o.x += o.vx * s; o.y += o.vy * s;
+      o.pulse = Math.max(0, o.pulse - s * (o.pulse * 3 + .1));
+      var rad = o.r0 * (1 + bA * .38 + o.pulse * .22 + flowCalm * .12 + flowTension * .12) * (1 - flowFrag * .12);
+      lobeBuf[i * 4] = o.x; lobeBuf[i * 4 + 1] = o.y; lobeBuf[i * 4 + 2] = rad; lobeBuf[i * 4 + 3] = o.hue;
+    }
+  }
+  function flowOrganismReset() {
+    flowFrag = flowTension = flowSwirlV = flowTwist = flowTwistV = 0; kickAge = 9; kickPow = 0; flowCalm = 1;
+    for (var i = 0; i < 5; i++) { var o = lobes[i]; o.x = Math.cos(o.a) * .08; o.y = Math.sin(o.a) * .06; o.vx = o.vy = 0; o.pulse = 0; }
+  }
   // ---- Ink Machine: a tunnel of living neon membranes; its own shader program, gesture state and music events ----
   // Kept apart from the Orb/Energy Flow program so neither of those changes in any way.
-  var INK_UNIFORMS = ['res', 'T', 'bass', 'mid', 'high', 'energy', 'beat', 'blast', 'blastAge', 'build', 'quality', 'prism', 'swirl', 'fadeIn',
+  var INK_UNIFORMS = ['res', 'T', 'bass', 'mid', 'high', 'energy', 'beat', 'blast', 'blastAge', 'build', 'quality', 'prism', 'swirl', 'fadeIn', 'snare', 'hat', 'hueT', 'calm',
     'k1', 'k2', 'k3', 'k4', 'k5', 'bursts', 'drags', 'twist', 'splash', 'splashAge', 'inj'];
   // The four COLOUR buttons pick these palettes while Ink Machine is showing.
   var INK_PALETTES = {
@@ -84,6 +184,8 @@
     aurora: { name: 'PRISMATIC', prism: 1, cols: [[.9, .2, .6], [.2, .8, 1], [1, .85, .2], [.5, .3, 1], [1, 1, 1]] },
     neon: { name: 'INFERNO', prism: 0, cols: [[.75, .02, .08], [1, .35, 0], [1, .75, .15], [.95, .12, .05], [1, .95, .85]] }
   };
+  // inkKick: the tunnel surges forward on each kick; inkHue: the palette travels with the music; inkCalm: quiet passages
+  var inkKick = 0, inkHue = 0, inkCalm = 1;
   var inkMix = 0, inkTarget = 0, inkFailed = false, inkT = 0, inkSwirl = 0, inkPrism = 0, inkCols = null, inkFrames = 0, glOpacity = '';
   var blastPow = 0, blastAge = 9, blastEnv = 0, lastInkBlast = 0, lastInkMajor = 0, inkBlastCount = 0;
   var inkG = null, inkLastTap = null, inkInjPos = .5, inkGestures = { burst: 0, twist: 0, drag: 0, splash: 0, inject: 0 };
@@ -101,7 +203,6 @@
     "uniform float T, zph, bass, mid, high, energy, beat, orbR, quality, bgA, bgB, bgMix, flow, surge;",
     "uniform float build, bphase, burst, bAge, bPow, recoil, snare, hat;",
     "uniform vec3 c1, c2, c3;",
-    "uniform vec3 f1, f2, f3, f4;",
     "float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
     "vec2 hash2(vec2 p){p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));return fract(sin(p)*43758.5453);}",
     "float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.,1.)),f.x),f.y);}",
@@ -191,13 +292,14 @@
     " float lanes=.65+.35*sin(rg.z*40.+k*3.);",
     " float run=pow(.5+.5*sin(rg.z*2.-t*(1.2+k*.4)+k*2.),6.)*(.5+beat*1.2);",
     " float gl=step(.93,hash1(vec2(floor(rg.z*60.+t*3.),k)))*hat*2.;",
-    " return mix(mix(c1,c3,k),vec3(1.),.25)*(core*lanes*(.35+run+gl)+wide*(.3+bass*.5));",
+    " return mix(mix(c1,c3,k),vec3(1.),.08)*(core*lanes*(.35+run+gl)+wide*(.3+bass*.5));",
     "}",
     "vec4 heroOrb(vec2 p,float t){",
-    " vec2 d=p-orbC;float r=length(d),R=orbR*(1.+bass*.09+beat*.05);",
-    " float ang=atan(d.y,d.x),ou=max(r-R,0.);",
-    " vec3 glowC=mix(mix(c1,c3,.45),c2,snare*.35);",
-    " vec3 col=glowC*(exp(-ou/(R*.22))*.5+exp(-ou/(R*1.2))*.2)*(.65+energy*.5+beat*.35);",
+    " vec2 d=p-orbC;float r=length(d),ang=atan(d.y,d.x);",
+    " // the bass sends ripples round the surface (whole waves round the orb, so no seam)",
+    " float R=orbR*(1.+bass*.09+beat*.05+(bass*.026+beat*.016)*(.6*sin(ang*5.-zph*2.4)+.4*sin(ang*8.+zph*1.7))+high*.008*sin(ang*17.+t*4.)),ou=max(r-R,0.);",
+    " vec3 glowC=mix(mix(c1,c3,.45+.25*sin(t*.3)),mix(c3,c1,.3),snare*.5);",
+    " vec3 col=glowC*(exp(-ou/(R*.22))*.34+exp(-ou/(R*1.2))*.2)*(.65+energy*.5+beat*.35);",
     " // the rings behind the orb",
     " vec3 ra=orbRing(d,R,.28,.35+t*.02,1.55+bass*.05,t),rb=orbRing(d,R,-.2,-.5-t*.015,1.9,t);",
     " if(ra.y<0.)col+=ringLight(ra,t,0.)*.7;",
@@ -206,13 +308,14 @@
     "  float tn=fbm(vec2(ang*(2.2+fk*1.5)+t*.15+fk*5.,ou/R*2.2-t*(1.1+fk*.4)),3.);",
     "  float ridge=pow(1.-abs(tn*2.-1.),30.);",
     "  float mask=smoothstep(.6,.85,noise(vec2(ang*1.6-t*.18+fk*9.,t*.45+fk*3.)))*(.5+beat*1.3+high*.6);",
-    "  col+=mix(c2,vec3(.9,.85,1.),.3)*ridge*mask*exp(-ou/(R*(.3+fk*.12)))*smoothstep(R*.92,R,r)*1.4;}",
+    "  col+=mix(mix(c1,c3,fk),c2,.25)*ridge*mask*exp(-ou/(R*(.3+fk*.12)))*smoothstep(R*.92,R,r)*1.4;}",
     " float a=0.;",
     " if(r<R*1.01){",
     "  vec2 q=d/R;float z=sqrt(max(0.,1.-dot(q,q)));vec3 n=vec3(q,z);",
     "  // looking into the glass: plasma at two depths, the deeper one smaller and slower (parallax)",
-    "  vec2 s=q*(1.9/(.45+z))+vec2(t*.09,-t*.05);",
-    "  vec2 s2=q*(1.2/(.3+z))+vec2(-t*.05,t*.03);",
+    "  // the plasma churns faster with the music (zph runs with the music's energy and beat)",
+    "  vec2 s=q*(1.9/(.45+z))+vec2(t*.09+zph*.04,-t*.05);",
+    "  vec2 s2=q*(1.2/(.3+z))+vec2(-t*.05-zph*.025,t*.03);",
     "  float plasma=fbm(s*1.3+vec2(t*.07,0.),OCT);",
     "  float deepP=fbm(s2*1.6+7.,3.);",
     "  float fil=fbm(s*1.9-vec2(t*.15,t*.1),4.);",
@@ -223,14 +326,14 @@
     "  float core=exp(-dot(q,q)*3.)*(.25+bass*.55+energy*.2);",
     "  vec3 body=inner*(.55+.45*z)+mix(c3,c2,.5)*core*.5;",
     "  // the snare floods the veins with the accent colour",
-    "  vec3 veinC=mix(mix(c2,mix(c3,vec3(1.),.3),smoothstep(.4,.7,fil2)),c3*1.3,snare*.7);",
+    "  vec3 veinC=mix(mix(c1*1.25,c3*1.25,smoothstep(.35,.7,fil2)),mix(c3,c1,.3)*1.45,snare*.7);",
     "  body+=veinC*veins*(.9+beat*1.1+high*.6+snare*.8)*(.55+.45*z);",
     "  // the glass shell: fresnel rim, a reflection of the room's colours, a sharp highlight",
     "  float fres=pow(1.-z,2.6);",
     "  vec3 rn=reflect(vec3(0.,0.,-1.),n);",
     "  vec3 env=mix(c3*.6,c1*.9,smoothstep(-.6,.8,rn.y))*(.6+.4*smoothstep(-.2,.9,rn.x));",
-    "  body+=env*fres*.9+mix(c2,c3,.35+.25*sin(ang*2.+t*.3))*fres*.7;",
-    "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),60.)*.6;",
+    "  body+=env*fres*.9+mix(c1,c3,.35+.25*sin(ang*2.+t*.3))*fres*.75;",
+    "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),60.)*.45;",
     "  body+=vec3(.95,.97,1.)*pow(max(dot(n,normalize(vec3(-.45,.55,.7))),0.),9.)*.06;",
     "  body+=c3*pow(max(dot(n,normalize(vec3(.55,-.6,.55))),0.),5.)*.16;",
     "  // hi-hats: tiny glints across the surface",
@@ -245,83 +348,53 @@
     " return vec4(col,a);",
     "}",
     "// ---------- ENERGY FLOW: LIVING ENERGY FIELD ----------",
-    "// Angle-periodic value noise: x wraps every P cells, so filaments drawn in log-polar space",
-    "// close seamlessly around the field instead of tearing along the atan() seam.",
-    "float noiseP(vec2 p,float P){",
-    " vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);",
-    " float x0=mod(i.x,P),x1=mod(i.x+1.,P);",
-    " return mix(mix(hash1(vec2(x0,i.y)),hash1(vec2(x1,i.y)),f.x),mix(hash1(vec2(x0,i.y+1.)),hash1(vec2(x1,i.y+1.)),f.x),f.y);",
+    "// A living energy organism.",
+    "// Five energy lobes, moved by party.js (they orbit, breathe with the bass, are squeezed together by a",
+    "// build-up, thrown apart by a drop and drawn back together), melt into one body through a flowing,",
+    "// twisting warp of the space around them. Behind it a far nebula and two depths of dust; around it",
+    "// twisting ribbons of energy and sparks streaming out with the swirl. Colour, not white, carries the light.",
+    "uniform vec4 lobe[5];",
+    "uniform vec4 fx;",
+    "uniform vec4 fy;",
+    "uniform vec4 fz;",
+    "// fx: colour travel, swirl angle, fragmentation, tension (build-up)",
+    "// fy: kick age, kick power, spectral tilt (-1 bass heavy .. 1 bright), calm (quiet passages)",
+    "// fz: twist (how much faster the core turns than the edge), ribbon phase, -, -",
+    "mat2 rotm(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}",
+    "// The preset's six colours as one wrapping gradient, so colour travels through the field. party.js",
+    "// bakes the gradient into a small texture (one lookup instead of a chain of comparisons per call).",
+    "uniform sampler2D palT;",
+    "vec3 flowPal(float x){return texture2D(palT,vec2(x,.5)).rgb;}",
+    "// A twisting ribbon of energy: a soft face that narrows to a bright edge where it turns side-on.",
+    "// x: face light, y: edge light.",
+    "vec2 ribbon(vec2 p,float ang,float amp,float k,float ph,float wid,float tw){",
+    " vec2 q=rotm(ang)*p;",
+    " float d=abs(q.y-amp*(sin(q.x*k+ph)+.45*sin(q.x*k*2.3-ph*1.6+1.3)))*inversesqrt(1.+amp*amp*k*k*1.1);",
+    " if(d>wid*3.)return vec2(0.);",
+    " float face=abs(cos(q.x*tw+ph*1.3));",
+    " float w=wid*(.15+.85*face);",
+    " float e=d*d/(w*w);",
+    " return vec2(exp(-e)*(.3+.7*face),exp(-e*30.)*(1.-face))*(1.-smoothstep(.45,1.35,abs(q.x)));",
     "}",
-    "float fbmP(vec2 p,float P,float oct){float v=0.,a=.5;for(int i=0;i<6;i++){if(float(i)>=oct)break;v+=a*noiseP(p,P);p*=2.;P*=2.;p.y+=17.3;a*=.5;}return v;}",
-    "// Ultraviolet, electric blue, turquoise and hot pink, as one wrapping gradient.",
-    "vec3 flowPal(float x){",
-    " x=fract(x)*4.;float i=floor(x),f=x-i;f=f*f*(3.-2.*f);",
-    " vec3 a=i<.5?f1:i<1.5?f2:i<2.5?f3:f4;",
-    " vec3 b=i<.5?f2:i<1.5?f3:i<2.5?f4:f1;",
-    " return mix(a,b,f);",
-    "}",
-    "vec3 livingField(vec2 p,float t,float R){",
-    " float rr=length(p),a=atan(p.y,p.x),lr=log(rr+.045);",
-    " float au=a/6.28319,inner=smoothstep(.0,.085,rr);",
-    " // One slow warp field runs through every layer, so the plumes read as a single living body.",
-    " vec2 wq=vec2(fbm(p*1.05+vec2(t*.05,-t*.02),3.),fbm(p*1.05+vec2(5.2,3.1)+vec2(-t*.04,t*.027),3.))-.5;",
-    " vec3 col=mix(f3,f2,wq.y+.5)*smoothstep(.12,.45,wq.x+.5)*.03*smoothstep(1.5,.15,rr);",
-    " for(int i=0;i<3;i++){float fi=float(i);if(fi>=2.+quality)break;",
-    "  float dir=mod(fi,2.)<.5?1.:-1.;",
-    "  float NA=9.+fi*6.;",
-    "  // Filaments stream outward and shear with radius: midrange drives how hard they twist.",
-    "  float lz=lr*(2.4+fi*.6)-t*(.1+fi*.05)-zph*(.022+fi*.008);",
-    "  float tw=lr*dir*(.22+mid*1.9+surge*.45)+t*(.05+fi*.02)*dir;",
-    "  vec2 lp=vec2(au*NA+tw*NA*.16+wq.x*1.5,lz+wq.y*1.25);",
-    "  float n=fbmP(lp,NA,OCT);",
-    "  float fil=pow(1.-abs(n*2.-1.),4.5+fi*1.8+high*5.);",
-    "  // The outer edge follows the noise contour, so the fringe is lacy instead of a circle.",
-    "  float edge=R*(1.+1.35*(n-.48)+.75*wq.x)*(1.-fi*.08);",
-    "  float body=smoothstep(edge*1.1,edge*.1,rr);",
-    "  float tail=exp(-max(rr-edge,0.)/max(R*.5,.03));",
-    "  float dens=(body*(.035+fil*1.7)+tail*fil*.5)*inner;",
-    "  float hue=(n-.5)*.8+rr*1.05+t*.005+fi*.14+mid*.1+build*.08;",
-    "  vec3 lc=flowPal(hue);",
-    "  if(i==0){",
-    "   // One offset sample side-lights the ridges, which is what gives the plumes real relief.",
-    "   float nb=fbmP(lp+vec2(.05,.05),NA,OCT);",
-    "   float lit=clamp((nb-n)*22.,-1.,1.);",
-    "   lc=mix(lc,vec3(1.),max(lit,0.)*.32);",
-    "   col+=mix(lc,vec3(1.),.3)*max(-lit,0.)*(body+tail)*fil*.4;",
-    "  }",
-    "  col+=lc*dens*(1.2-fi*.28)*(.6+energy*.5)/(1.+energy*.45);",
-    " }",
-    " return col;",
-    "}",
-    "// ---------- SUPERNOVA BURST ----------",
-    "vec3 supernova(vec2 p,float ag,float pw){",
-    " float r=length(p),a=atan(p.y,p.x)+3.14159;",
-    " vec3 o=vec3(0.);",
-    " float fade=exp(-ag*1.25);",
-    " o+=mix(f2,vec3(1.),.7)*exp(-pow((r-ag*1.8)/(.045+ag*.12),2.))*pw*fade*.85;",
-    " o+=vec3(1.)*exp(-r*r*(150.+ag*900.))*pw*exp(-ag*7.)*1.3;",
-    " // Rays: most short, a few reaching right across the field, so the burst never looks drawn.",
-    " float N=48.,ab=a/6.28319*N,id=floor(ab),f=fract(ab)-.5;",
-    " vec2 h=hash2(vec2(id,9.3));",
-    " f+=(h.y-.5)*.55;",
-    " float len=(.16+h.x*h.x*2.)*pw*(1.-exp(-ag*2.3))*1.3;",
-    " float taper=smoothstep(len,len*.03,r)*smoothstep(.0,.05,r);",
-    " float core=exp(-f*f*(320.+h.y*600.)),halo=exp(-f*f*(30.+h.x*55.));",
-    " float st=step(.55,h.x)*taper*(.3+h.y*1.2);",
-    " o+=flowPal(h.y*.9+.08)*halo*st*pw*fade*.55;",
-    " o+=mix(flowPal(h.y*.9+.08),vec3(1.),.45)*core*st*pw*fade*1.05;",
-    " // Thousands of luminous particles thrown outward, decelerating as the blast spends itself.",
-    " float travel=(1.-exp(-ag*1.45))/1.45;",
-    " for(int i=0;i<3;i++){float fi=float(i);",
-    "  float Np=420.+fi*360.;",
-    "  float pb=a/6.28319*Np,pid=floor(pb),pf=fract(pb)-.5;",
-    "  vec2 ph=hash2(vec2(pid,fi*17.+2.7));",
-    "  float v=(1.5+ph.x*3.6)*(.6+pw*.6);",
-    "  float rp=.05+ph.y*.09+v*travel;",
-    "  float dr=r-rp,da=pf*6.28319/Np*r;",
-    "  float g=exp(-dr*dr*1500.-da*da*12000.);",
-    "  o+=mix(flowPal(ph.x*.9+fi*.2),vec3(1.),.5)*g*pw*fade*2.2;",
-    " }",
+    "// ---------- SUPERNOVA: a drop or the Bass Cannon ----------",
+    "// A torn shell of colour races outward, the inside floods with colour, and coloured embers are thrown",
+    "// out and slow down as the blast spends itself.",
+    "vec3 supernova(vec2 p,float ag,float pw,float hu){",
+    " float r=length(p),a=atan(p.y,p.x);",
+    " float fade=exp(-ag*1.1)*min(1.,ag*14.);",
+    " float R=ag*(1.05+pw*.25),wd=.04+ag*.16;",
+    " float tear=noise(vec2(cos(a),sin(a))*1.7+vec2(hu*9.+ag*1.3,ag*.7));",
+    " float shell=exp(-pow((r-R*(.8+.4*tear))/wd,2.));",
+    " vec3 o=flowPal(hu+a*.159+r*.5)*shell*pw*fade*1.1;",
+    " o+=flowPal(hu+.5-r*.6)*(1.-smoothstep(0.,R+.001,r))*pw*exp(-ag*2.4)*.45;",
+    " // the first instant floods the whole field with colour",
+    " o+=flowPal(hu+.15+r*.3)*exp(-ag*6.)*min(1.,ag*30.)*pw*.42;",
+    " float tr=(1.-exp(-ag*1.6))/1.6;",
+    " float Np=140.,pb=(a*.159155+.5)*Np,pid=floor(pb),pf=fract(pb)-.5;",
+    " vec2 h=hash2(vec2(pid,4.7));",
+    " float rp=.04+(1.2+h.x*2.4)*(.6+pw*.5)*tr;",
+    " float dr=(r-rp)/(.012+.03*h.y),da=pf*6.28319/Np*r/.007;",
+    " o+=flowPal(hu+h.y*.6)*exp(-dr*dr-da*da)*step(.35,h.x)*pw*fade*1.6;",
     " return o;",
     "}",
     "// ---------- ENERGY FLOW: TOUCH ----------",
@@ -398,36 +471,86 @@
     " vec2 tDisp=vec2(0.);vec3 tTint=vec3(0.),tGlow=vec3(0.);float tW=0.,tLift=0.;",
     " if(tOn>.001){touchField(p,t,tDisp,tTint,tW,tLift,tGlow);p+=tDisp;}",
     "#endif",
-    " p-=vec2(.09*sin(t*.045),.05*cos(t*.06));",
-    " // The blast wave pushes the whole formation outward, then it settles back.",
-    " float shock=bPow*exp(-pow((length(p)-bAge*1.75)/(.16+bAge*.4),2.))*step(bAge,3.);",
-    " p*=max(.3,1.-shock*.36);",
-    " // The blast throws the field open, then it draws back in and blooms again as the shock dies.",
-    " float R=max(.08,.22+bass*.26+energy*.1+build*.12+beat*.05+surge*.05-recoil*.14);",
-    " float rr=length(p),a=atan(p.y,p.x);",
-    " vec3 col=vec3(.003,.002,.011);",
-    " // far behind: fine dust drifting slowly outward in two depths, so the field floats in space",
-    " for(int L=0;L<2;L++){float fl=float(L);float sc=34.+fl*30.;",
-    "  vec2 dq=p*sc*(1.+fract(t*(.012+fl*.01))*.0)+vec2(t*(.08+fl*.05),-t*.03);vec2 did=floor(dq);vec2 dh=hash2(did+fl*9.);",
-    "  vec2 df=fract(dq)-.5-(dh-.5)*.7;float dd=step(.86,dh.x)*exp(-dot(df,df)*(40.+fl*30.));",
-    "  col+=flowPal(dh.y)*dd*(.12+high*.25+hat*.3)*(1.-fl*.35);}",
-    " col+=livingField(p,t,R)*(1.-burst*.72);",
-    " float coreP=.3+bass*.5+beat*.4+burst*.55;",
-    " col+=mix(f1,vec3(1.),.22)*exp(-rr*rr*(66.-bass*24.))*coreP*.8;",
-    " col+=mix(f4,f3,.45)*exp(-rr*(6.-bass*1.8))*(.05+energy*.1+build*.1);",
-    " // One expanding pulse per detected beat, broken up by angle so it never reads as a drawn circle.",
-    " float ringN=.55+.45*noiseP(vec2(a/6.28319*7.,t*.3),7.);",
-    " float ring=exp(-pow((rr-bphase*(.8+bass*.4)*ringN)/(.1+bass*.07),2.))*(1.-bphase)*(.35+bass*.8+beat*.5);",
-    " col*=1.+ring*.75;",
-    " col+=flowPal(.15+bphase*.3)*ring*.1;",
-    " // High frequencies: fine sparks riding the lit plasma.",
-    " vec2 sg=vec2(a/6.28319*120.,log(rr+.045)*7.5-t*1.1);",
-    " vec2 sid=floor(sg),sh=hash2(sid);",
-    " vec2 sf=fract(sg)-.5-(sh-.5)*.7,sd=sf*vec2(2.55,1.);",
-    " float spk=step(.985-high*.13,sh.x)*exp(-dot(sd,sd)*30.)*(.2+sh.y*.9);",
-    " col+=mix(flowPal(sh.y*.6+.05),vec3(1.),.3)*spk*(.06+high*1.2+hat*.9)*smoothstep(.02,.25,dot(col,vec3(.3,.5,.2)));",
-    " // the snare: a sharp flare of colour through the field's ridges",
-    " col+=flowPal(.62+t*.01)*snare*.35*smoothstep(.05,.4,dot(col,vec3(.3,.5,.2)));",
+    " float calm=fy.w,tens=max(fx.w,build*.9),frag=fx.z,hueT=fx.x,tilt=fy.z,ka=fy.x;",
+    " p-=vec2(.05*sin(t*.043),.035*cos(t*.061));",
+    " vec2 pc=p;",
+    " float r0=length(p);",
+    " // The kick: a ring of pressure runs out through the field and bends everything it passes.",
+    " float kring=exp(-pow((r0-ka*(.75+energy*.5))/(.06+ka*.14),2.))*fy.y*exp(-ka*2.);",
+    " // A drop's shock wave does the same on a far larger scale.",
+    " float bring=bPow*exp(-pow((r0-bAge*1.15)/(.09+bAge*.22),2.))*exp(-bAge*.9)*step(bAge,3.5);",
+    " p-=p/(r0+.001)*(kring*.045+bring*.085);",
+    " float r=length(p);",
+    " // Differential swirl: the core turns faster than the edge, so every structure twists as it flows.",
+    " vec2 sp=rotm(fx.y+fz.x/(1.+r*2.5))*p;",
+    " // ---------- the flow: a slow warp of space that the mids drive harder ----------",
+    " vec2 q=sp*1.3;",
+    " float ws=t*.05+zph*.02;",
+    " vec2 w1=vec2(fbm(q+vec2(1.7,ws),3.),fbm(q+vec2(8.3-ws*.8,2.8),3.));",
+    " float warp=1.1+mid*1.7+tens*.7+frag*1.1+surge*.6;",
+    " float n=fbm(q*1.15+w1*warp+vec2(t*.04,-t*.03),OCT);",
+    " // ---------- the organism: five lobes melted into one body, seen through the warp ----------",
+    " // after a blast the body recoils (draws in) before blooming again",
+    " vec2 pw=(p+(w1-.5)*(.13+mid*.12+frag*.25))*(1.+recoil*.35);",
+    " float F=0.,hs=0.;",
+    " for(int i=0;i<5;i++){vec4 L=lobe[i];vec2 d=pw-L.xy;float c=L.z*L.z/(dot(d,d)+L.z*L.z*.05+1e-5);F+=c;hs+=L.w*c;}",
+    " // the surface itself is turbulent, and a drop tears it into shards along the warp",
+    " // stretched, so the fine filaments run as strands with the flow instead of closing into little rings",
+    " vec2 q2=rotm(.6+w1.x*1.2)*sp*vec2(7.5,1.05)+w1*3.2+vec2(-t*.05,t*.04);",
+    " float n2=fbm(q2,2.+quality);",
+    " // the bass swells the whole body",
+    " float lF=log(F+1e-6)+log(1.+bass*.7),lf=lF+(n-.5)*(2.1+frag*1.6+high*.4)+(n2-.5)*.7;",
+    " float body=smoothstep(-.55,.5,lf);",
+    " // each lobe carries its own colour; where they meet the colours blend",
+    " float hue=hs/F+n*.28+hueT+tilt*.06;",
+    " vec3 cA=flowPal(hue),cB=flowPal(hue+.17+tilt*.05),cC=flowPal(hue-.13);",
+    " // ---------- deep space: a far nebula drifting the other way, and two depths of dust ----------",
+    " vec3 col=vec3(.005,.003,.014);",
+    " float nb=fbm(pc*.75-vec2(t*.012,-t*.008)+w1*.35+11.,2.);",
+    " col+=flowPal(hueT*.6+nb*.8+.45)*smoothstep(.35,.75,nb)*(.05+.07*energy+.04*calm);",
+    " for(int L=0;L<2;L++){float fl=float(L);",
+    "  vec2 g=rotm(fx.y*(.05+fl*.08))*pc*(26.+fl*20.)+vec2(t*(.04+fl*.05),-t*.02);vec2 id=floor(g),hh=hash2(id+fl*13.);",
+    "  vec2 f=fract(g)-.5-(hh-.5)*.7;",
+    "  col+=flowPal(hh.y+hueT)*step(.88,hh.x)*exp(-dot(f,f)*(50.+fl*30.))*(.12+high*.25)*(.6+.4*fl);}",
+    " // ---------- two ribbons behind the body ----------",
+    " float rp=fz.y+t*.12;",
+    " vec2 rbA=ribbon(sp,.35+.25*sin(t*.07),.16+bass*.08+mid*.06,2.2,rp,.05+bass*.03,3.1);",
+    " vec2 rbB=ribbon(sp,-.9+.2*sin(t*.05+1.),.2+mid*.1,1.7,-rp*.8+2.,.04+bass*.025,2.4);",
+    " float ribK=(.5+energy*.6+(1.-calm)*.3)*(1.+beat*.25);",
+    " vec3 ribCol=(flowPal(hueT+sp.x*.2-t*.03+.22)*rbA.x+flowPal(hueT+sp.x*.2+t*.03+.33)*rbB.x*.85)*.55;",
+    " ribCol+=flowPal(hueT+sp.x*.25+.28)*(rbA.y+rbB.y*.8)*1.2;",
+    " col+=ribCol*ribK*(1.-body*.8);",
+    " // ---------- the body: plasma with dark lanes, veins the treble sharpens, a lacy glowing edge ----------",
+    " float ridge=pow(1.-abs(n*2.-1.),6.+high*7.);",
+    " float fine=pow(1.-abs(n2*2.-1.),14.+high*10.)*smoothstep(.35,.62,w1.y);",
+    " float bands=pow(.5+.5*sin(n*(16.+tens*14.)-t*1.3-zph*1.6-ka*5.),8.)*(.15+high*.7+hat*.5)*smoothstep(.42,.68,n2);",
+    " float dens=smoothstep(.36,.86,n+(n2-.5)*.28);",
+    " vec3 inner=cA*(.05+.95*dens*dens+.16*smoothstep(-.2,1.4,lf))+cB*ridge*(.55+high*.6+snare*.9)+mix(cC,cA,.4)*fine*(1.+high*1.5+hat*.8)*smoothstep(.15,.55,n)+cB*bands*.35;",
+    " // a build-up charges the body: brighter, tighter ripples, faster swirl",
+    " inner*=.8+.3*energy+.25*bass+tens*.3;",
+    " col=mix(col,inner,body*(.94-calm*.1));",
+    " // (only near the outer surface: a dip deep inside the body is not an edge)",
+    " float edge=exp(-lf*lf*9.)*(1.-smoothstep(.3,1.5,lF));",
+    " col+=mix(cA,cB,ridge)*edge*(.05+.6*ridge+.25*fine)*(.45+bass*.6+beat*.3);",
+    " // a soft glow round the body, and tendrils carrying its energy out into space",
+    " float outer=1.-body;",
+    " col+=cA*exp(min(lf,0.)*1.8)*outer*(.04+.06*energy+.06*bass);",
+    " col+=cB*ridge*smoothstep(-2.6,-.2,lf)*outer*(.22+mid*.5+frag*.6);",
+    " // ---------- a third ribbon passes in front, wrapping round the body when the music drives ----------",
+    " float frontK=smoothstep(.15,.55,energy+mid*.5);",
+    " if(frontK>.01){vec2 rbC=ribbon(sp,1.9+.3*sin(t*.06+2.),.12+bass*.06,2.8,rp*1.2+4.,.03+bass*.02,3.7);",
+    " col+=(flowPal(hueT+sp.x*.3-t*.04+.4)*rbC.x+flowPal(hueT+.36+sp.x*.3)*rbC.y*1.3)*ribK*(.45+mid*.5)*frontK;}",
+    " // ---------- sparks streaming outward with the swirl; the treble and the hats light them ----------",
+    " float pa=atan(sp.y,sp.x)*.159155,lr=log(r+.05);",
+    " vec2 sg=vec2(pa*96.,lr*8.-t*.5-zph*1.1);vec2 sid=floor(sg),sh=hash2(sid);",
+    " vec2 sf=(fract(sg)-.5-(sh-.5)*.6)*vec2(2.6,1.);",
+    " float spk=step(.962-high*.1-hat*.08,sh.x)*exp(-dot(sf,sf)*34.)*smoothstep(.06,.25,r)*(.35+.65*smoothstep(-3.,-.4,lf));",
+    " col+=flowPal(hue+sh.y*.3+.25)*spk*(.3+high*1.4+hat*1.);",
+    " // the beat: a band of colour (not light) travelling out from the centre",
+    " float bw=exp(-pow((r-bphase*(.7+bass*.4))/(.08+bass*.05),2.))*(1.-bphase)*(.3+bass*.7);",
+    " col=mix(col,col*.55+flowPal(hueT+.5+bphase*.3)*.4*(col.r+col.g+col.b+.25),clamp(bw*.8,0.,.75));",
+    " col*=1.+bw*(.45+beat*.6);",
+    " col*=1.+kring*1.2+bring*.8;",
     "#ifndef NO_TOUCH",
     " if(tOn>.001){",
     "  // touch colour soaks into the energy that is already there, then lights it",
@@ -438,9 +561,14 @@
     "  col+=tGlow;",
     " }",
     "#endif",
-    " // keep the colour when the field is loud: a soft knee instead of burning to white",
-    " col=col/(1.+dot(col,vec3(.3,.45,.25))*.55);",
-    " if(burst>.001)col+=supernova(p,bAge,bPow);",
+    " if(burst>.001)col+=supernova(p,bAge,bPow,hueT);",
+    " // a hue-preserving soft knee: the brightest energy stays coloured instead of burning to white",
+    " // (with a toe, so dark space stays deep black). Where several colours pile up, the light is pushed",
+    " // back toward its strongest colour rather than adding up to white.",
+    " float mx=max(col.r,max(col.g,col.b)),mn=min(col.r,min(col.g,col.b));",
+    " col-=mn*.5*smoothstep(.35,1.3,mx);",
+    " mx=max(col.r,max(col.g,col.b));",
+    " col*=(1.-exp(-mx*1.4))*mx/(mx+.05)/max(mx,1e-4)*1.08;",
     " return col;",
     "}",
     "void main(){",
@@ -454,19 +582,21 @@
     "  if(bgMix>.001)bg=mix(bg,background(bgB,uv,t),bgMix);",
     "  vec4 o=heroOrb(uv,t);",
     "  col=bg*(1.-o.a*.92)+o.rgb;",
+    "  float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.2),0.);",
+    "  col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);",
+    "  col=pow(clamp(col,0.,1.),vec3(.92));",
     " }",
     "#endif",
     "#ifndef NO_FLOW",
     " if(flow>.001){",
     "  vec3 f=flowScene(uv,t);",
+    "  float fl=dot(f,vec3(.299,.587,.114));f=max(mix(vec3(fl),f,1.3),0.);",
+    "  f=pow(clamp(f,0.,1.),vec3(.95));",
     "  float n=fbm(uv*1.8+t*.05,3.);",
     "  col=flow>=.999?f:mix(col,f,smoothstep(n-.15,n+.15,flow*1.3-.15));",
     " }",
     "#endif",
-    " float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.2),0.);",
-    " col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);",
-    " col=pow(clamp(col,0.,1.),vec3(.92));",
-    " col*=.72+.28*smoothstep(1.3,.25,length(uv*vec2(.85,1.)));",
+    " col*=.72+.28*(1.-smoothstep(.25,1.3,length(uv*vec2(.85,1.))));",
     " col+=(hash1(gl_FragCoord.xy+fract(t*11.))-.5)/255.*2.;",
     " gl_FragColor=vec4(clamp(col,0.,1.),1.);",
     "}"
@@ -481,6 +611,7 @@ precision mediump float;
 // the viewer and pass by; sparks stream past; beats send rings of light down the tunnel.
 uniform vec2 res;
 uniform float T, bass, mid, high, energy, beat, blast, blastAge, build, quality, prism, swirl, fadeIn;
+uniform float snare, hat, hueT, calm;
 uniform vec3 k1, k2, k3, k4, k5;
 uniform vec4 bursts[3];   // x, y, age (s), power
 uniform vec4 drags[4];    // x, y, velocity x, velocity y (already scaled by remaining life)
@@ -534,11 +665,18 @@ void main(){
  float neb=noise(nd*1.7+vec2(t*.02,0.)+r0*1.5)*.6+(quality>.5?noise(nd*3.4-vec2(0.,t*.03)+r0*3.)*.4:.2);
  col+=mix(k3,k1,neb)*smoothstep(.45,.9,neb)*.10*smoothstep(.15,.9,r0)*(.7+energy*.6);
 float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
- col+=mix(k5,vec3(1.),.4)*core*(.8+energy*.5);
+ col+=mix(k5,k2,.35)*core*(.8+energy*.5);
+ // the tunnel's walls: rings of light rushing past and faint ribs along its length, so the journey has
+ // depth and speed (brighter with the music, a flash of the second colour on each snare)
+ float zw=.42/(r0+.02),wa=atan(p.y,p.x);
+ float wring=pow(.5+.5*sin(zw*7.-T*2.6-build*zw*2.),10.);
+ float wrib=pow(abs(sin(wa*9.+zw*.6+swirl*2.)),14.);
+ float wall=(wring*.7+wrib*.45)*smoothstep(.2,.6,r0)*(1.-smoothstep(.7,1.15,r0))*(1.-smoothstep(2.,9.,zw));
+ col+=mix(inkPal(zw*.05+hueT+.3),inkPal(hueT+.55),snare*.7)*wall*(.05+energy*.08+beat*.12+snare*.18)*(1.-calm*.4);
  // rings of light racing down the tunnel on the beat and on drops
  float ringR=fract(t*.35)*1.6;
  col+=mix(k1,k2,.5)*exp(-pow((r0-ringR)*10.,2.))*beat*.35;
- if(blastAge<2.5)col+=mix(k2,vec3(1.),.4)*(exp(-pow((r0-blastAge*1.1)*18.,2.))*1.1+exp(-pow((r0-blastAge*1.1)*6.,2.))*.035)*blast;
+ if(blastAge<2.5)col+=mix(k2,k5,.4)*(exp(-pow((r0-blastAge*1.1)*18.,2.))*1.1+exp(-pow((r0-blastAge*1.1)*6.,2.))*.035)*blast;
  // colour injections: weigh them once here rather than once per membrane
  float iw0=inj[0].z>.001?exp(-dot(uv-inj[0].xy,uv-inj[0].xy)/(.02+inj[0].z*.08))*min(1.,inj[0].z*1.5):0.;
  float iw1=inj[1].z>.001?exp(-dot(uv-inj[1].xy,uv-inj[1].xy)/(.02+inj[1].z*.08))*min(1.,inj[1].z*1.5):0.;
@@ -551,7 +689,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   if(fi>=NL)break;
   float z=1.-fract(travel+fi/NL);                 // 1 = far, 0 = passing the viewer
   float dist=.12+z*2.7;
-  float vis=(1.-smoothstep(.78,1.,z))*smoothstep(.10,.34,z);   // fade in far away, out before it fills the view
+  float vis=(1.-smoothstep(.78,1.,z))*smoothstep(.07,.3,z);   // fade in far away, out as it fills the view
   if(vis<.04)continue;
   float id=floor(travel+fi/NL)*NL+fi;            // each new membrane gets its own design
   float hid=hash1(vec2(id,1.7)), hid2=hash1(vec2(id,8.3));
@@ -574,14 +712,15 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   float rim=exp(-abs(edge)*(26.+z*20.))+exp(-abs(edge)*(6.+(1.-z)*10.))*.24*z;
   // colour: each membrane takes its own place on the palette and shifts as it travels
   // inner skin and rim sit on different parts of the palette, so every membrane is two-toned
-  vec3 cIn=inkPal(hid*.97+z*.22+t*.012);
-  vec3 cRim=inkPal(hid*.97+.5+t*.012);
+  vec3 cIn=inkPal(hid*.97+z*.22+t*.012+hueT);
+  vec3 cRim=inkPal(hid*.97+.5+t*.012+hueT);
+  cRim=mix(cRim,inkPal(hid*.97+.25+hueT),snare*.6);
   cIn=mix(cIn,cRim,clamp(hueKick*.5,0.,.7));
   if(iW>.002){cIn=mix(cIn,inkPal(hid*.9+iPos+.5),iW);cRim=mix(cRim,inkPal(iPos+.75),iW);}
   vec3 cRib=mix(cIn,cRim,.55);
   float sparkle=treble?high*pow(noise(lp*14.+t*3.),6.)*6.:0.;
   vec3 lc=cIn*inside*(.08+veins*.55)+cRib*inside*rib*.55*(.6+mid*.7)
-         +mix(cRim,vec3(1.),.12+high*.2)*rim*(.85+high*.5+sparkle)
+         +cRim*rim*(1.+high*.5+sparkle+hat*.3)
          +cIn*exp(-r*4.)*inside*.22;
   float depth=mix(1.15,.35,z);                   // near membranes are brighter, far ones sink into haze
   lc*=.72+.38*max(0.,cos(a-2.2+hid))+(1.-tilt)*.3*sin(a);   // lit from one side, darker on the far side
@@ -603,12 +742,17 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   float along=dot(d,dir), side=dot(d,vec2(-dir.y,dir.x));
   float len=.03+ph*.13*(1.+bass*.8);
   float sk=exp(-side*side*60000.)*smoothstep(-len,0.,along)*(1.-smoothstep(0.,.004,along))*(1.-step(.5,abs(fract(a*cells)-.5)*2.));
-  col+=mix(inkPal(h*2.),vec3(1.),.4)*sk*step(.45,h2)*smoothstep(.0,.2,ph)*(.6+high*1.2+energy*.4);
+  col+=inkPal(h*2.+hueT)*1.25*sk*step(.45,h2)*smoothstep(.0,.2,ph)*(.6+high*1.2+energy*.4+hat*.9);
  }
  col+=inkPal(hueKick*.4+t*.02)*touchGlow*.35;
  col*=fadeIn;
- float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.15),0.);
- col=col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
+ // a hue-preserving soft knee instead of a per-channel curve, so bright light keeps its colour
+ // (with a toe, so the space around the tunnel stays deep black; only the very hottest rim light
+ // is allowed to run toward white)
+ float mx=max(col.r,max(col.g,col.b));
+ col*=(1.-exp(-mx*1.5))*mx/(mx+.05)/max(mx,1e-4)*1.08;
+ col+=vec3(max(mx-1.6,0.)*.12);
+ float lum=dot(col,vec3(.299,.587,.114));col=max(mix(vec3(lum),col,1.18),0.);
  col=pow(clamp(col,0.,1.),vec3(.92));
  col*=.8+.2*(1.-smoothstep(.4,1.4,length(uv*vec2(.85,1.))));
  col+=(hash1(gl_FragCoord.xy+fract(t*11.))-.5)/255.*2.;
@@ -621,7 +765,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   function accent(alpha) { var c = presets[preset].accent; return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + alpha + ')'; }
   function setPreset(name) {
     if (!presets[name]) return;
-    preset = name; sprites = {}; presetRgb = presets[name].colors.map(hexRgb); flowRgb = presets[name].flow.map(hexRgb);
+    preset = name; sprites = {}; presetRgb = presets[name].colors.map(hexRgb); flowRgb = presets[name].flow.map(hexRgb); palDirty = true;
     root.setAttribute('data-preset', name);
     Array.prototype.forEach.call(document.querySelectorAll('.party-preset'), function (el) {
       el.classList.toggle('active', el.getAttribute('data-preset') === name);
@@ -744,9 +888,10 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       try {
         for (var k in glProgs) if (glProgs[k]) gl.deleteProgram(glProgs[k]);
         if (glBuf) gl.deleteBuffer(glBuf);
+        if (palTex) gl.deleteTexture(palTex);
       } catch (e) {}
     }
-    gl = null; glProg = null; glBuf = null; glU = {}; glProgs = {}; glUs = {}; glVariant = ''; glOk = false;
+    gl = null; glProg = null; glBuf = null; palTex = null; palDirty = true; glU = {}; glProgs = {}; glUs = {}; glVariant = ''; glOk = false;
     if (glCanvas && !glFailed) { glCanvas.width = 1; glCanvas.height = 1; }
   }
   function glResize() {
@@ -764,6 +909,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     lastBurstAt = performance.now();
     fieldRecoil = Math.min(.9, fieldRecoil + power * .4);
     surge = Math.min(1.6, surge + power * .3);
+    flowFragment(power);
   }
   function detectBurst(now) {
     if (experience !== 'flow' || !glOk) return;
@@ -772,7 +918,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (now - lastBurstAt < 820) return;
     var erupts = now - lastQuietAt < 900 && punch > .045;
     var clears = bassFast > bassPeak * .97 && punch > Math.max(.045, bassSlow * 2.1);
-    var major = buildUp > .55 || erupts || clears;
+    var major = buildUp > .55 || ((erupts || clears) && groove > .35);
+    if (!major && groove < .25) return;
     if (major && now - lastDropAt > 2600) {
       triggerBurst(1.05 + Math.min(.6, punch * 5 + buildUp * .5)); lastDropAt = now; buildUp *= .2;
     } else if (!major) {
@@ -905,8 +1052,17 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     var s = dt / 1000, eNorm = clamp((musicLevel - .08) / 1.1, 0, 1), bN = clamp(bassLevel / 1.2, 0, 1), mN = clamp(midLevel / 1.1, 0, 1), hN = clamp(highLevel / 1.1, 0, 1), beatN = clamp(beatPulse / 1.2, 0, 1);
     var calm = .55 + eNorm * .75;
     analyseMusic(s, now);
-    sceneT = (sceneT + s * calm) % 3600;
-    flowPhase = (flowPhase + s * (.3 + eNorm * .65 + beatN * .5 + surge * 1.2)) % 1000;
+    // adaptive band levels (see adaptBand) for the Energy Field
+    var live = now - lastAudioSample < 900;
+    // (the bass is weighted by the groove: kicks and a bass line pump the field, while pads and notes that
+    // merely sit in the bass band only swell it gently)
+    var eA = live ? adaptBand('e', Math.max(0, musicLevel - .08), s, .22) : 0, bA = live ? adaptBand('b', bassLevel, s, .3) * (.45 + .55 * groove) : 0;
+    var mA = live ? adaptBand('m', midLevel, s, .25) : 0, hA = live ? adaptBand('h', highLevel, s, .22) : 0;
+    adapt.E += (eA - adapt.E) * Math.min(1, s * 4); adapt.B = bA; adapt.M += (mA - adapt.M) * Math.min(1, s * 6); adapt.H = hA;
+    if (experience === 'flow' || flowMix > .001) flowOrganismStep(s, adapt.E, bA, adapt.M, hA, beatN);
+    var flowPace = 1 - flowCalm * .4 * flowMix;   // the Energy Field slows down on quiet music
+    sceneT = (sceneT + s * calm * flowPace) % 3600;
+    flowPhase = (flowPhase + s * ((.3 + eNorm * .65 + beatN * .5) * flowPace + surge * 1.2)) % 1000;
     flowMix += (flowTarget - flowMix) * Math.min(1, s * 1.6); if (Math.abs(flowTarget - flowMix) < .002) flowMix = flowTarget;
     if (bgTo !== bgFrom) { bgMix = Math.min(1, bgMix + s / 1.3); if (bgMix >= 1) { bgFrom = bgTo; bgMix = 0; } }
     surge = Math.max(0, surge - s * .9);
@@ -921,7 +1077,10 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     gl.uniform2f(glU.orbC, (cx - w * .5) / h, -(cy - h * .5) / h);
     gl.uniform1f(glU.orbR, U / h * (.105 + eNorm * .012));
     gl.uniform1f(glU.T, sceneT); gl.uniform1f(glU.zph, flowPhase);
-    gl.uniform1f(glU.bass, bN); gl.uniform1f(glU.mid, mN); gl.uniform1f(glU.high, hN); gl.uniform1f(glU.energy, eNorm); gl.uniform1f(glU.beat, beatN);
+    // the Energy Field reads the adaptive levels, the Orb Experience the meter's own scale
+    var fk = flowMix * flowMix * (3 - 2 * flowMix);
+    gl.uniform1f(glU.bass, bN + (bA * .9 - bN) * fk); gl.uniform1f(glU.mid, mN + (adapt.M * .9 - mN) * fk); gl.uniform1f(glU.high, hN + (hA * .85 - hN) * fk);
+    gl.uniform1f(glU.energy, eNorm + (adapt.E - eNorm) * fk); gl.uniform1f(glU.beat, beatN);
     gl.uniform1f(glU.quality, glQuality);
     gl.uniform1f(glU.bgA, bgFrom); gl.uniform1f(glU.bgB, bgTo); gl.uniform1f(glU.bgMix, bgMix * bgMix * (3 - 2 * bgMix));
     gl.uniform1f(glU.flow, flowMix * flowMix * (3 - 2 * flowMix)); gl.uniform1f(glU.surge, surge);
@@ -929,7 +1088,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     gl.uniform1f(glU.burst, burstEnv); gl.uniform1f(glU.bAge, burstAge); gl.uniform1f(glU.bPow, burstPower);
     gl.uniform1f(glU.recoil, fieldRecoil);
     gl.uniform1f(glU.snare, Math.min(1, snareEnv)); gl.uniform1f(glU.hat, Math.min(1, hatEnv));
-    var c1 = tint(pal[0] || [40, 234, 255], 1), c2 = tint(pal[5] || [231, 251, 255], .95), c3 = tint(pal[2] || [165, 104, 255], 1);
+    // c2 (the palette's pale colour) is tinted toward its second colour, so the light reads as colour, not white
+    var c1 = tint(pal[0] || [40, 234, 255], 1), c2 = tint(mixRgb(pal[5] || [231, 251, 255], pal[1] || [56, 139, 255], .42), .95), c3 = tint(pal[2] || [165, 104, 255], 1);
     var flowAccent = tint(pal[3] || [255, 83, 200], 1);
     var c3m = [c3[0] * .55 + flowAccent[0] * .45, c3[1] * .55 + flowAccent[1] * .45, c3[2] * .55 + flowAccent[2] * .45];
     // With music the palette's colours flow into one another, faster on the beat; silence holds them still.
@@ -941,9 +1101,15 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     gl.uniform3f(glU.c1, a1[0], a1[1], a1[2]); gl.uniform3f(glU.c2, c2[0], c2[1], c2[2]);
     gl.uniform3f(glU.c3, a3[0], a3[1], a3[2]);
     if (glU.tOn) flowTouchUpload();
-    for (var fi = 0; fi < 4; fi++) {
-      var fc = tint(flowRgb[fi] || presets[preset].accent, 1);
-      gl.uniform3f(glU['f' + (fi + 1)], fc[0], fc[1], fc[2]);
+    if (glU.palT) {
+      if (palDirty || !palTex) uploadFlowPalette();
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, palTex); gl.uniform1i(glU.palT, 0);
+    }
+    if (glU.lobe) {
+      gl.uniform4fv(glU.lobe, lobeBuf);
+      gl.uniform4f(glU.fx, flowHueT, flowSwirl, flowFrag, flowTension);
+      gl.uniform4f(glU.fy, kickAge, kickPow, flowTilt, flowCalm);
+      gl.uniform4f(glU.fz, flowTwist, ribPhase, 0, 0);
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     glFrames++;
@@ -967,7 +1133,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   function inkX(px) { return (px - w * .5) / h; }
   function inkY(py) { return -(py - h * .5) / h; }
   function triggerInk(power) {
-    blastPow = Math.min(1.6, power); blastAge = 0; blastEnv = 0; inkBlastCount++; lastInkBlast = performance.now();
+    blastPow = Math.min(1.6, power); blastAge = 0; blastEnv = 0; inkBlastCount++; lastInkBlast = performance.now(); inkHue += .08 * power;
   }
   // The liquid's own events. Ordinary beats only pulse it (the beat uniform); a hard bass punch
   // throws a modest splash now and then, and a drop, an eruption out of a quiet passage or a
@@ -993,7 +1159,10 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (was < .5 && inkMix >= .5) inkFrames = 0;
     setGlOpacity(inkMix < .5 ? 1 - inkMix * 2 : 1);
     // quiet music drifts; building and loud music speed the liquid up
-    inkT = (inkT + s * (.22 + eNorm * .85 + mN * .35 + buildUp * .35 + blastEnv * .6)) % 1000;
+    inkKick *= Math.exp(-s * 4.5);
+    inkCalm += (clamp(1.2 - adapt.E * .4 - groove * 1.1, 0, 1) - inkCalm) * Math.min(1, s / 2.5);
+    inkHue = (inkHue + s * (.004 + eNorm * .02 + mN * .012 + buildUp * .03)) % 1000;
+    inkT = (inkT + s * ((.22 + eNorm * .85 + mN * .35) * (1 - inkCalm * .35) + buildUp * .35 + blastEnv * .6 + inkKick * 1.4)) % 1000;
     var swirlTarget = Math.sin(inkT * .21) * (.35 + mN * 1.5);
     inkSwirl += (swirlTarget - inkSwirl) * Math.min(1, s * 1.5);
     blastAge = Math.min(9, blastAge + s);
@@ -1036,6 +1205,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     gl.uniform1f(u.blast, Math.min(1.2, blastEnv)); gl.uniform1f(u.blastAge, blastAge); gl.uniform1f(u.build, buildUp);
     gl.uniform1f(u.quality, glQuality); gl.uniform1f(u.prism, inkPrism > .5 ? 1 : 0); gl.uniform1f(u.swirl, inkSwirl);
     gl.uniform1f(u.fadeIn, fade * fade * (3 - 2 * fade));
+    gl.uniform1f(u.snare, Math.min(1, snareEnv)); gl.uniform1f(u.hat, Math.min(1, hatEnv)); gl.uniform1f(u.hueT, inkHue); gl.uniform1f(u.calm, inkCalm);
     for (var i = 0; i < 5; i++) gl.uniform3f(u['k' + (i + 1)], inkCols[i][0], inkCols[i][1], inkCols[i][2]);
     var B = inkBuf.bursts, D = inkBuf.drags, J = inkBuf.inj;
     for (i = 0; i < 3; i++) { var b = inkBursts[i]; B[i * 4] = b.x; B[i * 4 + 1] = b.y; B[i * 4 + 2] = b.age; B[i * 4 + 3] = b.pow; }
@@ -1151,7 +1321,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     // z: depth in the field (0 far, 1 near). Far orbs are smaller, dimmer and drawn first.
     var z = index % 3 === 0 ? rand(0, .35) : rand(.35, 1);
     return { x: x, y: y, vx: rand(-.45, .45), vy: rand(-.4, .4), r: rand(10, 24) * (.62 + z * .55), z: z,
-      phase: rand(0, 6.28), rate: rand(.0017, .0046), color: index % presets[preset].colors.length,
+      phase: rand(0, 6.28), rate: rand(.0017, .0046), color: index % presets[preset].colors.length, band: index % 3,
       waveX: x, waveBase: y, nextImpulse: 0 };
   }
   function resize() {
@@ -1386,7 +1556,9 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   }
   function orbScale(o, now, index) {
     var pulse;
-    var bass = bassLevel * .32 + beatPulse * .28;
+    // each orb listens to its own part of the music: a third swell with the kick and the bass, a third
+    // breathe with the mids, and a third twinkle with the hi-hats and treble
+    var bass = o.band === 0 ? bassLevel * .45 + beatPulse * .4 : o.band === 1 ? midLevel * .38 + beatPulse * .08 : highLevel * .16 + hatEnv * .22 + beatPulse * .05;
     if (mode === 'pulse') pulse = 1 + Math.sin(now * o.rate + o.phase) * (.18 + musicLevel * .08);
     else if (mode === 'wave') pulse = 1 + Math.sin(o.waveX / w * 5.5 - now * .0016 + o.phase) * .16;
     else if (mode === 'vortex') pulse = 1 + Math.sin(now * .0018 + o.phase + index * .14) * .1;
@@ -1495,7 +1667,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       ctx.globalAlpha = Math.min(1, glow * depth);
       ctx.drawImage(sprite, o.x - r * 1.85, o.y - r * 1.85, r * 3.7, r * 3.7);
       // the energy inside flares on the kick, on its own snare flash and when touched
-      var flare = beatPulse * .45 * (.5 + o.z * .5) + (o.flash || 0) * .7 + (o.spark || 0) + (o.charge || 0) * .5;
+      var heard = o.band === 0 ? beatPulse * .62 : o.band === 1 ? midLevel * .3 + snareEnv * .55 : hatEnv * .75 + highLevel * .18;
+      var flare = heard * (.5 + o.z * .5) + (o.flash || 0) * .7 + (o.spark || 0) + (o.charge || 0) * .5;
       if (flare > .03) {
         ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(1, flare) * depth;
         var cr = r * (1.1 + flare * .5);
@@ -1704,6 +1877,12 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
           else { beatConfidence = Math.max(0, beatConfidence - .2); if (beatConfidence < .2) beatPeriod = clamp(gap, .3, 1.2); }
         }
         lastBeatAt = now; beatPhase = 0;
+        // groove: how drum-like the beat is (a steady pulse with hard kicks, rather than notes that
+        // happen to land in the bass band). It scales the field's reaction to each kick.
+        punchAvg += (Math.max(0, bass - bassEnvelope) - punchAvg) * .2;
+        groove = clamp(beatConfidence * (punchAvg - .01) / .035, 0, 1);
+        if (experience === 'ink') inkKick = Math.min(1.2, inkKick + clamp((bass - bassEnvelope) * 14 + .45, .4, 1) * (.4 + .6 * groove));
+        if (experience === 'flow') flowKick(clamp((bass - bassEnvelope) * 14 + .35, .3, 1.1) * (.3 + .7 * groove));
         detectBurst(now); detectInk(now);
         if (mode === 'ripple') ripple(w * .5, h * .5, .7 + beatPulse * .55);
         if (mode === 'chaos') for (var bi = 0; bi < orbs.length; bi++) { orbs[bi].vx += (orbs[bi].x - w * .5) * .00055 * beatPulse; orbs[bi].vy += (orbs[bi].y - h * .5) * .00055 * beatPulse; }
@@ -1754,8 +1933,8 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     resize();
     bgFrom = bgTo; bgMix = 0; flowMix = flowTarget; flowTouchReset(true);
     inkMix = inkTarget; inkG = null; inkTwist.on = false; inkTwist.str = inkTwist.wind = 0; blastPow = 0; blastAge = 9; inkCols = null; glOpacity = 'x';
-    buildUp = 0; beatPhase = 1; beatConfidence = 0; burstPower = 0; burstEnv = 0; burstAge = 9; fieldRecoil = 0;
-    bassFast = 0; bassSlow = .01; bassPeak = .02; energyFast = energySlow = .08; highFast = highSlow = 0;
+    buildUp = 0; beatPhase = 1; beatConfidence = 0; burstPower = 0; burstEnv = 0; burstAge = 9; fieldRecoil = 0; flowOrganismReset();
+    bassFast = 0; bassSlow = .01; bassPeak = .02; groove = 0; punchAvg = 0; energyFast = energySlow = .08; highFast = highSlow = 0;
     lastAudioSample = 0; lastBeatAt = lastBurstAt = lastDropAt = lastQuietAt = performance.now();
     try { if (window.Android && Android.meterDetail) Android.meterDetail(true); } catch (e) {}
     snareEnv = hatEnv = 0;
@@ -1810,11 +1989,14 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     state: function () { return { experience: experience, backdrop: backdrop, gl: glOk, glFailed: glFailed, glFrames: glFrames, glScale: glScale, quality: glQuality, flowMix: flowMix, bgMix: bgMix, surge: surge, flowPhase: flowPhase, classicWeight: classicWeight, active: active, variant: glVariant,
       build: buildUp, beatPhase: beatPhase, beatPeriod: beatPeriod, beatConfidence: beatConfidence, burst: burstEnv, burstPower: burstPower, burstAge: burstAge, burstCount: burstCount, recoil: fieldRecoil,
       bassFast: bassFast, bassSlow: bassSlow, energyFast: energyFast, energySlow: energySlow,
+      organism: { frag: flowFrag, tension: flowTension, calm: flowCalm, swirl: flowSwirl, hueT: flowHueT, tilt: flowTilt, kicks: kickCount, kickAge: kickAge,
+        spread: Math.max.apply(null, lobes.map(function (o) { return Math.sqrt(o.x * o.x + o.y * o.y); })), lobes: Array.prototype.slice.call(lobeBuf),
+        adapt: { e: adapt.E, b: adapt.B, m: adapt.M, h: adapt.H }, groove: groove, punch: punchAvg },
       touch: { n: touchN, on: flowTouchOn, down: flowTouches.filter(function (t) { return t.down; }).length, wake: flowWake.length, gestures: { tap: flowGestures.tap, hold: flowGestures.hold, drag: flowGestures.drag, multi: flowGestures.multi },
         attract: Math.max(flowTouches[0].attract, flowTouches[1].attract, flowTouches[2].attract, flowTouches[3].attract), contact: Math.max(flowTouches[0].contact, flowTouches[1].contact, flowTouches[2].contact, flowTouches[3].contact),
         bursts: flowBursts.filter(function (b) { return b.age < 9; }).length },
       music: { bass: bassLevel, mid: midLevel, high: highLevel, energy: musicLevel, beat: beatPulse, snare: snareEnv, hat: hatEnv, snareHits: snareHits, hatHits: hatHits, detail: performance.now() - detailAt < 600 },
-      ink: { mix: inkMix, failed: inkFailed, frames: inkFrames, t: inkT, swirl: inkSwirl, blast: blastEnv, blastCount: inkBlastCount, palette: preset,
+      ink: { mix: inkMix, kick: inkKick, hue: inkHue, calm: inkCalm, failed: inkFailed, frames: inkFrames, t: inkT, swirl: inkSwirl, blast: blastEnv, blastCount: inkBlastCount, palette: preset,
         gestures: { burst: inkGestures.burst, twist: inkGestures.twist, drag: inkGestures.drag, splash: inkGestures.splash, inject: inkGestures.inject },
         twist: { on: inkTwist.on, str: inkTwist.str, wind: inkTwist.wind }, injected: Math.max(inkInj[0].amt, inkInj[1].amt),
         dragLife: Math.max(inkDrags[0].life, inkDrags[1].life, inkDrags[2].life, inkDrags[3].life), splashAge: inkSplash.age,

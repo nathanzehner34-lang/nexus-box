@@ -72,6 +72,8 @@ jobs:
           node --check tools/voice-test/liquid-dreams-music.test.js
           node tools/voice-test/party-mode-render.test.js
           node tools/voice-test/party-premium.test.js
+          node tools/voice-test/party-music.test.js
+          node --check tools/voice-test/party-music/party-video.js
           node tools/voice-test/cinema.test.js
           node tools/voice-test/music-bar.test.js
           node tools/voice-test/cinema-meta.test.js
