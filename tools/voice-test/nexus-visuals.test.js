@@ -19,7 +19,7 @@ const clips = fs.readdirSync(clipDir).filter(f => f.endsWith('.mp4'));
 assert.deepStrictEqual(clips.sort(), order.map(k => k.slice(5) + '.mp4').sort(), 'one continuous reel per scene plus the mix, and nothing left over (' + clips.join(', ') + ')');
 assert(!/flag|Molten/i.test(vis) && !/clip_flag|MOLTEN FLAG/.test(app) && !fs.existsSync(path.join(clipDir, 'flag.jpg')), 'Molten Flag is gone everywhere');
 // seamless playback: each scene is one looping reel, so nothing loads mid-scene and nothing goes black
-assert(vis.includes("v.loop = true;") && !/\.prototype\.cut\b/.test(vis) && !/fx\.dip/.test(vis), 'scenes loop one continuous reel: no mid-scene loads, no black beat dips');
+assert(vis.includes("v.loop = false;") && vis.includes('function advance(n, why)') && !/fx\.(dip|zoom|flash|glitch)/.test(vis), 'each video plays once and the playlist moves on: no loops, no music effects');
 const total = clips.reduce((n, f) => n + fs.statSync(path.join(clipDir, f)).size, 0);
 assert(total < 90e6, 'clips stay light for the box (' + (total / 1e6).toFixed(1) + ' MB)');
 for (const k of order.slice(1)) assert(fs.existsSync(path.join(clipDir, k.slice(5) + '.jpg')), k + ' has a film still for its card');
@@ -58,15 +58,16 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
       NXV.start(k); const t0=Date.now(); let d;
       while(Date.now()-t0<8000){ await wait(150); d=NXV.debug().theme; R.maxVideos=Math.max(R.maxVideos,vids()); if(d&&d.ready>=2&&d.time>.2)break; }
       // the hardware video itself must carry real pictures (sampled over ~1.5 s, best frame)
-      const v=document.querySelector('#xp video'), cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d');
+      const v=[...document.querySelectorAll('#xp video')].find(x=>x.style.opacity==='1')||document.querySelector('#xp video'), cv2=document.createElement('canvas'); cv2.width=64; cv2.height=36; const g=cv2.getContext('2d');
       let mean=0, sd=0;
       for(let f=0;f<10;f++){ g.drawImage(v,0,0,64,36);
         const im=g.getImageData(0,0,64,36).data; let s=0,s2=0; for(let i=0;i<im.length;i+=4){const l=.299*im[i]+.587*im[i+1]+.114*im[i+2]; s+=l; s2+=l*l;}
         const n=im.length/4, m=s/n, d2=Math.sqrt(Math.max(0,s2/n-m*m)); if(m+d2>mean+sd){mean=m;sd=d2;} await wait(150); }
       for(let i=0;i<45;i++){NXV.feed([.2,.2,.3,.3,.2,.2]);await wait(40);}
-      const tf0=NXV.debug().theme.transform, zA=NXV.debug().theme.zoom; NXV.feed([1,1,.4,.4,.3,.3]); let zMax=-1, tfKick='';
-      for(let i=0;i<12;i++){await wait(25); const dd=NXV.debug().theme; if(dd.zoom>zMax){zMax=dd.zoom; tfKick=dd.transform;}}
-      R.t[k]={ready:d.ready,playing:d.playing,time:d.time,mean,sd,zoomKick:zMax-zA,tf0,tfKick,src:d.src,err:d.err,videos:vids()};
+      // a big kick changes nothing about the picture
+      NXV.feed([1,1,.4,.4,.3,.3]); let touched=0;
+      for(let i=0;i<12;i++){await wait(25); document.querySelectorAll('#xp video, #xp .nv-clip > *').forEach(x=>{ if(x.style.transform||x.style.filter) touched++; }); }
+      R.t[k]={ready:d.ready,playing:d.playing,time:d.time,mean,sd,touched,src:d.src,err:d.err,videos:vids()};
       NXV.stop(true); R.afterStop=vids();
     }
     // switching straight from scene to scene never piles up videos
@@ -78,11 +79,11 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
     const t = R.t[k];
     assert(t && t.ready >= 2 && t.playing && t.time > .2, k + ' loads and plays its film clip (' + JSON.stringify(t) + ')');
     assert(t.mean > 6 && t.sd > 6, k + ' shows a real, detailed picture (lum ' + t.mean.toFixed(1) + ', contrast ' + t.sd.toFixed(1) + ')');
-    assert(t.zoomKick > .12 && t.tfKick !== t.tf0, k + ' punches on the kick (' + t.zoomKick.toFixed(2) + ': ' + t.tfKick + ')');
-    assert(t.videos === 1, k + ' runs exactly one video');
-    console.log(k.padEnd(15) + ' playing ' + t.src.padEnd(22) + ' lum ' + t.mean.toFixed(1) + ' contrast ' + t.sd.toFixed(1) + ' kick ' + t.tfKick);
+    assert.strictEqual(t.touched, 0, k + ' is shown exactly as made: the music never moves or changes it');
+    assert(t.videos >= 1 && t.videos <= 2, k + ' plays one video with at most one more waiting');
+    console.log(k.padEnd(15) + ' playing ' + t.src.padEnd(22) + ' lum ' + t.mean.toFixed(1) + ' contrast ' + t.sd.toFixed(1));
   }
-  assert(R.maxVideos <= 1, 'never more than one video loaded, even while switching (' + R.maxVideos + ')');
+  assert(R.maxVideos <= 2, 'never more than two videos (playing + next), even while switching (' + R.maxVideos + ')');
   assert(R.afterStop === 0 && R.videosAtEnd === 0, 'a scene releases its video the moment it stops');
   assert(!R.stopped.current, 'stopping Visuals stops the scene');
   // ---- the whole app: home tile -> Visuals menu -> theme -> bar -> exit ----
@@ -99,7 +100,7 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
     R.running=NXV.debug();R.xpVisible=!document.getElementById('xp').classList.contains('hidden');
     R.canvas=document.querySelectorAll('#xp video').length;
     document.getElementById('xp').click();await wait(200);
-    R.bar=[...document.querySelectorAll('#vxBar .vx-pick')].map(b=>b.dataset.vx);R.barOn=document.getElementById('vxBar').classList.contains('on');
+    R.bar=document.getElementById('vxBar').textContent;R.barOn=document.getElementById('vxBar').classList.contains('on');
     R.meterDetail=window.__detail.slice();
     document.getElementById('xpClose').click();await wait(400);
     R.after=NXV.debug();R.meterDetailAfter=window.__detail.slice();R.videosAfter=document.querySelectorAll('#xp video').length;
@@ -108,9 +109,9 @@ assert((vis.match(/\.jpg'/g) || []).length <= 2 && vis.includes("THEMES[k].video
   assert.deepStrictEqual(appR.errors, [], 'no app errors: ' + appR.errors.join('; '));
   assert.deepStrictEqual(appR.cards.map(c => c[0]), order, 'the Visuals menu lists exactly the built themes');
   assert(appR.cards.every(c => c[2]), 'every card shows a film still');
-  assert(appR.xpVisible && appR.canvas === 1 && appR.running.frames > 3 && appR.running.current === order[0], 'tapping a card starts the scene full screen with one video (' + JSON.stringify(appR.running) + ')');
-  assert(appR.barOn && appR.bar.join() === order.join(), 'tapping the screen shows the theme bar');
-  assert(appR.meterDetail.includes(true), 'starting Visuals turns on the six-band music feed');
-  assert(!appR.after.current && appR.meterDetailAfter.includes(false) && appR.backInMenu && appR.videosAfter === 0, 'closing stops the scene, releases its video, turns the feed off and returns to the Visuals menu');
-  console.log('Visuals: ' + order.length + ' cinematic scenes play on the hardware video path, one video at a time, punch on kicks, and pass the full-app run.');
+  assert(appR.xpVisible && appR.canvas >= 1 && appR.canvas <= 2 && appR.running.frames > 3 && appR.running.current === order[0], 'tapping a card starts the scene full screen with one video (' + JSON.stringify(appR.running) + ')');
+  assert(appR.barOn && /Cinematic Mix/.test(appR.bar) && /FAVOURITE/.test(appR.bar) && /EXIT/.test(appR.bar), 'tapping the screen shows the playback bar: ' + appR.bar);
+  assert(!appR.meterDetail.includes(true), 'film visuals do not listen to the music');
+  assert(!appR.after.current && appR.meterDetailAfter.includes(false) && appR.backInMenu && appR.videosAfter === 0, 'closing stops the scene, releases its videos and returns to the Visuals menu');
+  console.log('Visuals: ' + order.length + ' cinematic scenes play on the hardware video path, untouched by the music, and pass the full-app run.');
 })().catch(e => { console.error(e.stack || e.message); process.exit(1); });

@@ -2664,7 +2664,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
     previews: function (cb) { if (window.NXV) NXV.previews(cb); else cb({}); },
     // Switch between the five visuals without leaving Visuals: the last frame dissolves over the new one.
     switchTo: function (name) { if (!isVisual(name)) return; NXV.snapshot(); XP.open(name); },
-    open: function (name) {
+    open: function (name, opts) {
       var known = isVisual(name) || ({ holo: 1, webcams: 1, clockface: 1, lyrics: 1, liquiddreams: 1, nightdrive: 1 })[name];
       if (!known) return false;
       XP.close(true);
@@ -2681,7 +2681,7 @@ vec3 ndOverlay(vec3 col, vec3 rd, vec2 uv, float t){
       resetAtmosphere(name);
       text('xpTop'); text('xpMid'); text('xpBottom');
       $('xpMid').style.color = '#fff'; $('xpMid').style.top = ''; $('xpMid').style.transform = '';
-      if (isVisual(name)) { cv.style.visibility = 'hidden'; if (!NXV.start(name)) { cv.style.visibility = ''; text('xpMid', 'This screen needs WebGL graphics for Visuals'); } return true; }
+      if (isVisual(name)) { cv.style.visibility = 'hidden'; if (!NXV.start(name, opts)) { cv.style.visibility = ''; text('xpMid', 'This screen needs WebGL graphics for Visuals'); } return true; }
       ({ holo: holo, webcams: webcams, clockface: clockface, lyrics: lyrics, liquiddreams: liquidDreams, nightdrive: nightDrive })[name]();
       return true;
     },

@@ -1629,26 +1629,49 @@
   }
   // Only themes the Visuals engine actually provides are listed (they arrive one by one).
   function visList() { return VISUALS.filter(function (v) { return !window.NXV || NXV.order.indexOf(v[0]) >= 0; }); }
+  // Two collections: ALL (every film, played in order) and FAVOURITES (only the starred ones, in the order
+  // they were starred). Tapping a video plays its collection from there; each video plays once, start to
+  // end, and the next follows. REPEAT starts the collection again after its last video.
+  var visView = 'all';
+  function visPlaylist(view) {
+    if (view === 'fav') return favList().filter(function (k) { return PLAYABLE().indexOf(k) >= 0; });
+    return PLAYABLE().filter(function (k) { return k !== 'clip_mix'; });   // the mix already holds every scene
+  }
+  function startVisuals(list, name, label) {
+    if (!list.length) return;
+    closePanel(); fromVisuals = true;
+    if (P.on) exitParty(true);
+    stopPlaythrough();
+    loadExperiences(function () { if (window.XP) XP.open(name || list[0], { list: list, label: label }); });
+  }
   function showVisuals(previews) {
     var VISUALS = visList();
-    var favs = favList(), secs = +(pref('playSecs') || 45), last = pref('lastVis') || '';
-    var favRows = VISUALS.filter(function (v) { return favs.indexOf(v[0]) >= 0; });
-    var html = '<div class="vis-grid">' + VISUALS.map(function (v, i) {
+    var favs = favList(), last = pref('lastVis') || '', loop = pref('visLoop') !== '0';
+    if (visView === 'fav' && !favs.length) visView = 'all';
+    var shown = visView === 'fav' ? favs.map(function (k) { return VISUALS.filter(function (v) { return v[0] === k; })[0]; }).filter(Boolean) : VISUALS;
+    var html = '<div class="vis-tabs" role="tablist">' +
+        '<button type="button" class="vis-tab' + (visView === 'all' ? ' on' : '') + '" data-visview="all" role="tab" aria-selected="' + (visView === 'all') + '">ALL <i>' + VISUALS.length + '</i></button>' +
+        '<button type="button" class="vis-tab' + (visView === 'fav' ? ' on' : '') + (favs.length ? '' : ' off') + '" data-visview="fav" role="tab" aria-selected="' + (visView === 'fav') + '">★ FAVOURITES <i>' + favs.length + '</i></button>' +
+      '</div>' +
+      '<div class="vis-grid">' + shown.map(function (v, i) {
         var on = favs.indexOf(v[0]) >= 0, img = previews && previews[v[0]];
         return '<button type="button" class="vis-card vis-' + v[0] + (v[0] === last ? ' selected' : '') + '" data-vis="' + v[0] + '" aria-label="' + esc(v[2]) + '">' +
           '<span class="vis-shot">' + (img ? '<img alt="" src="' + img + '">' : '') + '</span>' +
           '<span class="env-meta"><span class="env-num">' + (i < 9 ? '0' : '') + (i + 1) + '</span><b>' + esc(v[4] || v[2]) + '</b><small>' + esc(v[3]) + '</small></span>' +
-          '<span class="fav' + (on ? ' on' : '') + '" data-fav="' + v[0] + '" role="button" aria-label="Favourite">' + (on ? '★' : '☆') + '</span></button>';
+          '<span class="fav' + (on ? ' on' : '') + '" data-fav="' + v[0] + '" role="button" aria-label="' + (on ? 'Remove from favourites' : 'Add to favourites') + '">' + (on ? '★' : '☆') + '</span></button>';
       }).join('') + '</div>' +
-      '<div class="playbar"><span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' +
-      '<span class="btn' + (favRows.length ? ' go' : ' off') + '" id="vPlayFav">★ PLAY FAVORITES</span>' +
-      '<span class="hint" style="margin:0 1vmin">SWITCH EVERY</span>' +
-      [[5, '5s'], [10, '10s'], [30, '30s'], [60, '1 MIN'], [120, '2 MIN']].map(function (o) { return '<span class="btn sm' + (secs === o[0] ? ' go' : '') + '" data-secs="' + o[0] + '">' + o[1] + '</span>'; }).join('') + '</div>' +
-      '<div class="hint">Tap a visual to start it. While it plays, tap the screen to switch visuals or exit. Music keeps playing.</div>' +
+      '<div class="playbar">' +
+        (visView === 'fav' ? '<span class="btn go" id="vPlayFav">★ PLAY FAVOURITES</span>' : '<span class="btn go" id="vPlayAll">▶ PLAY ALL</span>' + '<span class="btn' + (favs.length ? ' go' : ' off') + '" id="vPlayFav">★ PLAY FAVOURITES</span>') +
+        '<span class="btn sm' + (loop ? ' go' : '') + '" id="vLoop" role="switch" aria-checked="' + loop + '">⟲ REPEAT ' + (loop ? 'ON' : 'OFF') + '</span>' +
+      '</div>' +
+      '<div class="hint">' + (visView === 'fav' ? 'Your favourites play in this order, each one once. Tap ★ to remove one.' : 'Tap a video to start there: each video plays once, start to end, and the next one follows. Tap ☆ to add it to Favourites.') + ' While it plays, tap the screen for controls. Music keeps playing.</div>' +
       '<div class="hint" style="opacity:.6">Film visuals by Beeple (beeple-crap.com), shared free for any use.</div>';
     var keep = $('panelBody') ? $('panelBody').scrollTop : 0;
     openPanel('VISUALS', html);
     $('panelBody').scrollTop = keep;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-visview]'), function (el) {
+      el.addEventListener('click', function () { var v = el.getAttribute('data-visview'); if (v === 'fav' && !favList().length) return; visView = v; $('panelBody').scrollTop = 0; showVisuals(previews); });
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-fav]'), function (el) {
       el.addEventListener('click', function (e) {
         e.stopPropagation(); var k = el.getAttribute('data-fav'), f = favList(), i = f.indexOf(k);
@@ -1656,13 +1679,16 @@
         setPref('favVis', f.join(',')); showVisuals(previews);
       });
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-secs]'), function (el) {
-      el.addEventListener('click', function () { setPref('playSecs', el.getAttribute('data-secs')); showVisuals(previews); });
-    });
-    $('vPlayAll').addEventListener('click', function () { visScroll = 0; closePanel(); fromVisuals = true; startPlaythrough(PLAYABLE(), 'PLAY ALL'); });
-    $('vPlayFav').addEventListener('click', function () { var f = favList().filter(function (k) { return PLAYABLE().indexOf(k) >= 0; }); if (!f.length) return; visScroll = 0; closePanel(); fromVisuals = true; startPlaythrough(f, 'FAVORITES'); });
+    $('vLoop').addEventListener('click', function () { setPref('visLoop', pref('visLoop') !== '0' ? '0' : '1'); showVisuals(previews); });
+    if ($('vPlayAll')) $('vPlayAll').addEventListener('click', function () { visScroll = 0; var l = visPlaylist('all'); startVisuals(l, l[0], 'ALL'); });
+    $('vPlayFav').addEventListener('click', function () { var l = visPlaylist('fav'); if (!l.length) return; visScroll = 0; startVisuals(l, l[0], 'FAVOURITES'); });
     Array.prototype.forEach.call(document.querySelectorAll('[data-vis]'), function (el) {
-      el.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-fav]')) return; var n = el.getAttribute('data-vis'); setPref('lastVis', n); visScroll = $('panelBody').scrollTop; closePanel(); fromVisuals = true; openExperience(n); });
+      el.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('[data-fav]')) return;
+        var n = el.getAttribute('data-vis'); setPref('lastVis', n); visScroll = $('panelBody').scrollTop;
+        var l = n === 'clip_mix' && visView !== 'fav' ? ['clip_mix'] : visPlaylist(visView);
+        startVisuals(l.indexOf(n) >= 0 ? l : [n], n, n === 'clip_mix' && visView !== 'fav' ? 'MIX' : visView === 'fav' ? 'FAVOURITES' : 'ALL');
+      });
     });
   }
   var play = null;

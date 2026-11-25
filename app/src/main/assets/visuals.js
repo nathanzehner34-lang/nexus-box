@@ -520,129 +520,171 @@
   var THEMES = {};
 
   // ==================================================================
-  // CINEMATIC CLIPS — film-quality footage by Beeple (free for any use; credited in the menu),
-  // played full screen and driven by the music:
-  //   kick   -> zoom punch, white flash, small camera shake
-  //   snare  -> horizontal glitch slices and jitter
-  //   hi-hat -> scan-line sparkle
-  //   drop   -> big flash and zoom
-  // Each scene is ONE continuous reel: its camera angles are joined with cross-fades when the app is
-  // built, and the reel's last moment fades into its own first frame, so it loops forever with no
-  // loading, no black and no replaying of a single short shot. Only one video is ever loaded (the X3
-  // runs out of decoders with more) and it never has to load anything mid-scene. When one scene
-  // follows another (Play favourites), the last picture is held and faded into the next scene.
+  // FILM VISUALS — Beeple's footage (free for any use; credited in the menu), played exactly as made:
+  // no music effects, no zoom, no colour changes, the whole frame shown. Every scene is part of a
+  // playlist: each video plays once from start to end and the next one follows on its own.
+  //
+  // One player, one playlist, one position. Two <video> elements take turns: while one plays, the
+  // other quietly loads the next video and waits on its first frame. At the real end of a video the
+  // waiting one starts and dissolves in over the last frame of the one that finished, so there is
+  // never black, a loading screen or a restart. If the box can't keep a second video ready, the
+  // player switches to one element and holds the last frame on screen while the next one opens.
   // ==================================================================
   var REELS = {"coins": "clips/coins.mp4", "skulls": "clips/skulls.mp4", "cityfire": "clips/cityfire.mp4", "inferno": "clips/inferno.mp4", "serpent": "clips/serpent.mp4", "idol": "clips/idol.mp4", "frenzy": "clips/frenzy.mp4", "run": "clips/run.mp4", "collapse": "clips/collapse.mp4", "printer": "clips/printer.mp4", "benjamin": "clips/benjamin.mp4", "freshcash": "clips/freshcash.mp4", "darkvalley": "clips/darkvalley.mp4"};
   var CLIP_NAMES = {"coins": "Coin Avalanche", "skulls": "Skull Mountain", "cityfire": "City on Fire", "inferno": "Inferno", "serpent": "Golden Serpent", "idol": "The Idol", "frenzy": "Idol Frenzy", "run": "The Run", "collapse": "City Collapse", "printer": "Money Printer", "benjamin": "Benjamin", "freshcash": "Fresh Cash", "darkvalley": "Dark Valley"};
   var CLIP_ORDER = ["coins", "skulls", "cityfire", "inferno", "serpent", "idol", "frenzy", "run", "collapse", "printer", "benjamin", "freshcash", "darkvalley"];
+  var FADE_MS = 500;
+  function ClipTheme(id, src, name) { this.id = id; this.name = name; this.src = src; this.video = true; }
+  CLIP_ORDER.forEach(function (k) { THEMES['clip_' + k] = new ClipTheme('clip_' + k, REELS[k], CLIP_NAMES[k]); });
+  // the mix already contains every scene, so it is its own playlist and never part of Play All
+  THEMES.clip_mix = new ClipTheme('clip_mix', 'clips/mix.mp4', 'Cinematic Mix');
+  var ALL_CLIPS = CLIP_ORDER.map(function (k) { return 'clip_' + k; });
+  function favs() { var ok = Object.keys(THEMES); return (pref('favVis') || '').split(',').filter(function (k) { return k && ok.indexOf(k) >= 0 && THEMES[k].video; }); }
+  function setFavs(list) { setPref('favVis', list.join(',')); try { if (N.onFavs) N.onFavs(list); } catch (e) {} }
+  function looping() { return pref('visLoop') !== '0'; }
+
   function makeVideo() {
     var v = document.createElement('video');
-    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
-    v.setAttribute('muted', ''); v.setAttribute('loop', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
+    v.muted = true; v.loop = false; v.playsInline = true; v.preload = 'auto';
+    v.setAttribute('muted', ''); v.setAttribute('playsinline', ''); v.setAttribute('disablepictureinpicture', ''); v.setAttribute('disableremoteplayback', '');
     // Android's WebView shows a grey "play" picture in a video until its first frame is ready.
-    // A see-through poster removes it, and the video stays hidden until it is really playing.
     v.poster = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    v.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%;background:#000;opacity:0';
+    v.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;z-index:1';
     return v;
   }
-  function sheet(css) { var d = document.createElement('div'); d.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;opacity:0;' + css; return d; }
-  // the last picture on screen, held over a scene change or the reel's loop point (one small canvas, reused)
-  var carry = null, carryAt = 0;
-  function grab(v) {
-    try {
-      if (!v || v.readyState < 2 || !v.videoWidth) return null;
-      carry = carry || document.createElement('canvas');
-      if (carry.width !== 512) { carry.width = 512; carry.height = 300; }
-      carry.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;opacity:0';
-      carry.style.transform = v.style.transform;
-      carry.getContext('2d').drawImage(v, 0, 0, carry.width, carry.height); carryAt = performance.now();
-      return carry;
-    } catch (e) { carryAt = 0; return null; }
-  }
-  function ClipTheme(id, src, name) { this.id = id; this.name = name; this.src = src; this.video = true; }
-  ClipTheme.prototype.init = function () {
-    var box = this.box = document.createElement('div');
+
+  var PL = null;   // the one playlist player
+  function plNote(msg) { var n = $('xpMid'); if (n && n.textContent !== msg) n.textContent = msg; }
+  function plStart(list, index, label) {
+    plStop();
+    var single = pref('nvSingle') === '1';
+    var box = document.createElement('div');
     box.className = 'nv-clip'; box.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden;background:#000';
-    this.v = makeVideo(); box.appendChild(this.v);
-    this.vig = sheet('opacity:1;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%)'); box.appendChild(this.vig);
-    this.dim = sheet('background:#000'); box.appendChild(this.dim);
-    this.scan = sheet('background:repeating-linear-gradient(0deg, rgba(255,40,140,0) 0, rgba(255,40,140,0) 7px, rgba(120,230,255,.45) 7px, rgba(120,230,255,.45) 9px)'); box.appendChild(this.scan);
-    this.flash = sheet('background:#fff'); box.appendChild(this.flash);
-    // a scene that follows another straight away starts on the previous picture, not on black
-    if (carry && performance.now() - carryAt < 1500) {
-      carry.style.transition = 'none'; carry.style.opacity = '1'; box.insertBefore(carry, this.vig); this.hold = carry;
-    }
+    var hold = document.createElement('canvas');
+    hold.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;pointer-events:none;opacity:0;z-index:3';
     var anchor = $('xpc');
     if (anchor && anchor.parentNode === layer) layer.insertBefore(box, anchor.nextSibling); else layer.appendChild(box);
-    this.fx = { zoom: 0, zv: 0, glitch: 0, flash: 0, sx: 0, sy: 0 }; this.css = {}; this.tries = 0; this.err = ''; this.started = false;
-    var self = this;
-    var release = function () {   // the moving picture is back: fade the held one away
-      var h = self.hold; if (!h || h.style.opacity === '0') return;
-      setTimeout(function () { if (self.hold === h) { h.style.transition = 'opacity .3s ease-out'; h.style.opacity = '0'; } }, 60);
-    };
-    this.v.addEventListener('playing', function () { self.err = ''; if (!self.v) return; self.v.style.opacity = '1'; release(); });
-    this.v.addEventListener('seeked', function () { if (self.looping) { self.looping = false; release(); } });
-    this.v.addEventListener('error', function () {
-      var e = self.v && self.v.error; self.err = 'Clip ' + self.src + ' failed (' + (e ? e.code : '?') + ')';
-      if (++self.tries < 3) setTimeout(function () { if (self.v) self.load(); }, 600);
+    PL = { list: list.slice(), i: Math.max(0, Math.min(list.length - 1, index || 0)), label: label || 'ALL', box: box, hold: hold, single: single,
+      els: [], cur: null, nxt: null, token: 0, fails: 0, log: [], fades: 0, holds: 0, restarts: 0, maxVideos: 0, lastT: -1, lastMove: 0, swapping: false, done: false };
+    box.appendChild(hold);
+    for (var e = 0; e < (single ? 1 : 2); e++) { var v = makeVideo(); box.appendChild(v); PL.els.push(v); wire(v); }
+    PL.cur = PL.els[0]; PL.nxt = PL.els[1] || null;
+    loadInto(PL.cur, PL.list[PL.i]); playEl(PL.cur);
+    return true;
+  }
+  function wire(v) {
+    v.addEventListener('playing', function () {
+      if (!PL || v !== PL.cur) return;
+      PL.fails = 0; plNote('');
+      if (v._fresh) {
+        v._fresh = false;
+        PL.log.push({ id: v._id, at: Math.round(performance.now()), from: +v.currentTime.toFixed(2) });
+        if (v.style.opacity !== '1') { v.style.transition = PL.log.length === 1 ? 'opacity .35s ease' : 'none'; v.style.opacity = '1'; }
+        releaseHold();
+        preloadNext();
+        if (bar) ensureBar();   // the bar names what's playing now
+      }
     });
-    this.load();
-  };
-  ClipTheme.prototype.load = function () {
-    var v = this.v; this.startAt = 0;
-    v.src = this.src; try { v.load(); } catch (e) {}
-    try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
-  };
-  ClipTheme.prototype.free = function () {
-    var v = this.v;
-    if (v) {
-      grab(v);   // keep the picture on screen now, so a following scene can fade out of it
-      try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {}
+    v.addEventListener('ended', function () { if (PL && v === PL.cur) advance(nextIndex(), 'end'); });
+    v.addEventListener('error', function () {
+      if (!PL || !v.getAttribute('src')) return;
+      if (v === PL.nxt) {
+        // the box couldn't keep a second video ready: from now on one video element, holding the last frame
+        if (!PL.single) { PL.single = true; setPref('nvSingle', '1'); dropEl(v); }
+        return;
+      }
+      if (v === PL.cur) { PL.fails++; if (PL.fails >= PL.list.length) { plNote('These videos can’t be played on this box.'); PL.done = true; return; } advance(nextIndex(), 'error'); }
+    });
+  }
+  function src(id) { return THEMES[id] ? THEMES[id].src : ''; }
+  function loadInto(v, id) { v._id = id; v._fresh = true; v._ready = false; v.style.transition = 'none'; v.style.opacity = '0'; v.setAttribute('src', src(id)); try { v.load(); } catch (e) {} }
+  function playEl(v) { try { var p = v.play(); if (p && p.catch) p.catch(function () {}); } catch (e) {} }
+  function freeEl(v) { if (!v) return; try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) {} v._id = null; v._ready = false; v.style.transition = 'none'; v.style.opacity = '0'; }
+  function dropEl(v) { freeEl(v); if (v.parentNode) v.parentNode.removeChild(v); PL.els = PL.els.filter(function (x) { return x !== v; }); if (PL.nxt === v) PL.nxt = null; }
+  function nextIndex() { if (!PL) return -1; return PL.i + 1 < PL.list.length ? PL.i + 1 : (looping() ? 0 : -1); }
+  function preloadNext() {
+    if (!PL || PL.single || !PL.nxt || PL.swapping) return;
+    var n = nextIndex(); if (n < 0) return;
+    var id = PL.list[n], v = PL.nxt;
+    if (v._id === id && v.getAttribute('src')) return;
+    loadInto(v, id);
+    v.addEventListener('loadeddata', function once() { v.removeEventListener('loadeddata', once); if (v._id === id) v._ready = true; });
+  }
+  // the last frame on screen, full size, while one element opens the next video
+  function holdFrame(v) {
+    try {
+      if (!v || v.readyState < 2 || !v.videoWidth) return false;
+      var h = PL.hold; if (h.width !== v.videoWidth) { h.width = v.videoWidth; h.height = v.videoHeight; }
+      h.getContext('2d').drawImage(v, 0, 0, h.width, h.height);
+      h.style.transition = 'none'; h.style.opacity = '1'; PL.holds++;
+      return true;
+    } catch (e) { return false; }
+  }
+  function releaseHold() { var h = PL && PL.hold; if (h && h.style.opacity !== '0') { h.style.transition = 'opacity .35s ease-out'; h.style.opacity = '0'; } }
+  // Move to list position n: the only place the position changes.
+  function advance(n, why) {
+    if (!PL || PL.swapping) return;
+    if (n < 0) { finish(); return; }
+    var old = PL.cur, id = PL.list[n], tok = ++PL.token;
+    PL.i = n; PL.lastT = -1; PL.lastMove = performance.now();
+    var nx = PL.nxt;
+    if (!PL.single && nx && nx._id === id && nx.readyState >= 2) {
+      // the next video is ready on its first frame: start it and dissolve it in over the finished one
+      PL.swapping = true; PL.fades++;
+      PL.cur = nx; PL.nxt = old;
+      nx.style.zIndex = '2'; old.style.zIndex = '1';
+      nx._fresh = true; playEl(nx);
+      nx.style.transition = 'opacity ' + FADE_MS + 'ms ease'; nx.style.opacity = '1';
+      setTimeout(function () {
+        if (!PL || tok !== PL.token) { if (PL) PL.swapping = false; return; }
+        freeEl(old); PL.swapping = false; preloadNext();
+      }, FADE_MS + 80);
+      return;
     }
-    if (this.box && this.box.parentNode) this.box.parentNode.removeChild(this.box);
-    this.v = null; this.box = null; this.hold = null;
-  };
-  ClipTheme.prototype.set = function (el, key, val) { if (this.css[key] !== val) { this.css[key] = val; el.style[key.split('.')[1]] = val; } };
-  ClipTheme.prototype.frame = function (dt, t) {
-    var m = M, s = dt / 1000, fx = this.fx, v = this.v;
-    if (!v) return;
-    // the loop point: hold the current picture for the instant the reel jumps back to its start
-    // (the reel's end already flows into its start; this only covers a WebView that blanks on the jump)
-    if (!this.looping && v.duration > 1 && v.currentTime > v.duration - .2) {
-      var h = grab(v);
-      if (h) { if (h.parentNode !== this.box) this.box.insertBefore(h, this.vig); h.style.transition = 'none'; h.style.opacity = '1'; this.hold = h; this.looping = true; }
-    }
-    if (this.looping && v.currentTime < .5 && v.currentTime > 0 && !v.seeking) { this.looping = false; var hh = this.hold; if (hh) { hh.style.transition = 'opacity .3s ease-out'; hh.style.opacity = '0'; } }
-    if (v.paused && !v.ended && v.readyState >= 2) { try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
-    // music -> effects
-    if (m.kickHit) { fx.zv += 4 * m.strength; fx.sx = (Math.random() - .5) * 8 * m.strength; fx.sy = (Math.random() - .5) * 6 * m.strength; fx.flash = Math.max(fx.flash, .07 * m.strength); }
-    if (m.drop) { fx.zv += 4.5; fx.flash = .55; }
-    if (m.snareHit) fx.glitch = Math.max(fx.glitch, m.snare);
-    fx.zv += (-fx.zoom * 70 - fx.zv * 10) * s; fx.zoom = Math.max(-.02, Math.min(1.6, fx.zoom + fx.zv * s));
-    fx.flash *= Math.exp(-dt / 130); fx.glitch *= Math.exp(-dt / 110);
-    fx.sx *= Math.exp(-dt / 70); fx.sy *= Math.exp(-dt / 70);
-    var scale = 1.02 + Math.min(fx.zoom, .5) * .24 + m.dropEnv * .03;     // a kick punches in about 4%, a drop about 8%
-    var jx = fx.glitch > .2 ? (Math.random() - .5) * 14 * fx.glitch : 0;
-    this.set(v, 'v.transform', 'translate3d(' + (fx.sx + jx).toFixed(1) + 'px,' + fx.sy.toFixed(1) + 'px,0) scale(' + scale.toFixed(3) + ')');
-    this.set(this.flash, 'f.opacity', (fx.flash + m.kick * .03).toFixed(2));
-    this.set(this.scan, 's.opacity', (fx.glitch * .8 + m.hat * .06).toFixed(2));
-    this.set(this.dim, 'd.opacity', (m.live ? 0 : .18).toFixed(2));
-    // if nothing plays after a few seconds, say why on screen
-    if (!this.startAt) this.startAt = t;
-    var note = $('xpMid'), playing = v.readyState >= 2 && !v.paused && v.currentTime > 0;
-    if (playing) this.started = true;
-    // a start that stalls is retried quietly; only a real failure is shown
-    if (!playing && t - this.startAt > 8 && !this.err && this.tries < 3) { this.tries++; this.load(); }
-    if (note) { var msg = this.started ? '' : (this.err || ''); if (note.textContent !== msg) note.textContent = msg; }
-  };
-  ClipTheme.prototype.debug = function () {
-    var v = this.v || {};
-    return { src: this.src, ready: v.readyState, playing: !v.paused, time: v.currentTime, zoom: this.fx.zoom, glitch: this.fx.glitch, flash: this.fx.flash, err: this.err || '',
-      transform: v.style ? v.style.transform : '', videos: document.querySelectorAll('#xp video').length };
-  };
-  CLIP_ORDER.forEach(function (k) { THEMES['clip_' + k] = new ClipTheme('clip_' + k, REELS[k], CLIP_NAMES[k]); });
-  // the mix: every angle of every scene, cross-faded into one continuous reel
-  THEMES.clip_mix = new ClipTheme('clip_mix', 'clips/mix.mp4', 'Cinematic Mix');
+    // one element (or the next one isn't ready yet): hold the last frame, open the next video underneath
+    holdFrame(old);
+    if (nx && nx !== old) freeEl(nx);
+    loadInto(old, id); old.style.opacity = '1'; playEl(old);
+  }
+  function finish() {
+    PL.done = true;
+    // the last video stays on its last frame; back to the Visuals menu after a moment
+    setTimeout(function () { if (PL && PL.done) { if (window.Nexus && Nexus.back) Nexus.back(); else if (window.XP) XP.close(); else stop(); } }, 1500);
+  }
+  function plStop() {
+    if (!PL) return;
+    PL.token++;
+    PL.els.forEach(freeEl);
+    if (PL.box && PL.box.parentNode) PL.box.parentNode.removeChild(PL.box);
+    PL.hold.width = PL.hold.height = 1;
+    PL = null;
+  }
+  // once per frame: the end and stall checks the events can miss
+  function plTick() {
+    if (!PL || PL.done) return;
+    var v = PL.cur, now = performance.now();
+    PL.maxVideos = Math.max(PL.maxVideos, PL.box.querySelectorAll('video').length);
+    if (!v || PL.swapping) return;
+    var t = v.currentTime;
+    if (PL.lastT >= 0 && t < PL.lastT - .5 && !v._fresh) PL.restarts++;   // never expected: counted for the tests
+    if (t !== PL.lastT) { PL.lastT = t; PL.lastMove = now; }
+    // a WebView that never fires "ended": at the very end and stopped, move on
+    if (v.duration > 0 && t >= v.duration - .06 && (v.paused || v.ended)) { advance(nextIndex(), 'end'); return; }
+    var still = now - PL.lastMove;
+    if (still > 2500 && v.paused && !v.ended && v.readyState >= 2) playEl(v);
+    // stuck for a long time: skip forward to the next video, never restart this one
+    if (still > 8000) { PL.lastMove = now; PL.fails++; if (PL.fails >= PL.list.length) { plNote('These videos can’t be played on this box.'); PL.done = true; return; } advance(nextIndex(), 'stall'); }
+  }
+  function plGo(n) { if (PL && n >= 0 && n < PL.list.length && !PL.swapping) { PL.done = false; advance(n, 'user'); } }
+  function plDebug() {
+    if (!PL) return null;
+    var v = PL.cur || {};
+    return { list: PL.list.slice(), i: PL.i, id: PL.list[PL.i], label: PL.label, loop: looping(), single: PL.single, done: PL.done,
+      time: v.currentTime, duration: v.duration, ready: v.readyState, playing: !v.paused, src: v.getAttribute ? v.getAttribute('src') : '', opacity: v.style ? v.style.opacity : '',
+      next: PL.nxt ? { id: PL.nxt._id, ready: PL.nxt.readyState } : null, log: PL.log.slice(), fades: PL.fades, holds: PL.holds, restarts: PL.restarts,
+      maxVideos: PL.maxVideos, videos: PL.box.querySelectorAll('video').length, hold: PL.hold.style.opacity, err: PL.fails ? 'fails ' + PL.fails : '' };
+  }
+  var PLAYER_THEME = { video: true, frame: function () { plTick(); }, debug: plDebug, free: function () {} };
 
   function mix3(a, b, t) { return [mix(a[0], b[0], t), mix(a[1], b[1], t), mix(a[2], b[2], t)]; }
   function scale3(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
@@ -668,7 +710,7 @@
   function render(now) {
     var dt = tPrev ? clamp(now - tPrev, 0, 66) : 33; tPrev = now;
     var t = (now - tStart) / 1000;
-    musicTick(now, dt);
+    if (!theme.video) musicTick(now, dt);   // film visuals don't follow the music
     F.t = t;
     if (!theme.video) { gl.viewport(0, 0, F.w, F.h); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); }
     theme.frame(dt, t);
@@ -700,28 +742,53 @@
       bar.addEventListener('click', function (e) {
         e.stopPropagation();
         var b = e.target.closest ? e.target.closest('button') : null; if (!b) return;
-        if (b.getAttribute('data-vxexit')) { if (window.Nexus && Nexus.home) Nexus.home(); else if (window.XP) XP.close(); return; }
-        var k = b.getAttribute('data-vx'); if (k && k !== cur && window.XP) XP.switchTo(k); else showBar();
+        if (b.getAttribute('data-vxexit')) { if (window.Nexus && Nexus.back) Nexus.back(); else if (window.XP) XP.close(); return; }
+        var c = b.getAttribute('data-vxc');
+        if (PL && c === 'next') { var n = nextIndex(); plGo(n < 0 ? 0 : n); }
+        else if (PL && c === 'prev') plGo(PL.i > 0 ? PL.i - 1 : PL.list.length - 1);
+        else if (PL && c === 'fav') { var id = PL.list[PL.i], f = favs(), at = f.indexOf(id); if (at >= 0) f.splice(at, 1); else f.push(id); setFavs(f); }
+        else if (c === 'loop') setPref('visLoop', looping() ? '0' : '1');
+        var k = b.getAttribute('data-vx');
+        if (PL && k) { var at2 = PL.list.indexOf(k); if (at2 >= 0) { if (at2 !== PL.i) plGo(at2); } else start(k); }
+        ensureBar(); showBar();
       });
     }
-    bar.innerHTML = '<div class="vx-list">' + ORDER.map(function (k, i) { return '<button type="button" class="vx-pick' + (k === cur ? ' active' : '') + '" data-vx="' + k + '" aria-pressed="' + (k === cur) + '"><span>0' + (i + 1) + '</span>' + THEMES[k].name + '</button>'; }).join('') + '</div>' +
-      '<button type="button" class="vx-exit" data-vxexit="1" aria-label="Exit Visuals">EXIT</button>';
+    if (PL) {
+      var id = PL.list[PL.i], fav = favs().indexOf(id) >= 0, many = PL.list.length > 1;
+      bar.innerHTML = '<div class="vx-row">' +
+          '<div class="vx-now"><b>' + THEMES[id].name + '</b><span>' + PL.label + (many ? ' · ' + (PL.i + 1) + ' / ' + PL.list.length : '') + '</span></div>' +
+          (many ? '<button type="button" class="vx-ctl" data-vxc="prev" aria-label="Previous video">⏮</button><button type="button" class="vx-ctl" data-vxc="next" aria-label="Next video">⏭</button>' : '') +
+          '<button type="button" class="vx-ctl vx-fav' + (fav ? ' on' : '') + '" data-vxc="fav" aria-pressed="' + fav + '" aria-label="Favourite">' + (fav ? '★ FAVOURITE' : '☆ FAVOURITE') + '</button>' +
+          '<button type="button" class="vx-ctl' + (looping() ? ' on' : '') + '" data-vxc="loop" aria-pressed="' + looping() + '">⟲ REPEAT ' + (looping() ? 'ON' : 'OFF') + '</button>' +
+          '<button type="button" class="vx-exit" data-vxexit="1" aria-label="Exit Visuals">EXIT</button></div>' +
+        (many ? '<div class="vx-list">' + PL.list.map(function (k, i) { return '<button type="button" class="vx-pick' + (i === PL.i ? ' active' : '') + '" data-vx="' + k + '" aria-pressed="' + (i === PL.i) + '"><span>' + (i < 9 ? '0' : '') + (i + 1) + '</span>' + THEMES[k].name + '</button>'; }).join('') + '</div>' : '');
+    } else {
+      bar.innerHTML = '<div class="vx-row"><button type="button" class="vx-exit" data-vxexit="1" aria-label="Exit Visuals">EXIT</button></div>';
+    }
     if (bar.parentNode !== layer) layer.appendChild(bar);
     bar.style.display = '';
   }
   function showBar(ms) { if (!bar) return; bar.classList.add('on'); clearTimeout(barTimer); barTimer = setTimeout(function () { if (bar) bar.classList.remove('on'); }, ms || 4000); }
-  function start(name) {
+  // opts: { list: [scene ids], label } plays that playlist from this scene; with no list, a film scene
+  // plays Play All from itself (the Cinematic Mix plays on its own, as it already holds every scene)
+  function start(name, opts) {
     var isClip = !!(THEMES[name] && THEMES[name].video);
     layer = layer || $('xp');
     if (!THEMES[name] || !layer || (!isClip && !ensureGl())) return false;
-    try { theme = getTheme(name); if (!isClip) meshProgram(); } catch (e) { try { console.log('NXV start: ' + (e.stack || e)); } catch (er) {} return false; }
+    if (isClip) {
+      opts = opts || {};
+      var list = opts.list && opts.list.indexOf(name) >= 0 ? opts.list : name === 'clip_mix' ? ['clip_mix'] : ALL_CLIPS;
+      theme = PLAYER_THEME;
+      plStart(list, list.indexOf(name), opts.label || (name === 'clip_mix' ? 'MIX' : 'ALL'));
+    } else
+    try { theme = getTheme(name); meshProgram(); } catch (e) { try { console.log('NXV start: ' + (e.stack || e)); } catch (er) {} return false; }
     cur = name; frames = 0; tPrev = 0; lastFrame = 0; perf = { n: 0, sum: 0, since: 0, good: 0 };
     if (!tStart) tStart = performance.now();
     if (!isClip) { glc.style.display = 'block'; sizeCanvas(); } else if (glc) glc.style.display = 'none';
     layer.classList.add('vx-active');
-    try { if (A) { if (A.meterDetail) A.meterDetail(true); A.meter(true); } } catch (e) {}
+    if (!isClip) try { if (A) { if (A.meterDetail) A.meterDetail(true); A.meter(true); } } catch (e) {}
     ensureBar(); showBar(3200);
-    layer.onclick = function () { showBar(); };
+    layer.onclick = function () { ensureBar(); showBar(); };
     if (!isClip) render(performance.now());          // first frame before compositing: no black flash on entry
     raf = requestAnimationFrame(loop);
     return true;
@@ -732,12 +799,11 @@
     progs = {}; addBuf = null; addCap = 0; attribsOn = {};
     if (glc) { glc.width = 1; glc.height = 1; }
     if (snap) { snap.width = 1; snap.height = 1; }
-    if (carry) { carry.width = 1; carry.height = 1; carryAt = 0; }
     musicReset(); tStart = 0;
   }
   function stop(quiet) {
-    // clip scenes always let go of their video, even on a quick switch
-    Object.keys(built).forEach(function (k) { if (built[k].video) { try { built[k].free(); } catch (e) {} delete built[k]; } });
+    // the film player always lets go of its videos, even on a quick switch
+    plStop();
     if (!cur && quiet) return;
     cur = null; cancelAnimationFrame(raf); raf = 0;
     try { if (A && A.meterDetail) A.meterDetail(false); } catch (e) {}
@@ -769,7 +835,7 @@
   // Renders frames offscreen with chosen music and returns pixels as an 80x45 luminance grid (tests).
   function probe(name, music, opts) {
     opts = opts || {};
-    if (!THEMES[name] || !ensureGl()) return null;
+    if (!THEMES[name] || THEMES[name].video || !ensureGl()) return null;
     var was = cur, keepW = glc.width, keepH = glc.height, th = getTheme(name), prevTheme = theme;
     theme = th; glc.width = opts.w || 320; glc.height = opts.h || 180; F.w = glc.width; F.h = glc.height;
     var steps = opts.steps || 12, t0 = opts.t || 6, hold = {};
@@ -827,6 +893,8 @@
   window.NXV = {
     order: ORDER, themes: THEMES, start: start, stop: stop, redraw: redraw, snapshot: snapshot, previews: previews, probe: probe,
     music: M, feed: feed6,
+    // playlist control (tests and the menu): favourites live in the same saved setting the menu uses
+    allClips: ALL_CLIPS.slice(), favourites: favs, setFavourites: setFavs, go: plGo,
     // shared music analysis for other experiences (Liquid Dreams): advance it once per frame
     musicTick: function (now, dt) { return musicTick(now, dt); }, musicReset: musicReset, instance: function (k) { return THEMES[k] && ensureGl() ? getTheme(k) : null; },
     debug: function () { return { current: cur, frames: frames, q: Q, w: glc ? glc.width : 0, h: glc ? glc.height : 0, theme: theme && theme.debug ? theme.debug() : null, music: { kick: M.kick, snare: M.snare, hat: M.hat, energy: M.energy, bpm: M.bpm, live: M.live, phase: M.phase } }; }
