@@ -396,6 +396,19 @@ vec3 glassBgLD(vec2 q,float t){
  c+=rampLD(.88)*exp(-dot(q+vec2(.55,.18),q+vec2(.55,.18))*3.2)*.2;
  return c;
 }
+// micro-bubbles rising behind the big glass bubbles: a rainbow rim and a pin-point glint each
+vec3 microBubblesLD(vec2 p,float t){
+ vec3 o=vec3(0.);
+ for(int l=0;l<2;l++){float fl=float(l);float sc=9.+fl*7.;
+  vec2 g=p*sc+vec2(sin(t*.1+fl)*.5,-t*(.12+fl*.08));vec2 id=floor(g);vec2 h=hash2LD(id+fl*13.);
+  if(h.x<.91)continue;
+  vec2 f=fract(g)-.5-(h-.5)*.5;f.x+=.06*sin(t*.9+h.y*20.);
+  float rr=.08+.07*h.y,d=length(f);
+  float rim=exp(-abs(d-rr)*(70.+fl*30.));
+  vec3 film=.5+.5*cos(6.2832*(atan(f.y,f.x)*.16+h.y+t*.05+vec3(0.,.33,.67)));
+  o+=(mix(rampLD(.95),film,.5)*rim*.35+vec3(1.)*exp(-dot(f-vec2(-.35,.4)*rr,f-vec2(-.35,.4)*rr)*4000.)*.5)*(1.-fl*.35);}
+ return o*detailAmt;
+}
 vec3 iridescenceLD(vec2 p,float t){
  float e=.008,h=glassHLD(p,t),hx=glassHLD(p+vec2(e,0.),t),hy=glassHLD(p+vec2(0.,e),t);
  vec2 g=vec2(hx-h,hy-h)/e;
@@ -415,7 +428,7 @@ vec3 iridescenceLD(vec2 p,float t){
  vec3 glass=refr*.95+rim+rampLD(.95)*caust+(spec+soft)*(mix(vec3(1.),pal3,.3)*.95+rampLD(.62)*highL*.3);
  glass+=rampLD(.98)*(smoothstep(.5,.515,h)-smoothstep(.515,.57,h))*.35;
  float shadow=smoothstep(.25,.6,glassHLD(p+vec2(-.05,.07),t))*(1.-mask);
- return mix(bg*(1.-shadow*.45),glass,mask);
+ return mix(bg*(1.-shadow*.45)+microBubblesLD(p,t),glass,mask);
 }
 // ETHER: floating silk ribbons in soft atmospheric light
 vec3 etherLD(vec2 p,float t){
@@ -453,6 +466,12 @@ vec3 chromeLD(vec2 p,float t){
  vec3 c=studioLD(r)*mix(vec3(1.),pal2*1.4,.15);
  c*=.55+.45*smoothstep(-.8,.5,h);
  c+=pal3*pow(max(dot(n,normalize(vec3(-.3,.45,.85))),0.),140.)*.8;
+ // glints: tiny four-point stars that flare and fade, only on the brightest highlights
+ vec2 gg=p*7.;vec2 gi=floor(gg);vec2 gh=hash2LD(gi+31.);
+ if(gh.x>.55){vec2 gf=fract(gg)-.5-(gh-.5)*.6;
+  float tw=pow(max(0.,sin(t*(.5+gh.y*.6)+gh.x*40.)),4.);
+  float star=exp(-abs(gf.x)*80.-abs(gf.y)*8.)+exp(-abs(gf.y)*80.-abs(gf.x)*8.)+exp(-dot(gf,gf)*500.)*1.5;
+  c+=mix(vec3(1.),pal3,.25)*star*tw*smoothstep(.4,.8,dot(c,vec3(.3,.5,.2)))*.75*detailAmt;}
  float frame=smoothstep(1.45,.3,length(p*vec2(.7,1.)));
  return mix(pal0*.15,c,frame);
 }

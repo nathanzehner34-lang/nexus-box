@@ -121,7 +121,7 @@ try{
  const R=Object.assign({},R0);
  // idle: no touch -> exactly the previous release
  const idle=render('flow',{},'idle');
- if(OLD){R.idleVsOld=maxDiff(idle,render('oldFlow',{}));R.orbVsOld=maxDiff(render('orb',{flow:0}),render('oldOrb',{flow:0}));
+ if(OLD){R.idleVsOld=maxDiff(idle,render('oldFlow',{}));R.orbVsOld=maxDiff(render('orb',{flow:0,bgA:1,bgB:1}),render('oldOrb',{flow:0,bgA:1,bgB:1}));   // Smoke: unchanged since then (Classic later gained a faint star veil)
   R.idleLoudVsOld=maxDiff(render('flow',{bass:.9,mid:.7,high:.8,energy:.95,beat:.8,bphase:.1,burst:.7,bAge:.5,bPow:1.4}),render('oldFlow',{bass:.9,mid:.7,high:.8,energy:.95,beat:.8,bphase:.1,burst:.7,bAge:.5,bPow:1.4}));}
  R.noTouchVsIdle=maxDiff(idle,render('flowNoTouch',{}));
  // after everything has decayed (tOn 0, stale positions left behind) nothing remains
