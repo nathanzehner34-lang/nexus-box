@@ -30,7 +30,7 @@ function runPage(name, html) {
   if (!m) throw new Error((run.stdout.match(/ERROR=([\s\S]*?)<\/pre>/) || [])[1] || name + ': no result ' + run.stderr.slice(-400));
   return JSON.parse(m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
 }
-const ENVS = ['deepflow', 'iridescence', 'ether', 'chrome', 'cosmic', 'organic', 'world', 'bloom'];
+const ENVS = ['deepflow', 'iridescence', 'ether', 'chrome', 'cosmic', 'organic', 'chromatic', 'prismatic'];
 const SHIFT = ['electric', 'pink', 'rainbow', 'ultraviolet', 'flowing', 'neon', 'midnight', 'deepteal', 'violet', 'chrome', 'iridescent', 'aurora', 'obsidian', 'arctic'];
 function page(mem) {
   const oldSettings = JSON.stringify({ v: 3, env: 'ether', color: 'music', speed: 1.2, audio: 0, bass: 1 });

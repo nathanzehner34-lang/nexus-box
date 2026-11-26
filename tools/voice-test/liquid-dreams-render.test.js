@@ -182,7 +182,7 @@ try {
   assert.strictEqual(a.track, 'Test Song — Test Artist', 'current track is shown');
   assert(!a.atmosphereDrawn, 'no shared colour-cycling overlay is drawn over Liquid Dreams');
   assert(a.firstFrame.first && a.firstFrame.opacity === '1' && a.firstFrame.backdrop, 'a palette backdrop covers start-up and the first GPU frame fades in (no black frame)');
-  assert.deepStrictEqual(a.cycle.seq, ['ether', 'chrome', 'cosmic', 'organic', 'world', 'bloom', 'deepflow', 'iridescence'], 'Experience button steps through all eight and wraps back to the first');
+  assert.deepStrictEqual(a.cycle.seq, ['ether', 'chrome', 'cosmic', 'organic', 'chromatic', 'prismatic', 'deepflow', 'iridescence'], 'Experience button steps through all eight and wraps back to the first');
   assert(a.cycle.colorsKept, 'cycling experiences keeps the selected palette');
   assert.deepStrictEqual(a.shift.shifts, ['obsidian', 'arctic', 'electric'], 'Color Shift steps through the palettes and wraps round');
   assert(a.shift.envKept && a.shift.label === 'Electric Blue & Violet', 'Color Shift leaves the experience alone and names the palette');

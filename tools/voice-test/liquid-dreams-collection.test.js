@@ -9,7 +9,7 @@ const assert = require('assert');
 const { session, SONGS } = require('./party-music/party-play');
 const root = path.resolve(__dirname, '../..');
 const xp = fs.readFileSync(path.join(root, 'app/src/main/assets/experiences.js'), 'utf8');
-const IDS = ['deepflow', 'iridescence', 'ether', 'chrome', 'cosmic', 'organic', 'world', 'bloom'];
+const IDS = ['deepflow', 'iridescence', 'ether', 'chrome', 'cosmic', 'organic', 'chromatic', 'prismatic'];
 const FNS = Function('return ' + xp.match(/var LD_FNS = (\[[^\]]*\])/)[1])();
 assert.strictEqual(FNS.length, 8, 'eight experience programs');
 IDS.forEach(id => assert(xp.includes("{ id: '" + id + "'"), id + ' is in the experience list'));
