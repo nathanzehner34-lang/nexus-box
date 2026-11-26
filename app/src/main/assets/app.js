@@ -207,6 +207,7 @@
     showHome();
     return playIntro().then(function () {
       booting = false;
+      setTimeout(preloadExperiences, 5000);
       // carry on with the music from where it was left, without opening Spotify (Settings can turn this off)
       if (pref('musicOnStart') !== '0' && A && A.musicResume) setTimeout(function () { try { A.musicResume(); } catch (e) {} }, 600);
     });
@@ -279,17 +280,22 @@
       placeNow = g.name;
       $('place').textContent = '📍 ' + g.name;
       return http('GET', 'https://api.open-meteo.com/v1/forecast?latitude=' + g.lat + '&longitude=' + g.lon +
-        '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1')
+        '&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto&forecast_days=1')
         .then(function (r) {
           var j = JSON.parse(r.text), c = j.current;
           if (typeof j.utc_offset_seconds === 'number') setPref('utcoff', String(j.utc_offset_seconds));
           weatherNow = { temp: Math.round(c.temperature_2m), feels: Math.round(c.apparent_temperature), desc: WCODES[c.weather_code] || 'Unknown',
-            wind: Math.round(c.wind_speed_10m), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]), city: g.name };
+            wind: Math.round(c.wind_speed_10m), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]), city: g.name,
+            // for Night Drive's live sky: the raw weather code, and today's sunrise and sunset as local hours
+            code: c.weather_code, sunrise: hourOf(j.daily.sunrise && j.daily.sunrise[0]), sunset: hourOf(j.daily.sunset && j.daily.sunset[0]), at: Date.now() };
           $('weather').textContent = weatherNow.temp + '° · ' + weatherNow.desc + ' · feels ' + weatherNow.feels + '°';
           return weatherNow;
         });
     }).catch(function () { $('weather').textContent = 'Weather unavailable'; return null; });
   }
+  function hourOf(iso) { var m = /T(\d\d):(\d\d)/.exec(iso || ''); return m ? +m[1] + +m[2] / 60 : null; }
+  Nexus.weatherInfo = function () { return weatherNow; };
+  Nexus.localHour = function () { var l = L(); return l.h + l.m / 60; };
   Nexus.locationChanged = function () { loadWeather(); };
   loadWeather(); setInterval(loadWeather, 10 * 60 * 1000);
 
@@ -1740,6 +1746,15 @@
       add('experiences.js', function () { xpLoaded = true; var q = xpWaiting; xpWaiting = []; q.forEach(function (f) { f(); }); });
     });
   }
+  // Faster first opens: once the home screen has settled, the experience engine (Visuals, Liquid Dreams,
+  // Night Drive) is loaded quietly in the background, while nothing else is happening, so the first tap on
+  // any of them no longer waits for ~300 KB of code to load and parse.
+  function preloadExperiences() {
+    if (xpLoaded || xpWaiting.length) return;
+    var go = function () { if (!xpLoaded && !xpWaiting.length && !document.hidden) loadExperiences(function () {}); };
+    if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 4000 }); else setTimeout(go, 50);
+  }
+  Nexus._preloadExperiences = preloadExperiences;
   function openExperience(name, fromPlay) {
     if (P.on) exitParty(true);
     if (!fromPlay) stopPlaythrough();
@@ -1780,5 +1795,5 @@
   var lastPer = 0; window.addEventListener('resize', function () { if (perPage() !== lastPer) { lastPer = perPage(); renderTiles(); } });
   renderTiles();
   if (location.hash === '#boot') { try { history.replaceState(null, '', location.pathname); } catch (e) {} runBoot(); }
-  else { $('boot').classList.add('hidden'); showHome(); }
+  else { $('boot').classList.add('hidden'); showHome(); setTimeout(preloadExperiences, 5000); }
 })();

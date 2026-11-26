@@ -1297,6 +1297,8 @@ uniform vec3 cA, cB, cC, cD;
 // so the cached sky can always be looked up by direction, wherever the camera has moved since.
 uniform vec3 camR, camU, camF, skR, skU, skF;
 uniform float camK, skK, boost, camSus;
+// the weather: rain, snow and fog (0..1, eased), live from the forecast or picked by hand
+uniform float wRain, wSnow, wFog;
 vec3 ndRay(vec2 uv, vec3 R, vec3 U, vec3 F, float k){
  if(k < .01) return normalize(vec3(uv.x*1.12, uv.y*1.12 + .085, -1.));   // no camera given: the classic view
  return normalize(R*(uv.x*k) + U*(uv.y*k + .085) + F);
@@ -1440,6 +1442,14 @@ void main(){
   col = ndSky(rd, t);
   #endif
   col += ndMeteors(ndSkyP(rd))*gSkyOpen;
+  // cloud cover: rain, snow and fog veil the stars and lift the sky toward the haze
+  float overcast = max(wRain*.85, max(wSnow*.75, wFog*.55));
+  if(overcast > .001){
+   vec3 hz = ndHaze(rd, t);
+   hz = mix(vec3(dot(hz, vec3(.3, .5, .2))), hz, .45)*.75;   // a grey, slightly tinted cloud deck
+   float cl = .65 + .35*noise(vec2(atan(rd.x, -rd.z)*3. + t*.01, rd.y*7.));
+   col = mix(col, hz*(.7 + .3*cl), overcast*(.25 + .3*smoothstep(-.05, .5, rd.y)));
+  }
  }
  float camH = 2.35;
  if(rd.y < -.0015){
@@ -1504,18 +1514,31 @@ void main(){
    // wet asphalt: glossy patches mirror the world's own horizon (strongest at a grazing angle,
    // far down the road), the neon shoulders reflect as soft streaks, and the lane paint glows
    float gloss = .55 + .45*smoothstep(.3, .75, noise(vec2(xr*.22, wz*.035))) + .25*track;
+   // rain: the whole road turns to a dark mirror, and rings spread where the drops land
+   gloss *= 1. + wRain*1.3;
+   road *= 1. - wRain*.3;
+   float ring = 0.;
+   if(wRain > .01 && fade > .25){
+    vec2 rg = vec2(xr, wz)*.55; vec2 ri = floor(rg), rf = fract(rg) - .5;
+    float rh = hash(ri), rr = fract(t*1.4 + rh);
+    vec2 ro = (vec2(fract(rh*13.7), fract(rh*31.1)) - .5)*.5;
+    ring = exp(-pow((length(rf - ro) - rr*.3)*40., 2.))*(1. - rr)*(1. - rr)*wRain*smoothstep(.3, .6, fade)*(1. - smoothstep(.85, .97, fade))*step(.35, rh)*.6;
+   }
    float fres = pow(1. - clamp(-rd.y*5.5, 0., 1.), 3.);
    vec3 mirror = ndHaze(vec3(rd.x, -rd.y, rd.z), t);
    #ifdef ND_SKYTEX
    // the wet road mirrors the actual sky (moon, planet, galaxy, clouds), rippled a little
    {
-    vec2 rip = vec2((noise(vec2(xr*.6, wz*.25)) - .5)*.006*fade, 0.);
+    vec2 rip = vec2((noise(vec2(xr*.6, wz*.25)) - .5)*.006*fade, ring*.01);
     vec4 refl = (ndMirror(rip) + ndMirror(rip + vec2(0., 2./res.y)))*.5;
     mirror = mix(mirror, refl.rgb*.9 + mirror*.15, refl.a);
    }
    #endif
    // a dark, glossy surface: it shows the world's own light more than its own colour
    road += mirror * (.08 + .55*fres) * gloss * .5 * (1. - .3*night);
+   road += mirror * ring * .5;
+   // snow banks along both edges of the road
+   road = mix(road, mix(vec3(.30,.34,.44), ndHaze(rd, t), .4)*(1. - night*.35), wSnow*.6*smoothstep(8.2, 11.6, edge)*(.6 + .4*noise(vec2(xr*1.3, wz*.4))));
    // reflective studs along the lane lines glint as they come toward you
    float sz = abs(fract(wz/9. + .5) - .5)*9.;
    float studs = exp(-(pow(abs(edge - 3.7), 2.) + sz*sz)*30.) + exp(-(pow(abs(edge - 7.4), 2.) + sz*sz)*30.);
@@ -1527,20 +1550,27 @@ void main(){
    ground = mix(ground, road, roadMix);
   }
   ground = mix(ndHaze(rd, t), ground, fade);
+  // snow lying on the land, and fog closing in on the distance
+  if(wSnow > .001) ground = mix(ground, mix(vec3(.28,.32,.42), ndHaze(rd, t), .35)*(1. - night*.35)*(.75 + .25*noise(vec2(g.x*.15, wz*.05))), wSnow*.55*smoothstep(10.5, 13., edge));
+  if(wFog > .001) ground = mix(ndHaze(rd, t)*(1. + wFog*.25), ground, exp(-zd*wFog*.016));
   col = mix(col, ground, groundMix);
  }
  #ifdef ND_OVERLAY
  // worlds with things standing up off the ground (trees, plants) draw them over sky and terrain here
  col = ndOverlay(col, rd, uv, t);
  #endif
+ // fog lies thickest along the horizon, over everything
+ if(wFog > .001) col = mix(col, ndHaze(rd, t)*(1. + wFog*.3), wFog*.55*exp(-abs(rd.y + .01)*9.));
  float lum = dot(col, vec3(.299,.587,.114));
  col = max(mix(vec3(lum), col, 1.14), 0.);
  col = col*(2.51*col+.03)/(col*(2.43*col+.59)+.14);
  col = pow(clamp(col,0.,1.), vec3(.95));
+ #ifndef ND_POST
  col *= .80 + .20*(1.-smoothstep(.3,1.45, length(uv*vec2(.78,1.))));
  // the world rises out of black when it starts or changes, instead of cutting in
  col *= fadeIn;
  col += (hash(gl_FragCoord.xy + fract(t*11.))-.5)/255.*2.;
+ #endif
  gl_FragColor = vec4(clamp(col,0.,1.), 1.);
 }
 `;
@@ -2911,7 +2941,32 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
     ['nebula', 'NEBULA', [.42, .62, 1], [.70, .32, 1], [1, .30, .66], [.45, .90, 1]],
     ['aurora', 'AURORA', [.34, 1, .82], [.44, .56, 1], [.82, .44, 1], [.30, .96, .96]]
   ];
-  var ND_TIMES = [['dusk', 'DUSK', 0], ['night', 'NIGHT', .55], ['deep', 'DEEP NIGHT', 1]];
+  // AUTO follows the real clock: dusk round sunset, night through the evening, deep night after midnight
+  // and a slow lightening toward dawn (from the day's sunset and sunrise where the forecast gives them)
+  var ND_TIMES = [['auto', 'AUTO', -1], ['dusk', 'DUSK', 0], ['night', 'NIGHT', .55], ['deep', 'DEEP NIGHT', 1]];
+  // the weather on the drive: LIVE takes it from the forecast for where the box is
+  var ND_WEATHER = [['live', 'LIVE'], ['clear', 'CLEAR'], ['rain', 'RAIN'], ['snow', 'SNOW'], ['fog', 'FOG']];
+  function ndClockNight() {
+    var X = window.Nexus || {}, w = X.weatherInfo ? X.weatherInfo() : null;
+    var h = X.localHour ? X.localHour() : (new Date().getHours() + new Date().getMinutes() / 60);
+    var ss = w && w.sunset != null ? w.sunset : 18, sr = w && w.sunrise != null ? w.sunrise : 7;
+    var t = ((h - ss) % 24 + 24) % 24, len = ((sr - ss) % 24 + 24) % 24 || 12;
+    if (t >= len) return 0;                                   // daytime: the drive shows dusk
+    var mid = len * .5;
+    if (t < 1.4) return .55 * t / 1.4;                        // the hour after sunset
+    if (t < mid) return .55 + .45 * (t - 1.4) / Math.max(.1, mid - 1.4);
+    var left = len - t;
+    if (left < 1.3) return .3 * left / 1.3;                   // dawn
+    return .3 + .7 * Math.min(1, (left - 1.3) / Math.max(.1, mid - 1.3));
+  }
+  function ndLiveWeather(out) {
+    var X = window.Nexus || {}, w = X.weatherInfo ? X.weatherInfo() : null, c = w && w.code != null ? +w.code : -1;
+    out.rain = c >= 51 && c <= 57 ? .35 : c === 61 || c === 80 ? .5 : c === 63 || c === 81 ? .75 : c === 65 || c === 82 ? 1 : c === 66 || c === 67 ? .7 : c >= 95 ? 1 : 0;
+    out.snow = c === 71 || c === 85 ? .45 : c === 73 ? .7 : c === 75 || c === 86 ? 1 : c === 77 ? .4 : 0;
+    out.fog = c === 45 || c === 48 ? .8 : c === 3 ? .2 : 0;
+    out.storm = c >= 95 ? 1 : 0;
+    return out;
+  }
   var ND_SPEEDS = [['drift', 'DRIFT', 42], ['cruise', 'CRUISE', 96], ['fast', 'FAST', 168]];
 
   function ndFind(list, id, fallback) {
@@ -2924,11 +2979,150 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
   }
   function ndSave(key, val) { try { if (A && A.setPref) A.setPref(key, String(val)); else localStorage.setItem('p_' + key, String(val)); } catch (e) {} }
 
+  // ---- Night Drive: the camera's own look ----
+  // The drive is drawn into a texture and finished like a film frame rather than shown raw: bright
+  // light blooms into the air at two sizes (a tight glow and a wide halo), the brightest lights throw a
+  // faint horizontal lens streak, a soft haze of the world's own light hangs over the horizon, the
+  // ground streams with motion blur toward the vanishing point (stars and sky stay sharp), the corners
+  // pick up a touch of lens colour fringing and darken gently, the tones get a filmic grade, and a fine
+  // moving grain sits over everything. The bloom work is done at a quarter of the resolution, so the
+  // whole finish costs about one extra full-screen pass.
+  var NDP_DOWN = `
+uniform sampler2D src; uniform vec2 px; uniform float thr;
+void main(){
+ vec2 uv = gl_FragCoord.xy/res;
+ vec3 c = texture2D(src, uv + px*vec2(-1., -1.)).rgb + texture2D(src, uv + px*vec2(1., -1.)).rgb
+        + texture2D(src, uv + px*vec2(-1., 1.)).rgb + texture2D(src, uv + px*vec2(1., 1.)).rgb;
+ c *= .25;
+ float l = max(c.r, max(c.g, c.b));
+ gl_FragColor = vec4(c*smoothstep(thr, thr + .4, l), 1.);
+}
+`;
+  var NDP_BLUR = `
+uniform sampler2D src; uniform vec2 dir;
+void main(){
+ vec2 uv = gl_FragCoord.xy/res;
+ vec3 c = texture2D(src, uv).rgb*.227;
+ c += (texture2D(src, uv + dir*1.385).rgb + texture2D(src, uv - dir*1.385).rgb)*.316;
+ c += (texture2D(src, uv + dir*3.231).rgb + texture2D(src, uv - dir*3.231).rgb)*.070;
+ gl_FragColor = vec4(c, 1.);
+}
+`;
+  var NDP_STREAK = `
+uniform sampler2D src; uniform vec2 dir;
+void main(){
+ vec2 uv = gl_FragCoord.xy/res;
+ vec3 c = texture2D(src, uv).rgb; float wsum = 1.;
+ for(int i = 1; i <= 6; i++){ float fi = float(i), w = exp(-fi*.45);
+  c += (texture2D(src, uv + dir*fi).rgb + texture2D(src, uv - dir*fi).rgb)*w; wsum += 2.*w; }
+ gl_FragColor = vec4(c/wsum, 1.);
+}
+`;
+  var NDP_COMP = `
+uniform sampler2D scene, glowA, glowB, streak, prev;
+uniform vec2 vp, upv, pvp;
+uniform float mblur, bloomK, hazeK, grainK, fadeIn, xf, wRain, wSnow, flash, wspeed;
+uniform vec3 tint;
+// Changing world: the new world opens out from the vanishing point through a soft, ragged edge, while the
+// last picture of the old one keeps rushing toward you (it is zoomed in as it goes), so the drive never stops.
+float gReveal = 1.;
+vec3 S(vec2 uv){ return texture2D(scene, uv).rgb; }
+void main(){
+ vec2 uv = gl_FragCoord.xy/res;
+ float asp = res.x/res.y;
+ vec2 d = uv - vp, da = d*vec2(asp, 1.);
+ if(xf < .999){
+  float r = length((uv - pvp)*vec2(asp, 1.)), n = noise(uv*vec2(7., 5.) + time*.3)*.28;
+  float e = xf*xf*(3. - 2.*xf), radius = e*1.7;
+  gReveal = 1. - smoothstep(radius - .28, radius, r + n);
+ }
+ // motion blur: only below the horizon (the road and the ground), stronger toward the edges
+ float below = smoothstep(.01, -.10, dot(da, upv));
+ vec2 st = d*mblur*below*min(length(da)*1.6, 1.);
+ vec3 c = S(uv);
+ if(dot(st, st) > 1e-7){
+  c = c*.28 + S(uv - st*.25)*.24 + S(uv - st*.5)*.2 + S(uv - st*.75)*.16 + S(uv - st)*.12;
+ }
+ // a little lens colour fringing toward the corners
+ vec2 d0 = uv - .5; float e = dot(d0, d0);
+ // (not over the motion-blurred ground, where single taps would fringe the streaks)
+ vec2 ca = d0*e*.008*(1. - below);
+ if(dot(ca, ca) > 1e-9){ c.r = mix(c.r, S(uv - ca).r, .6); c.b = mix(c.b, S(uv + ca).b, .6); }
+ vec3 g1 = texture2D(glowA, uv).rgb, g2 = texture2D(glowB, uv).rgb, s = texture2D(streak, uv).rgb;
+ // bloom: light spills into the air round everything bright, a wide halo beyond it, warm at its edge
+ c += g1*.42*bloomK + g2*.38*bloomK + g2*vec3(.08, .025, .0)*bloomK;
+ // a faint horizontal streak from the brightest lights
+ c += s*mix(vec3(1.), tint, .55)*.28*bloomK;
+ // haze: the world's own light hanging in the air over the horizon, drifting slowly
+ float hz = exp(-pow(dot(da, upv) + .01, 2.)/.012);
+ float drift = .55 + .45*noise(vec2(uv.x*3.2 + time*.012, uv.y*9. - time*.006));
+ c += (g2*1.4 + g1*.3)*hz*drift*hazeK;
+ // weather in the air: rain and snow stream out of the vanishing point toward you, lit by the scene's own light
+ if(wRain + wSnow > .001){
+  vec2 q = (uv - vp)*vec2(asp, 1.);
+  float rr = length(q), ang = atan(q.y, q.x);
+  vec3 lit = vec3(.06, .065, .085) + g2*1.5 + g1*.6;
+  float wx = 0.;
+  for(int i = 0; i < 2; i++){ float fi = float(i);
+   float N = 46. + fi*31., sec = ang*N/6.28318, cell = floor(sec), fs = fract(sec) - .5;
+   float h = hash(vec2(cell, fi*7.3 + 1.));
+   if(wRain > .001){
+    float pos = fract(log(rr + .03)*(1.1 + fi*.4) - wspeed*(1.1 + fi*.5) - h*3.);
+    wx += wRain*exp(-fs*fs*(300. + fi*260.))*smoothstep(.0, .06, pos)*(1. - smoothstep(.1, .2, pos))*step(.5, h)*(.55 + .4*fi);
+   }
+   if(wSnow > .001){
+    // each flake's place along its ray, solved from the same stream so it drifts out smoothly
+    float a = .8 + fi*.3, b = .35 + fi*.2, Lp = log(rr + .03)*a - wspeed*b - h*3.;
+    float rc = exp((floor(Lp) + .5 + wspeed*b + h*3.)/a) - .03;
+    float ac = (cell + .5 + .25*sin(wspeed*3. + h*20.))*6.28318/N;
+    vec2 fc = vec2(cos(ac), sin(ac))*rc;
+    float sz = .003 + .016*rc;
+    wx += wSnow*exp(-dot(q - fc, q - fc)/(sz*sz))*step(.45, h)*(1.4 + .4*fi);
+   }
+  }
+  c += lit*wx*smoothstep(.03, .3, rr)*1.6;
+ }
+ // lightning in a thunderstorm: the sky flashes, brightest high up
+ c += vec3(.55, .6, .82)*flash*(.18 + .55*smoothstep(-.1, .5, dot(da, upv)));
+ // filmic grade: a soft S-curve, cool lifted shadows, highlights rolled off gently
+ // the added light is rolled off with the colour kept (a soft shoulder), so glows never burn to white
+ float m = max(c.r, max(c.g, c.b));
+ if(m > .72) c *= (.72 + .28*(1. - exp(-(m - .72)*2.6)))/m;
+ float lum = dot(c, vec3(.299, .587, .114));
+ c += vec3(.006, .011, .022)*(1. - smoothstep(.0, .3, lum));
+ c = clamp(c, 0., 1.);
+ c = mix(c, c*c*(3. - 2.*c), .22);
+ // vignette and grain
+ c *= .80 + .20*(1. - smoothstep(.25, .95, length(d0*vec2(asp*.62, 1.))));
+ c += (hash(gl_FragCoord.xy + fract(time*13.1)*91.) - .5)*grainK*(.55 + .45*(1. - lum));
+ c = clamp(c, 0., 1.)*fadeIn;
+ // the old world's last finished picture, rushing toward you as the new one opens out of the distance
+ if(gReveal < .999) c = mix(texture2D(prev, pvp + (uv - pvp)*(1. - .18*xf)).rgb, c, gReveal);
+ gl_FragColor = vec4(c, 1.);
+}
+`;
+
   var MET_A = ['mA0', 'mA1', 'mA2'], MET_B = ['mB0', 'mB1', 'mB2'];
   function nightDrive() {
     var world = ndWorld(N.pref('ndWorld') || 'rings');
     var palette = ndFind(ND_PALETTES, N.pref('ndPalette') || 'ultraviolet');
-    var timeOfNight = ndFind(ND_TIMES, N.pref('ndTime') || 'night');
+    var timeOfNight = ndFind(ND_TIMES, N.pref('ndTime') || 'auto');
+    var weatherSel = ndFind(ND_WEATHER, N.pref('ndWeather') || 'live');
+    var wx = { rain: 0, snow: 0, fog: 0, storm: 0 }, wxCur = { rain: 0, snow: 0, fog: 0 }, flash = 0, flashWait = 6, wspeed = 0, clockNight = ndClockNight(), clockAt = 0;
+    function nightTarget() { return timeOfNight[2] < 0 ? clockNight : timeOfNight[2]; }
+    function weatherTick(now, dt) {
+      if (now - clockAt > 20000) { clockAt = now; clockNight = ndClockNight(); }
+      var sel = weatherSel[0];
+      if (sel === 'live') ndLiveWeather(wx);
+      else { wx.rain = sel === 'rain' ? .8 : 0; wx.snow = sel === 'snow' ? .8 : 0; wx.fog = sel === 'fog' ? .75 : 0; wx.storm = 0; }
+      var k = Math.min(1, dt * .6);
+      wxCur.rain += (wx.rain - wxCur.rain) * k; wxCur.snow += (wx.snow - wxCur.snow) * k; wxCur.fog += (wx.fog - wxCur.fog) * k;
+      // lightning: now and then in a thunderstorm, a double flicker
+      flash *= Math.exp(-dt * 9);
+      if (wx.storm) { flashWait -= dt; if (flashWait <= 0) { flash = 1; flashWait = 5 + Math.random() * 10; setTimeout(function () { flash = Math.max(flash, .7); }, 140); } }
+      // the rain and snow stream past faster the faster the drive goes
+      wspeed = (wspeed + dt * (.5 + speed[2] / 96 * (1 + surge + cam.boost * .7))) % 1000;
+    }
     var speed = ndFind(ND_SPEEDS, N.pref('ndSpeed') || 'cruise');
     var react = N.pref('ndReact') !== '0';
     var oldGLX = GLX;
@@ -3068,19 +3262,128 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
       } catch (e) { skyFree(); return false; }
     }
     var gSky = null;
+    // ---- the film finish (see NDP_COMP): render targets and the four small programs ----
+    var post = null, postP = null, postOk = false, PD = '';
+    function rt(w, h) {
+      var tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      var fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      var ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      var t = { tex: tex, fb: fb, w: w, h: h };
+      if (!ok) { try { gl.deleteFramebuffer(fb); gl.deleteTexture(tex); } catch (e) {} return null; }
+      return t;
+    }
+    function postFree(keepPrev) {
+      if (post) ['scene', 'a', 'b', 'c', 'd', 'prev'].forEach(function (k) {
+        if (keepPrev && k === 'prev') return; var t = post[k]; if (t) { try { gl.deleteFramebuffer(t.fb); gl.deleteTexture(t.tex); } catch (e) {} } });
+      post = null;
+    }
+    function postTarget() {
+      var w = glc.width, h = glc.height;
+      if (post && post.w === w && post.h === h) return true;
+      // (a new size, e.g. another world's render scale: the old world's last picture is kept for the reveal)
+      var keep = post && xfAt >= 0 ? post.prev : null;
+      postFree(!!keep);
+      try {
+        var qw = Math.max(8, Math.round(w / 4)), qh = Math.max(8, Math.round(h / 4));
+        var p = { w: w, h: h, scene: rt(w, h), a: rt(qw, qh), b: rt(qw, qh), c: rt(qw, qh), d: rt(qw, qh), prev: keep || rt(w, h) };
+        post = p;
+        if (!p.scene || !p.a || !p.b || !p.c || !p.d || !p.prev) { postFree(); return false; }
+        if (!keep) xfAt = -1;
+        return true;
+      } catch (e) { postFree(); return false; }
+    }
+    function postPrograms() {
+      if (postP) return true;
+      var names = { down: NDP_DOWN, blur: NDP_BLUR, streak: NDP_STREAK, comp: NDP_COMP }, out = {};
+      for (var k in names) { var api = glUse('ndp-' + k, names[k]); if (!api) return false; out[k] = { api: api, prog: glProgs['ndp-' + k] }; }
+      postP = out; return true;
+    }
+    function tex(prog, name, unit, t) {
+      gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+      if (!(name in prog.loc)) prog.loc[name] = gl.getUniformLocation(prog, name);
+      gl.uniform1i(prog.loc[name], unit);
+    }
+    function pass(P, target, setup, now) {
+      gl.useProgram(P.prog);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fb : null);
+      var w = target ? target.w : glc.width, h = target ? target.h : glc.height;
+      gl.viewport(0, 0, w, h);
+      P.api.v2('res', w, h); P.api.f('time', now / 1000);
+      setup(P.prog, P.api, w, h);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    // where the road vanishes on screen and which way is up there (for the motion blur and the haze)
+    var palCur = null, nightCur = timeOfNight[2] < 0 ? clockNight : timeOfNight[2];
+    var vpU = [.5, .45], upU = [0, 1], mblurNow = 0, xfAt = -1, pvpU = [.5, .45], XF_MS = 1900;
+    function xfNow(now) { if (xfAt < 0) return 1; var k = Math.min(1, (now - xfAt) / XF_MS); if (k >= 1) xfAt = -1; return k; }
+    // keeps the finished picture of the world being left, for the reveal into the next one
+    function captureForChange() {
+      if (!postOk || !post || !postP || frames < 2) return false;
+      var now = performance.now();
+      try {
+        runPost(now, 1, post.prev);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        pvpU[0] = vpU[0]; pvpU[1] = vpU[1]; xfAt = now;
+        return true;
+      } catch (e) { xfAt = -1; return false; }
+    }
+    function projectDir(d) {
+      var c = d[0] * camFv[0] + d[1] * camFv[1] + d[2] * camFv[2];
+      if (c < 1e-3) return null;
+      var a = (d[0] * camRv[0] + d[1] * camRv[1] + d[2] * camRv[2]) / c / cam.k;
+      var b = ((d[0] * camUv[0] + d[1] * camUv[1] + d[2] * camUv[2]) / c - .085) / cam.k;
+      return [.5 + a * glc.height / glc.width, .5 + b];
+    }
+    function postView(dt) {
+      var z = 600, x = roadX(z), y = -2.35, p1 = projectDir([x, y, -z]), p2 = projectDir([x, y + 40, -z]);
+      if (p1 && p2) {
+        vpU[0] = p1[0]; vpU[1] = p1[1];
+        var asp = glc.width / glc.height, ux = (p2[0] - p1[0]) * asp, uy = p2[1] - p1[1], ul = Math.sqrt(ux * ux + uy * uy) || 1;
+        upU[0] = ux / ul; upU[1] = uy / ul;
+      }
+      // the blur follows the speed actually driven (so drops and surges smear the road more)
+      var rate = Math.min(3, (speed[2] * (1 + surge + cam.boost * .7 + cam.build * .15)) / 96);
+      mblurNow += ((.035 + .05 * rate) - mblurNow) * Math.min(1, dt * 4);
+    }
+    function runPost(now, fk, into) {
+      var P = postP, S0 = post.scene, A = post.a, B = post.b, C = post.c, D = post.d;
+      pass(P.down, A, function (pr, api) { tex(pr, 'src', 0, S0.tex); api.v2('px', 1 / S0.w, 1 / S0.h); api.f('thr', .6); }, now);
+      // tight glow: A -> B -> A ; wide halo: A -> C -> B (wider steps); lens streak: A -> D
+      pass(P.blur, B, function (pr, api) { tex(pr, 'src', 0, A.tex); api.v2('dir', 1 / A.w, 0); }, now);
+      pass(P.blur, C, function (pr, api) { tex(pr, 'src', 0, B.tex); api.v2('dir', 0, 1 / A.h); }, now);
+      pass(P.streak, D, function (pr, api) { tex(pr, 'src', 0, A.tex); api.v2('dir', 4 / A.w, 0); }, now);
+      pass(P.blur, A, function (pr, api) { tex(pr, 'src', 0, C.tex); api.v2('dir', 3.2 / A.w, 0); }, now);
+      pass(P.blur, B, function (pr, api) { tex(pr, 'src', 0, A.tex); api.v2('dir', 0, 3.2 / A.h); }, now);
+      var xf = into ? 1 : xfNow(now);
+      pass(P.comp, into || null, function (pr, api) {
+        tex(pr, 'scene', 0, S0.tex); tex(pr, 'glowA', 1, C.tex); tex(pr, 'glowB', 2, B.tex); tex(pr, 'streak', 3, D.tex); tex(pr, 'prev', 4, into ? S0.tex : post.prev.tex);
+        api.v2('vp', vpU[0], vpU[1]); api.v2('upv', upU[0], upU[1]); api.v2('pvp', pvpU[0], pvpU[1]); api.f('xf', xf);
+        api.f('mblur', mblurNow); api.f('bloomK', .75 + (react ? mus.bass * .3 : 0)); api.f('hazeK', .55 + (react ? mus.mid * .25 : 0));
+        api.f('grainK', .045); api.f('fadeIn', fk); api.v3('tint', palette[2]);
+        api.f('wRain', wxCur.rain); api.f('wSnow', wxCur.snow); api.f('flash', flash); api.f('wspeed', wspeed);
+      }, now);
+      gl.activeTexture(gl.TEXTURE0);
+    }
     function build() {
       var want = HIGH_MEMORY_DEVICE ? 1.05 : (world.glx || .7);
       if (GLX !== want) { GLX = want; size(); }
       skyFree(); twoPass = false; gSky = null;
-      g = glStart('nd-' + world.id + '-2p', '#define ND_SKYTEX\n' + ND_HEAD + world.frag + ND_MAIN);
+      postOk = !!ensureGl() && postPrograms() && postTarget();
+      PD = postOk ? '#define ND_POST\n' : '';
+      g = glStart('nd-' + world.id + '-2p' + (postOk ? 'f' : ''), PD + '#define ND_SKYTEX\n' + ND_HEAD + world.frag + ND_MAIN);
       if (g) {
-        var mainProg = glProgs['nd-' + world.id + '-2p'];
+        var mainProg = glProgs['nd-' + world.id + '-2p' + (postOk ? 'f' : '')];
         gSky = glUse('nd-' + world.id + '-sky', ND_HEAD + world.frag + ND_SKYPASS);
         gl.useProgram(mainProg);
         twoPass = !!gSky && skyTarget();
         if (twoPass) { skyLoc = gl.getUniformLocation(mainProg, 'skyTex'); }
       }
-      if (!twoPass) { g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN); gSky = null; }
+      if (!twoPass) { g = glStart('nd-' + world.id + (postOk ? 'f' : ''), PD + ND_HEAD + world.frag + ND_MAIN); gSky = null; }
       failed = !g; fadeStart = 0;
       if (failed) { text('xpMid', 'NIGHT DRIVE NEEDS WEBGL GRAPHICS'); $('xpMid').style.color = '#9fd0ff'; }
       return !!g;
@@ -3102,6 +3405,7 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
           return '<button type="button" data-world="' + w.id + '"' + (w.id === world.id ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + w.name + '</button>';
         }).join('') + '</div>' +
         '<div class="nd-row"><span>TIME</span>' + chips('time', ND_TIMES, timeOfNight[0]) + '</div>' +
+        '<div class="nd-row"><span>WEATHER</span>' + chips('weather', ND_WEATHER, weatherSel[0]) + '</div>' +
         '<div class="nd-row"><span>COLOUR</span>' + chips('palette', ND_PALETTES, palette[0]) + '</div>' +
         '<div class="nd-row"><span>SPEED</span>' + chips('speed', ND_SPEEDS, speed[0]) + '</div>' +
         '<div class="nd-row"><span>MUSIC</span><button type="button" data-react="t"' + (react ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + (react ? 'REACTIVE' : 'OFF') + '</button></div>' +
@@ -3123,8 +3427,13 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
       wake();
       if (!b) return;
       e.stopPropagation();
-      if (b.dataset.world && b.dataset.world !== world.id) { world = ndWorld(b.dataset.world); ndSave('ndWorld', world.id); build(); }
-      else if (b.dataset.time) { timeOfNight = ndFind(ND_TIMES, b.dataset.time); ndSave('ndTime', timeOfNight[0]); }
+      if (b.dataset.world && b.dataset.world !== world.id) {
+        var revealed = captureForChange();
+        world = ndWorld(b.dataset.world); ndSave('ndWorld', world.id); build();
+        if (revealed && postOk) { fadeStart = -1; xfAt = performance.now(); } else xfAt = -1;
+      }
+      else if (b.dataset.time) { timeOfNight = ndFind(ND_TIMES, b.dataset.time); ndSave('ndTime', timeOfNight[0]); clockAt = 0; }
+      else if (b.dataset.weather) { weatherSel = ndFind(ND_WEATHER, b.dataset.weather); ndSave('ndWeather', weatherSel[0]); }
       else if (b.dataset.palette) { palette = ndFind(ND_PALETTES, b.dataset.palette); ndSave('ndPalette', palette[0]); }
       else if (b.dataset.speed) { speed = ndFind(ND_SPEEDS, b.dataset.speed); ndSave('ndSpeed', speed[0]); }
       else if (b.dataset.react) { react = !react; ndSave('ndReact', react ? '1' : '0'); if (react) beatOn(); else beatOff(); }
@@ -3146,10 +3455,13 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
       surge += ((react ? Math.min(1, mus.e) * .4 : 0) - surge) * Math.min(1, dt * 1.5);
       travel += speed[2] * dt * (1 + surge + cam.boost * .7 + cam.build * .15);
       camTick(dt);
+      weatherTick(now, dt);
       if (travel > 1e7) travel -= 1e7;   // stays in float range on a very long journey
       if (!fadeStart) fadeStart = now;
       // after a resolution change the sky texture is remade; if that ever fails, drop to one pass
-      if (twoPass && !skyTarget()) { twoPass = false; gSky = null; g = glStart('nd-' + world.id, ND_HEAD + world.frag + ND_MAIN); if (!g) return; }
+      if (twoPass && !skyTarget()) { twoPass = false; gSky = null; g = glStart('nd-' + world.id + (postOk ? 'f' : ''), PD + ND_HEAD + world.frag + ND_MAIN); if (!g) return; }
+      // the film finish: if its targets cannot be (re)made, drop back to drawing straight to the screen
+      if (postOk && !postTarget()) { postOk = false; build(); if (!g) return; }
       // the sky texture is refreshed every other frame (and at once after a resize or world change)
       if (twoPass && (skyAt < 0 || frames - skyAt >= 2)) {
         gl.useProgram(glProgs['nd-' + world.id + '-sky']);
@@ -3159,17 +3471,21 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
         gl.bindFramebuffer(gl.FRAMEBUFFER, sky.fb);
         gSky.draw(now, mus, 0);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.useProgram(glProgs['nd-' + world.id + '-2p']);
+        gl.useProgram(glProgs['nd-' + world.id + '-2p' + (postOk ? 'f' : '')]);
         skyAt = frames;
       }
+      gl.useProgram(glProgs['nd-' + world.id + (twoPass ? '-2p' : '') + (postOk ? 'f' : '')]);
+      if (postOk) { postView(dt); gl.bindFramebuffer(gl.FRAMEBUFFER, post.scene.fb); }
       if (twoPass) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sky.tex); gl.uniform1i(skyLoc, 0); }
       setUniforms(g, now);
       g.draw(now, mus, 0);
+      if (postOk) { var fk0 = Math.min(1, (now - fadeStart) / 1600); runPost(now, postOk && fadeStart ? fk0 * fk0 * (3 - 2 * fk0) : 1); }
       frames++;
     }, 30);
     function setUniforms(g, now) {
       g.f('travel', travel);
-      g.f('night', timeOfNight[2]);
+      g.f('night', nightCur);
+      g.f('wRain', wxCur.rain); g.f('wSnow', wxCur.snow); g.f('wFog', wxCur.fog);
       g.f('react', react ? 1 : 0);
       g.f('mids', mus.mid);
       g.f('highs', mus.high);
@@ -3187,7 +3503,15 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
       // ease the world in from black over 1.6 s when it starts or another world is picked
       var fk = Math.min(1, (now - fadeStart) / 1600);
       g.f('fadeIn', fk * fk * (3 - 2 * fk));
-      g.v3('cA', palette[2]); g.v3('cB', palette[3]); g.v3('cC', palette[4]); g.v3('cD', palette[5]);
+      // a new colour or time of night flows in over about a second instead of jumping
+      var ek = Math.min(1, lastDt * 2.2);
+      for (var ci = 0; ci < 4; ci++) for (var cj2 = 0; cj2 < 3; cj2++) {
+        if (!palCur) break;
+        palCur[ci][cj2] += (palette[2 + ci][cj2] - palCur[ci][cj2]) * (g === gSky ? 0 : ek);
+      }
+      if (!palCur) palCur = [palette[2].slice(), palette[3].slice(), palette[4].slice(), palette[5].slice()];
+      if (g !== gSky) nightCur += (nightTarget() - nightCur) * ek;
+      g.v3('cA', palCur[0]); g.v3('cB', palCur[1]); g.v3('cC', palCur[2]); g.v3('cD', palCur[3]);
       g.f('boost', cam.boost); g.f('camSus', cam.sus);
       g.v3('camR', camRv); g.v3('camU', camUv); g.v3('camF', camFv); g.f('camK', cam.k);
       g.v3('skR', skRv); g.v3('skU', skUv); g.v3('skF', skFv); g.f('skK', skK);
@@ -3200,13 +3524,15 @@ vec3 ndRoadFx(vec3 road, float xr, float wz, float edge, float fade){
       layer.classList.remove('nd-idle');
       GLX = oldGLX;
       beat = null;
-      skyFree();
+      skyFree(); postFree();
+      try { gl.bindFramebuffer(gl.FRAMEBUFFER, null); } catch (e) {}
     };
     XP.ndDebug = function () {
       return { world: world.id, palette: palette[0], time: timeOfNight[0], speed: speed[0], react: react,
         travel: travel, frames: frames, gl: !!g, quality: quality, glx: GLX, fade: fadeStart ? Math.min(1, (lastNow - fadeStart) / 1600) : 0,
-        idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat, twoPass: twoPass, skyAt: skyAt, size: glc ? [glc.width, glc.height] : null,
+        idle: layer.classList.contains('nd-idle'), controls: !!ui.parentNode, beat: !!beat, twoPass: twoPass, film: postOk, skyAt: skyAt, size: glc ? [glc.width, glc.height] : null,
         music: { live: mus.live, kick: mus.k, bass: mus.bass, mid: mus.mid, high: mus.high, hat: mus.hat, snare: mus.snare, energy: mus.e },
+        weather: { pick: weatherSel[0], rain: wxCur.rain, snow: wxCur.snow, fog: wxCur.fog, flash: flash }, night: nightCur, nightTarget: nightTarget(),
         pulses: pulseT.slice(), burst: burstAge, cam: { yaw: cam.yaw, roll: cam.roll, sus: cam.sus, zoom: cam.k, boost: cam.boost, build: cam.build }, drift: drift, shower: shower, meteors: mets.filter(Boolean).length, metLog: metLog.slice(), analyser: !!NM };
     };
   }

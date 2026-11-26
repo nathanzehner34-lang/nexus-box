@@ -1046,6 +1046,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     for (var i = 0; i < 4; i++) { var t = flowTouches[i]; t.down = false; t.id = -1; t.dragging = false; if (hard) { t.attract = t.contact = 0; t.vx = t.vy = 0; flowBursts[i].age = 9; } }
     if (hard) { flowWake.length = 0; flowTouchOn = 0; }
   }
+  var palEase = null;
   function glDraw(now, dt) {
     if (!glOk || !gl) return false;
     if (gl.isContextLost && gl.isContextLost()) { glDestroy(); glFailed = false; return false; }
@@ -1070,7 +1071,10 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     glResize();
     inkStep(s, now, eNorm, mN);
     if (inkMix >= .5) return inkDraw(dt, s, eNorm, bN, mN, hN, beatN);
-    var pal = presetRgb, U = Math.min(w, h), t = now * .001, cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
+    // a new colour preset flows into the scene over about a second instead of cutting
+    if (!palEase || palEase.length !== presetRgb.length) palEase = presetRgb.map(function (c) { return c.slice(); });
+    else for (var pe = 0; pe < palEase.length; pe++) for (var pc = 0; pc < 3; pc++) palEase[pe][pc] += (presetRgb[pe][pc] - palEase[pe][pc]) * Math.min(1, s * 2.4);
+    var pal = palEase, U = Math.min(w, h), t = now * .001, cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
     if (!glUse(flowMix <= .001 ? 'orb' : flowMix >= .999 ? 'flow' : 'both')) return false;
     gl.viewport(0, 0, glCanvas.width, glCanvas.height);
     gl.uniform2f(glU.res, glCanvas.width, glCanvas.height);

@@ -25,7 +25,7 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'partyvid-'));
         await ev(`(function(){var u=document.querySelector('.ld-ui');if(u)u.style.display='none';})()`);
       } else if (experience.startsWith('nd-')) {
         // Night Drive: open it on this world (and colour), controls and the music bar hidden
-        await ev(`localStorage.setItem('p_ndWorld',${JSON.stringify(experience.slice(3))});localStorage.setItem('p_ndPalette',${JSON.stringify(o.color || 'ultraviolet')});localStorage.setItem('p_ndTime',${JSON.stringify(o.time || 'night')})`);
+        await ev(`localStorage.setItem('p_ndWorld',${JSON.stringify(experience.slice(3))});localStorage.setItem('p_ndPalette',${JSON.stringify(o.color || 'ultraviolet')});localStorage.setItem('p_ndTime',${JSON.stringify(o.time || 'night')});localStorage.setItem('p_ndWeather',${JSON.stringify(o.wx || 'clear')})`);
         await ev(`document.querySelector('[data-act=night]').click()`);
         for (let i = 0; i < 80; i++) { await sleep(100); if (await ev('!!(window.XP&&XP.ndDebug)')) break; }
         await ev(`(function(){var st=document.createElement('style');st.textContent='.nd-ui,#nxMusic,.nxm-bar,[class^=nxm]{display:none!important}';document.head.appendChild(st);})()`);
@@ -42,6 +42,8 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'partyvid-'));
       await ev('__play(' + JSON.stringify(frames) + ')');
       const total = Math.round((to - from) * FPS);
       for (let f = 0; f < total; f++) {
+        // switch=<world>@<seconds>: change Night Drive world part-way through the clip
+        if (o.switch && f === Math.round(+o.switch.split('@')[1] * FPS)) await ev(`document.querySelector('[data-world=${o.switch.split('@')[0]}]').click()`);
         await advance(1000 / FPS, 1000 / FPS);
         await shot(path.join(dir, String(f).padStart(5, '0') + '.jpg'), 82);
         if (f % (FPS * 5) === 0) process.stdout.write(experience + ' ' + song + ' ' + (f / FPS).toFixed(0) + 's\n');
