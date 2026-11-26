@@ -27,7 +27,7 @@ window.__step=function(ms,fm){var end=vt+ms;while(vt<end-1e-6){vt=Math.min(end,v
   if(due.iv)due.t+=due.iv;else q.splice(q.indexOf(due),1);try{due.cb.apply(null,due.args);}catch(e){__errors.push(String(e&&e.message||e));}}
  var list=raf;raf=[];for(var j=0;j<list.length;j++){try{list[j].cb(vt);}catch(e){__errors.push(String(e&&e.message||e));}}}};
 })();`;
-const BRIDGE = `window.__errors=[];document.write('<style>#partyCanvas{transition:none!important}</style>');addEventListener("error",e=>__errors.push(String(e.message)));
+const BRIDGE = `window.__errors=[];document.write('<style>#partyCanvas,#partyOrbs{transition:none!important}</style>');addEventListener("error",e=>__errors.push(String(e.message)));
 window.Android={getPref:k=>localStorage.getItem("p_"+k)||"",setPref:(k,v)=>localStorage.setItem("p_"+k,v),partyMeter:()=>{},meter:()=>{},meterDetail:()=>{},isMusicActive:()=>true,
   nowPlaying:()=>JSON.stringify({title:"Party test",artist:"Nexus"}),partyMediaInfo:()=>JSON.stringify({connected:true,playing:true,app:"com.spotify.music",title:"Party test",artist:"Nexus",canPlayPause:true}),
   media:()=>{},mediaPlayPause:()=>{},volume:()=>{},refreshApps:()=>{},deviceMemoryGb:()=>+(localStorage.getItem("p_testmem")||2),setBrightness:()=>{},startupVoice:()=>true,stopStartupVoice:()=>{}};`;

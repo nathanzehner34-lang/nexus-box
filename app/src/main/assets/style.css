@@ -310,6 +310,8 @@ html.nx-lite #panelBox { background: linear-gradient(165deg, rgba(255,255,255,.0
 .party-meter { display:none!important; }
 #partyGL { position:absolute;inset:0;z-index:0;width:100%;height:100%;pointer-events:none;display:none;background:#03060b; }
 #party[data-gl="on"] #partyGL { display:block; }
+#partyOrbs { position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none;display:none; }
+#party[data-gl="on"] #partyOrbs { transition:opacity .9s ease; }
 #party[data-gl="on"] #pWash { opacity:.06; }
 #party[data-gl="on"] #partyCanvas { transition:opacity .9s ease; }
 .party-experiences { display:inline-flex;gap:0;margin:1.6vh auto 0;padding:.45vh;border:1px solid rgba(170,206,240,.2);border-radius:99px;

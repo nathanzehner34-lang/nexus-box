@@ -36,6 +36,7 @@
       o.spark = Math.max(o.spark || 0, .8 * power); o.flash = Math.max(o.flash || 0, .5);
       burst(o.x, o.y, o.color, .7 + power * .5, highMemory ? 10 : 6);
     }
+    orbSnare(power);
   }
   // Hi-hats: fine glints scattered through the field.
   function onHat(power) {
@@ -765,7 +766,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   function accent(alpha) { var c = presets[preset].accent; return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + alpha + ')'; }
   function setPreset(name) {
     if (!presets[name]) return;
-    preset = name; sprites = {}; presetRgb = presets[name].colors.map(hexRgb); flowRgb = presets[name].flow.map(hexRgb); palDirty = true;
+    preset = name; sprites = {}; presetRgb = presets[name].colors.map(hexRgb); flowRgb = presets[name].flow.map(hexRgb); palDirty = true; orbPal = [];
     root.setAttribute('data-preset', name);
     Array.prototype.forEach.call(document.querySelectorAll('.party-preset'), function (el) {
       el.classList.toggle('active', el.getAttribute('data-preset') === name);
@@ -777,13 +778,12 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   function setMode(name) {
     if (modes.indexOf(name) < 0) return;
     if (mode !== name) {
+      if (mode === 'ripple') orbUnmergeAll();
       mode = name; modeStarted = performance.now();
-      impulses.length = 0;
+      impulses.length = 0; oS.swells.length = 0; oS.arcs.length = 0;
       for (var i = 0; i < orbs.length; i++) {
-        var o = orbs[i];
+        var o = orbs[i]; o.fresh = true;
         if (name === 'chaos') { o.vx += rand(-1.6, 1.6); o.vy += rand(-1.6, 1.6); }
-        else if (name === 'vortex') { o.vx += (w * .5 - o.x) * .002; o.vy += (h * .46 - o.y) * .002; }
-        else if (name === 'wave') { o.waveBase = o.y; o.waveX = o.x; }
       }
     }
     Array.prototype.forEach.call(document.querySelectorAll('.party-mode'), function (el) {
@@ -1319,10 +1319,11 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
   }
   function addOrb(x, y, index) {
     // z: depth in the field (0 far, 1 near). Far orbs are smaller, dimmer and drawn first.
-    var z = index % 3 === 0 ? rand(0, .35) : rand(.35, 1);
-    return { x: x, y: y, vx: rand(-.45, .45), vy: rand(-.4, .4), r: rand(10, 24) * (.62 + z * .55), z: z,
-      phase: rand(0, 6.28), rate: rand(.0017, .0046), color: index % presets[preset].colors.length, band: index % 3,
-      waveX: x, waveBase: y, nextImpulse: 0 };
+    var z = index % 3 === 0 ? rand(0, .35) : rand(.35, 1), col = index % presets[preset].colors.length;
+    return { x: x, y: y, vx: rand(-.45, .45), vy: rand(-.4, .4), r: rand(10, 24) * (.62 + z * .55), R: 12, z: z, zHome: z, tz: z,
+      phase: rand(0, 6.28), color: col, band: index % 3, base: rand(.72, 1.25), hue: col, th: col, spin: rand(0, 6.28), sz: 1, ts: 1,
+      host: -1, mass: 1, mergedAt: 0, flare: 0, behind: 0, extra: 0, u: 0, near: -1, nearD: 1e9, fresh: true,
+      hist: { x: new Float32Array(12), y: new Float32Array(12), i: 0, n: 0 } };
   }
   function resize() {
     var rect = root.getBoundingClientRect();
@@ -1449,14 +1450,423 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (experience === 'flow' && glOk) triggerBurst(1.4);
     if (experience === 'ink' && glOk) triggerInk(1.4);
     ripple(w * .5, h * .48, 1.5);
+    if (mode === 'ripple') for (var m = 0; m < orbs.length; m++) if (orbs[m].mass > 1) orbSplit(m, 1);
     for (var i = 0; i < orbs.length; i++) {
       var o = orbs[i], dx = o.x - w * .5, dy = o.y - h * .48, d = Math.sqrt(dx * dx + dy * dy) || 1;
       o.vx += dx / d * 7; o.vy += dy / d * 7; o.flash = 1;
     }
     surge = Math.min(1.6, surge + 1); sound(95, .48);
   }
+  // ======== ORB EXPERIENCE: THE ORB UNIVERSE ========
+  // The small orbs are drawn on their own WebGL layer (#partyOrbs, at the 2D canvas's sharper resolution)
+  // as luminous glass spheres: a body of coloured light swirling inside, a thin-film rim whose colour
+  // shifts with the viewing angle, a crescent where the scene's light catches the glass, a sharp
+  // highlight, a soft volumetric halo, and depth of field (far orbs softer and dimmer). Each movement mode
+  // is its own interpretation of the same universe, with its own formation in 3D, its own light and its
+  // own way of listening to the music:
+  //   PULSE   a glass constellation round the hero orb that beats like a heart: every kick throws the
+  //           shell outward and lets it spring back, the flash runs front to back, the orbs are lit
+  //           from the hero orb inside and the snare pops single orbs out of the shell.
+  //   WAVE    a double strand of orbs weaving round a travelling wave: bass sets the swell, every kick
+  //           sends a crest racing along it, colour flows down the strand and each orb draws a long
+  //           soft wake.
+  //   VORTEX  an accretion disc seen at an angle: inner orbs race, outer ones drift, everything spirals
+  //           slowly into the hero orb (and is swallowed by it), lit on the side that faces it; kicks
+  //           spin the disc up, bass pulls it in.
+  //   RIPPLE  (collision) free bodies under gravity that grows with the bass: orbs drift together,
+  //           collide, ring, and fuse into bigger trembling orbs, which a hard kick splits apart again.
+  //   CHAOS   a storm: a turbulent current the music speeds up and every kick re-shapes, orbs rushing
+  //           toward and away from you, hard light that jumps on each beat, sharper colour splitting
+  //           and lightning between orbs on the snare.
+  var orbCanvas = null, ogl = null, oglProg = null, oglBuf = null, oglU = {}, oglA = {}, oglOk = false, oglFailed = false, oglData = null, oglShown = false;
+  var OGL_STRIDE = 22, OGL_N = 22;
+  var ORB_VS = [
+    "attribute vec2 aC;attribute vec4 aP,aA,aB,aL,aX;",
+    "uniform vec2 res;",
+    "varying vec2 vQ;varying vec4 vA,vB,vL,vX;varying float vZ,vAa;",
+    "void main(){",
+    " vQ=aC*2.3;vA=aA;vB=aB;vL=aL;vX=aX;vZ=aP.w;vAa=1.4/max(aP.z,1.);",
+    " vec2 p=aP.xy+aC*aP.z*2.3;",
+    " gl_Position=vec4(p.x/res.x*2.-1.,1.-p.y/res.y*2.,0.,1.);",
+    "}"].join('\n');
+  var ORB_FS = [
+    "precision mediump float;",
+    "uniform vec2 heroC;uniform float heroR,uChroma,uHat,uGlow;",
+    "varying vec2 vQ;varying vec4 vA,vB,vL,vX;varying float vZ,vAa;",
+    "void main(){",
+    " vec2 q=vQ;float ph=vX.x,wob=vX.y,irid=vX.z,behind=vX.w;",
+    " float rq=length(q),ang=atan(q.y,q.x);",
+    " // a fused orb trembles: its outline breathes in slow lobes",
+    " float r=rq*(1.-wob*(.07*sin(ang*3.+ph*2.3)+.04*sin(ang*5.-ph*3.1)));",
+    " float z=vZ,blur=vAa+.012+(1.-z)*(1.-z)*.2;",
+    " float inside=1.-smoothstep(1.-blur,1.+blur*.35,r);",
+    " vec3 cA=vA.rgb,cB=vB.rgb;float flare=vA.a,fade=vB.a;",
+    " // the halo: the orb's own light in the air round it",
+    " float ou=max(r-1.,0.);",
+    " vec3 col=mix(cA,cB,.35)*(exp(-ou*4.6)*.4+exp(-ou*1.6)*.13)*uGlow*(.55+flare*.9)*(1.-smoothstep(.8,1.3,ou))*(.45+.55*z)*(1.-inside);",
+    " float a=0.;",
+    " if(r<1.06){",
+    "  float r2=min(r*r,1.),zn=sqrt(1.-r2);vec2 dir=q/max(rq,1e-3);vec3 n=vec3(dir*sqrt(r2),zn);",
+    "  // light inside the glass: a slow swirl of the orb's two colours, a few fine filaments of light",
+    "  // drifting through it (the deeper layer moves less: parallax), and a core that glows toward the light",
+    "  float c=cos(ph),s=sin(ph);vec2 L=vL.xy;",
+    "  vec2 p=mat2(c,-s,s,c)*q*(1.+.6*(1.-zn));",
+    "  float fl=.5+.25*(sin(p.x*2.1+sin(p.y*1.8+ph*1.1)*1.5+ph*.7)+sin(p.y*1.9-sin(p.x*1.6-ph*.9)*1.4-ph*.5));",
+    "  vec2 p2=mat2(c,s,-s,c)*q*(1.25+.8*(1.-zn));",
+    "  float f1=sin(p.x*2.4+sin(p.y*2.+ph*1.3)*1.9+ph),f2=sin(p2.y*2.2+sin(p2.x*1.7-ph)*1.6-ph*.6);",
+    "  float vein=(exp(-f1*f1*70.)+exp(-f2*f2*90.)*.55)*smoothstep(1.,.35,r)*(.22+flare*.95);",
+    "  vec3 inner=mix(cA,cB,fl);",
+    "  vec2 cq=q-L*.2;float core=exp(-dot(cq,cq)*3.4)*(.26+flare*1.5);",
+    "  vec3 body=inner*(.1+.34*fl)*(.3+.7*zn)+mix(cA,cB,.45)*core*.85+mix(cB,cA,fl)*vein*.7;",
+    "  // the glass edge: a thin film whose colour slides with the angle (split per channel in Chaos)",
+    "  vec3 rk=r*(1.+vec3(-1.,0.,1.)*uChroma);",
+    "  vec3 fr3=pow(1.-sqrt(max(vec3(0.),1.-rk*rk)),vec3(2.4));",
+    "  float fres=fr3.g;",
+    "  float film=.5+.5*cos(fres*6.5*irid+ph*.5);",
+    "  vec3 filmC=mix(cB,cA,film)*(1.+.35*irid*sin(fres*10.+ph));",
+    "  float side=dot(dir,L);",
+    "  body+=filmC*fr3*(.42+vL.z*1.2*smoothstep(-.35,1.,side));",
+    "  // a crescent where the scene's light passes through the glass",
+    "  body+=mix(cA,cB,.25)*vL.z*pow(max(side,0.),2.)*pow(1.-zn,1.3)*.75;",
+    "  // the highlight (tinted, so even it is never pure white)",
+    "  vec3 hv=normalize(normalize(vec3(L*.8,.62))+vec3(0.,0.,1.));float nh=max(dot(n,hv),0.);",
+    "  body+=mix(vec3(1.),cA,.3)*pow(nh,64.)*vL.w*.85+mix(vec3(1.),cA,.55)*pow(nh,7.)*vL.w*.06;",
+    "  // hi-hats: glints that run round the rim",
+    "  body+=mix(cA,vec3(1.),.4)*uHat*pow(max(0.,sin(ang*7.+ph*4.)),28.)*fres*1.1;",
+    "  a=(.42+.5*fres)*inside;",
+    "  col+=body*inside;",
+    " }",
+    " // orbs behind the hero orb are seen faintly through it",
+    " if(behind>.001&&heroR>1.){float d=length(gl_FragCoord.xy-heroC);float occ=1.-behind*.78*(1.-smoothstep(heroR*.9,heroR*1.12,d));col*=occ;a*=occ;}",
+    " // a soft knee keeps the brightest light coloured rather than white",
+    " float m=max(col.r,max(col.g,col.b));if(m>.82)col*=(.82+.26*(1.-exp(-(m-.82)*4.)))/m;",
+    " gl_FragColor=vec4(col,a)*fade;",
+    "}"].join('\n');
+  function oglInit() {
+    if (oglOk || oglFailed) return oglOk;
+    try {
+      if (!orbCanvas) orbCanvas = document.getElementById('partyOrbs');
+      if (!orbCanvas) throw new Error('no orb layer');
+      ogl = orbCanvas.getContext('webgl', { alpha: true, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: false }) ||
+        orbCanvas.getContext('experimental-webgl', { alpha: true, premultipliedAlpha: true });
+      if (!ogl) throw new Error('no webgl');
+      var mk = function (type, src) { var sh = ogl.createShader(type); ogl.shaderSource(sh, src); ogl.compileShader(sh); if (!ogl.getShaderParameter(sh, ogl.COMPILE_STATUS)) throw new Error(ogl.getShaderInfoLog(sh)); return sh; };
+      oglProg = ogl.createProgram();
+      ogl.attachShader(oglProg, mk(ogl.VERTEX_SHADER, ORB_VS)); ogl.attachShader(oglProg, mk(ogl.FRAGMENT_SHADER, ORB_FS));
+      ogl.linkProgram(oglProg);
+      if (!ogl.getProgramParameter(oglProg, ogl.LINK_STATUS)) throw new Error(ogl.getProgramInfoLog(oglProg));
+      ogl.useProgram(oglProg);
+      ['res', 'heroC', 'heroR', 'uChroma', 'uHat', 'uGlow'].forEach(function (n) { oglU[n] = ogl.getUniformLocation(oglProg, n); });
+      oglData = new Float32Array(OGL_N * 6 * OGL_STRIDE);
+      oglBuf = ogl.createBuffer(); ogl.bindBuffer(ogl.ARRAY_BUFFER, oglBuf); ogl.bufferData(ogl.ARRAY_BUFFER, oglData.byteLength, ogl.DYNAMIC_DRAW);
+      var off = 0;
+      [['aC', 2], ['aP', 4], ['aA', 4], ['aB', 4], ['aL', 4], ['aX', 4]].forEach(function (d) {
+        var loc = ogl.getAttribLocation(oglProg, d[0]); oglA[d[0]] = loc;
+        ogl.enableVertexAttribArray(loc); ogl.vertexAttribPointer(loc, d[1], ogl.FLOAT, false, OGL_STRIDE * 4, off * 4); off += d[1];
+      });
+      ogl.disable(ogl.DEPTH_TEST); ogl.enable(ogl.BLEND); ogl.blendFunc(ogl.ONE, ogl.ONE_MINUS_SRC_ALPHA);
+      ogl.clearColor(0, 0, 0, 0);
+      oglOk = true;
+    } catch (e) {
+      oglFailed = true; oglDestroy();
+      try { console.warn('Orb layer unavailable: ' + e.message); } catch (err) {}
+    }
+    return oglOk;
+  }
+  function oglDestroy() {
+    if (ogl) { try { if (oglProg) ogl.deleteProgram(oglProg); if (oglBuf) ogl.deleteBuffer(oglBuf); } catch (e) {} }
+    ogl = null; oglProg = null; oglBuf = null; oglOk = false; oglShown = false;
+    if (orbCanvas) { orbCanvas.width = 1; orbCanvas.height = 1; orbCanvas.style.display = 'none'; }
+  }
+  function oglHide() {
+    if (!oglShown || !orbCanvas) return;
+    oglShown = false; orbCanvas.style.display = 'none';
+    if (ogl) { ogl.clear(ogl.COLOR_BUFFER_BIT); }
+  }
+  // ---- the mode engine ----
+  // oS holds the shared state of the modes; every music-driven motion is an accumulated phase or an
+  // eased value, so nothing ever jumps when the music changes.
+  var oS = { drift: 0, wavePh: 0, swells: [], shell: 0, shellV: 0, rotY: 0, vortK: 0, vortKT: 0, spiral: 0, chT: 0,
+    lightAng: -2.25, lightT: -2.25, lastRing: 0, hueDrift: 0, kickAt: -1e4, kickPow: 0, bSm: 0, mSm: 0, eSm: 0, arcs: [], hx: 0, hy: 0, hr: 0,
+    lp: [.3, .9, 1, .7, .3, .8] };
+  // per mode: crescent light, highlight, iridescence, halo, colour split, -
+  var MODE_LIGHT = { pulse: [.85, .55, .65, 1.15, 0, 0], wave: [.35, 1, .85, .9, 0, 0], vortex: [1.15, .4, .55, 1, 0, 0], ripple: [.6, .9, .75, .9, 0, 0], chaos: [.55, 1.15, 1.25, .8, .022, 0] };
+  var orbPal = [];
+  function orbPalette() {
+    orbPal = [];
+    var src = presets[preset].colors;
+    for (var i = 0; i < src.length; i++) { var c = hexRgb(src[i]); if (Math.min(c[0], c[1], c[2]) < 200) orbPal.push([c[0] / 255, c[1] / 255, c[2] / 255]); }
+    if (!orbPal.length) orbPal.push([.2, .8, 1]);
+  }
+  function palAt(x, out) {
+    var n = orbPal.length, f = ((x % n) + n) % n, i = Math.floor(f), k = f - i, a = orbPal[i], b = orbPal[(i + 1) % n];
+    k = k * k * (3 - 2 * k);
+    out[0] = a[0] + (b[0] - a[0]) * k; out[1] = a[1] + (b[1] - a[1]) * k; out[2] = a[2] + (b[2] - a[2]) * k;
+    return out;
+  }
+  function smooth(e0, e1, x) { var k = clamp((x - e0) / (e1 - e0), 0, 1); return k * k * (3 - 2 * k); }
+  // the shell of the constellation: points spread evenly over a sphere, and each one's nearest neighbours
+  var fibo = [], fiboPairs = [];
+  (function () {
+    for (var i = 0; i < 22; i++) { var y = 1 - (i + .5) / 22 * 2, rr = Math.sqrt(1 - y * y), a = i * 2.39996; fibo.push([Math.cos(a) * rr, y, Math.sin(a) * rr]); }
+    var seen = {};
+    for (var a2 = 0; a2 < 22; a2++) {
+      var d = [];
+      for (var b = 0; b < 22; b++) if (b !== a2) d.push([Math.pow(fibo[a2][0] - fibo[b][0], 2) + Math.pow(fibo[a2][1] - fibo[b][1], 2) + Math.pow(fibo[a2][2] - fibo[b][2], 2), b]);
+      d.sort(function (x, y) { return x[0] - y[0]; });
+      for (var k = 0; k < 3; k++) { var lo = Math.min(a2, d[k][1]), hi = Math.max(a2, d[k][1]); if (!seen[lo + ':' + hi]) { seen[lo + ':' + hi] = 1; fiboPairs.push([lo, hi]); } }
+    }
+  })();
+  function orbKick(power) {
+    oS.kickAt = performance.now(); oS.kickPow = power;
+    if (mode === 'wave') { if (oS.swells.length >= 4) oS.swells.shift(); oS.swells.push({ u: -.08, h: .45 + power * .6 }); }
+    else if (mode === 'pulse') oS.shellV += 1.1 + power * .9;
+    else if (mode === 'vortex') oS.vortKT = Math.min(2.2, oS.vortKT + .5 + power * .6);
+    else if (mode === 'chaos') {
+      oS.chT += .35 + power * .45;
+      oS.lightT = rand(-Math.PI, Math.PI);
+      for (var i = 0; i < orbs.length; i++) { var o = orbs[i], dx = o.x - oS.hx, dy = o.y - oS.hy, d = Math.sqrt(dx * dx + dy * dy) || 1; o.vx += dx / d * (1.2 + power * 1.6); o.vy += dy / d * (1.2 + power * 1.6); }
+    } else if (mode === 'ripple') {
+      var big = -1, bm = 1;
+      for (var j = 0; j < orbs.length; j++) if (orbs[j].host < 0 && orbs[j].mass > bm) { bm = orbs[j].mass; big = j; }
+      if (big >= 0 && power > .55 && performance.now() - orbs[big].mergedAt > 1200) orbSplit(big, power);
+      else if (power > .85) ripple(oS.hx, oS.hy, .4 + power * .35);
+    }
+  }
+  function orbSnare(power) {
+    if (mode === 'pulse') for (var i = 0; i < orbs.length; i++) { if (orbs[i].band === 1 && (i + snareHits) % 3 === 0) orbs[i].pop = Math.max(orbs[i].pop || 0, power); }
+    if (mode === 'chaos') {
+      var made = 0, U = Math.min(w, h);
+      for (var a = 0; a < orbs.length && made < 3; a++) {
+        var oa = orbs[(a + snareHits * 5) % orbs.length];
+        for (var b = 0; b < orbs.length; b++) {
+          var ob = orbs[b]; if (ob === oa) continue;
+          if (Math.hypot(ob.x - oa.x, ob.y - oa.y) < U * .32) { oS.arcs.push({ a: oa, b: ob, life: 1, seed: Math.random() * 100 }); made++; break; }
+        }
+      }
+      while (oS.arcs.length > 6) oS.arcs.shift();
+    }
+    if (mode === 'ripple') {
+      // the snare shoves one orb's neighbours away from it (repulsion), without another ring
+      var o = orbs[(snareHits * 7) % orbs.length], U2 = Math.min(w, h) * .3;
+      if (o.host < 0) for (var r = 0; r < orbs.length; r++) {
+        var nb = orbs[r]; if (nb === o || nb.host >= 0) continue;
+        var dx = nb.x - o.x, dy = nb.y - o.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (d < U2) { var f = (1 - d / U2) * (1.2 + power); nb.vx += dx / d * f; nb.vy += dy / d * f; }
+      }
+      o.flash = Math.max(o.flash || 0, .8); o.wob = Math.max(o.wob || 0, .6);
+    }
+  }
+  function orbSplit(idx, power) {
+    var host = orbs[idx], n = 0;
+    for (var i = 0; i < orbs.length; i++) {
+      var o = orbs[i]; if (o.host !== idx) continue;
+      var a = n * 2.39996 + rand(0, .5), sp = 2.6 + power * 2.4; n++;
+      o.host = -1; o.x = host.x + Math.cos(a) * 4; o.y = host.y + Math.sin(a) * 4; o.vx = host.vx + Math.cos(a) * sp; o.vy = host.vy + Math.sin(a) * sp;
+      o.flash = 1; o.hist.n = 0;
+    }
+    host.mass = 1; host.wob = 1.3; host.flash = 1; host.vx *= .3; host.vy *= .3;
+    ripple(host.x, host.y, 1 + power * .6); burst(host.x, host.y, host.color, 1.1 + power * .6, highMemory ? 26 : 14);
+  }
+  function orbUnmergeAll() {
+    for (var i = 0; i < orbs.length; i++) { var o = orbs[i]; if (o.host >= 0) { o.host = -1; o.vx += rand(-1.5, 1.5); o.vy += rand(-1.5, 1.5); } o.mass = 1; }
+  }
+  function orbStep(dt, now, step) {
+    var s = dt / 1000, t = now * .001, U = Math.min(w, h), n = orbs.length;
+    if (!orbPal.length) orbPalette();
+    var eN = clamp((musicLevel - .08) / 1.1, 0, 1), bN = clamp(bassLevel / 1.2, 0, 1), mN = clamp(midLevel / 1.1, 0, 1), hN = clamp(highLevel / 1.1, 0, 1), beatN = clamp(beatPulse / 1.2, 0, 1);
+    oS.eSm += (eN - oS.eSm) * Math.min(1, s * 2); oS.bSm += (bN - oS.bSm) * Math.min(1, s * 5); oS.mSm += (mN - oS.mSm) * Math.min(1, s * 3);
+    // the hero orb's centre (the same path glDraw gives it) anchors every formation
+    oS.hx = w * .5 + Math.sin(t * .13) * w * .035; oS.hy = h * .51 + Math.cos(t * .11) * h * .025; oS.hr = U * (.105 + eN * .012);
+    var cx = oS.hx, cy = oS.hy;
+    oS.hueDrift += s * (.03 + oS.eSm * .2 + beatN * .08);
+    var lt = MODE_LIGHT[mode] || MODE_LIGHT.pulse;
+    for (var li = 0; li < 6; li++) oS.lp[li] += (lt[li] - oS.lp[li]) * Math.min(1, s * 1.5);
+    var ramp = smooth(0, 1.8, (now - modeStarted) / 1000), k = .006 + .05 * ramp, c = 2 * Math.sqrt(k) * .9;
+    var formation = mode === 'wave' || mode === 'pulse' || mode === 'vortex';
+    var i, o;
+    if (mode === 'wave') {
+      oS.wavePh += s * (.65 + oS.eSm * 1.5 + oS.mSm * .4);
+      oS.drift = (oS.drift + s * (.011 + oS.eSm * .028)) % 1;
+      for (var q = oS.swells.length - 1; q >= 0; q--) { var sw = oS.swells[q]; sw.u += s * (.3 + oS.eSm * .2); sw.h *= Math.exp(-s * .5); if (sw.u > 1.3) oS.swells.splice(q, 1); }
+      var A = U * (.1 + oS.bSm * .09 + beatN * .012), Hh = U * (.06 + oS.mSm * .03);
+      for (i = 0; i < n; i++) {
+        o = orbs[i];
+        var st = i % 2, u = ((i >> 1) / 11 + oS.drift + st * .045) % 1, th = u * Math.PI * 2 * 1.15 - oS.wavePh, swell = 0;
+        for (var sq = 0; sq < oS.swells.length; sq++) { var dd = (u - oS.swells[sq].u) / .085; swell += oS.swells[sq].h * Math.exp(-dd * dd); }
+        var phi = th * 1.6 + oS.wavePh * .35 + st * Math.PI;
+        o.tx = -.06 * w + u * 1.12 * w; o.ty = cy + A * Math.sin(th) - swell * U * .15 + Hh * Math.sin(phi);
+        o.tz = .5 + .42 * Math.cos(phi); o.ts = smooth(0, .07, u) * (1 - smooth(.93, 1, u)) * (1 + swell * .35); o.th = u * 3.2 + st * 1.4 + oS.hueDrift;
+        o.behind = clamp((.42 - o.z) * 4, 0, 1); o.u = u; o.extra = swell * .7;
+      }
+      oS.lightAng = -2.2 + .45 * Math.sin(oS.wavePh * .12);
+    } else if (mode === 'pulse') {
+      // a heartbeat: a damped spring the kicks strike
+      var sub = s > .03 ? 2 : 1, ds = s / sub;
+      for (var ss = 0; ss < sub; ss++) { oS.shellV += (-58 * oS.shell - 6.2 * oS.shellV) * ds; oS.shell += oS.shellV * ds; }
+      oS.rotY += s * (.11 + oS.mSm * .32 + oS.eSm * .12);
+      var tilt = .42 + .12 * Math.sin(t * .07), ct = Math.cos(tilt), stl = Math.sin(tilt), cr = Math.cos(oS.rotY), sr = Math.sin(oS.rotY);
+      var Rs = U * (.31 + oS.bSm * .035) * (1 + clamp(oS.shell, -.12, .4)), kAge = (now - oS.kickAt) / 1000;
+      for (i = 0; i < n; i++) {
+        o = orbs[i]; var f = fibo[i], x1 = f[0] * cr - f[2] * sr, z1 = f[0] * sr + f[2] * cr, y2 = f[1] * ct - z1 * stl, z2 = f[1] * stl + z1 * ct;
+        o.pop = (o.pop || 0) * Math.exp(-s * 4.5);
+        var pr = 1 + o.pop * .16, persp = 1 / (1 + z2 * .3);
+        o.tx = cx + x1 * Rs * persp * pr; o.ty = cy + y2 * Rs * persp * pr; o.tz = .5 - z2 * .5; o.ts = 1 + o.pop * .25;
+        o.th = f[1] * 1.7 + oS.hueDrift; o.behind = clamp(z2 * 2.5, 0, 1);
+        // the kick's flash runs across the shell from the front to the back
+        var lag = kAge - (1 - o.tz) * .16; o.extra = oS.kickPow * Math.exp(-lag * lag / .005) * .9 + o.pop * .5;
+      }
+    } else if (mode === 'vortex') {
+      oS.vortK += (oS.vortKT - oS.vortK) * Math.min(1, s * 3); oS.vortKT *= Math.exp(-s * 1.1);
+      oS.spiral += s * (.009 + oS.eSm * .022 + oS.vortK * .018);
+      var tl = 1.13 + .07 * Math.sin(t * .09), tc = Math.cos(tl), ts2 = Math.sin(tl), pull = 1 - oS.bSm * .06;
+      for (i = 0; i < n; i++) {
+        o = orbs[i];
+        var fr = (i * .618034 + oS.spiral) % 1, rho = U * (.84 - .64 * fr) * pull;
+        o.ang = (o.ang === undefined ? i * 1.31 + rand(0, 2) : o.ang) + s * Math.min(5, (.22 + oS.eSm * .75 + oS.vortK * 1.4) * Math.pow(U * .45 / rho, 1.5));
+        var ex = Math.cos(o.ang) * rho, ey = Math.sin(o.ang) * rho, dw = ey * ts2 / U, pv = 1 / (1 - dw * .45);
+        o.tx = cx + ex * pv; o.ty = cy + ey * tc * pv; o.tz = clamp(.5 + dw * .9, 0, 1);
+        o.ts = smooth(0, .07, fr) * (1 - smooth(.82, .995, fr)); o.th = fr * 2.6 + oS.hueDrift * .6;
+        o.behind = ey < 0 ? clamp(-ey / (U * .18), 0, 1) : 0; o.extra = smooth(.75, .98, fr) * .7; o.u = fr;
+      }
+    } else if (mode === 'ripple') {
+      var G = .00042 * (.25 + oS.bSm * 1.3 + buildUp * .7), soft = U * U * .012, free = 0;
+      for (i = 0; i < n; i++) if (orbs[i].host < 0) free++;
+      for (i = 0; i < n; i++) { orbs[i].near = -1; orbs[i].nearD = 1e9; }
+      for (i = 0; i < n; i++) {
+        o = orbs[i];
+        if (o.host >= 0) continue;
+        for (var j = i + 1; j < n; j++) {
+          var b = orbs[j]; if (b.host >= 0) continue;
+          var gx = b.x - o.x, gy = b.y - o.y, g2 = gx * gx + gy * gy;
+          if (g2 < o.nearD) { o.nearD = g2; o.near = j; } if (g2 < b.nearD) { b.nearD = g2; b.near = i; }
+          if (g2 > U * U * .1) continue;
+          var gd = Math.sqrt(g2) || 1, gf = G * U * U / (g2 + soft) * step;
+          o.vx += gx / gd * gf * b.mass; o.vy += gy / gd * gf * b.mass; b.vx -= gx / gd * gf * o.mass; b.vy -= gy / gd * gf * o.mass;
+        }
+        // a gentle pull back toward the middle of the screen, but the hero orb keeps a clear space round it
+        var hx2 = o.x - cx, hy2 = o.y - cy, hd = Math.sqrt(hx2 * hx2 + hy2 * hy2) || 1, keep = U * .3;
+        // ...and the whole field slowly circles the hero orb, each orb wandering a little on its own
+        var tang = (.16 + oS.eSm * .3) / hd;
+        o.vx += (-hy2 * tang - o.vx * .02 + Math.sin(now * .0007 + o.phase) * .03) * step; o.vy += (hx2 * tang - o.vy * .02 + Math.cos(now * .0006 + o.phase) * .03) * step;
+        var ell = Math.sqrt(hx2 * hx2 / (w * w * .16) + hy2 * hy2 / (h * h * .16));
+        if (ell > .75) { o.vx -= hx2 / hd * (ell - .75) * .3 * step; o.vy -= hy2 / hd * (ell - .75) * .3 * step; }
+        if (hd < keep) { var push = (1 - hd / keep) * .22 * step; o.vx += hx2 / hd * push; o.vy += hy2 / hd * push; }
+        o.tz = .4 + o.zHome * .6; o.ts = Math.pow(o.mass, 1 / 3); o.th = o.color + oS.hueDrift * .5; o.behind = 0; o.extra = 0;
+        if (o.mass > 1 && now - o.mergedAt > 5200 + i * 180) orbSplit(i, .6);
+      }
+      for (i = 0; i < n; i++) {
+        o = orbs[i]; if (o.host < 0) continue;
+        var hs = orbs[o.host]; o.x += (hs.x - o.x) * Math.min(1, .16 * step); o.y += (hs.y - o.y) * Math.min(1, .16 * step); o.vx = hs.vx; o.vy = hs.vy;
+        o.tz = hs.z; o.ts = 0; o.th = o.color + oS.hueDrift * .5; o.behind = 0; o.extra = 0;
+      }
+      oS.freeOrbs = free;
+    } else {
+      // chaos: a turbulent current that the music speeds up
+      oS.chT += s * (.22 + oS.eSm * .85 + hN * .3);
+      var spd = 1.1 + oS.eSm * 3.1 + beatN * 1.2;
+      for (i = 0; i < n; i++) {
+        o = orbs[i];
+        // the current is the curl of a moving potential, so it swirls and never drains into one corner
+        var ax = o.x / U * 5.2 + o.phase * 1.7, ay = o.y / U * 4.4 + o.phase * 2.3, T = oS.chT;
+        var s1 = Math.sin(ax + T), c1 = Math.cos(ax + T), s2 = Math.sin(ay - T * 1.3), c2 = Math.cos(ay - T * 1.3);
+        var s3 = Math.cos((ax + ay) * .8 + T * .7), s4 = Math.cos((ax - ay * .7) * 1.4 - T * .9);
+        var cvx = -s1 * s2 * 4.4 + s3 * .8 * 4.4 * .7 - s4 * 1.4 * .7 * 4.4 * .5;
+        var cvy = -(c1 * c2 * 5.2 + s3 * .8 * 5.2 * .7 + s4 * 1.4 * 5.2 * .5);
+        var want = spd * (.7 + .5 * o.base) / 4.5;
+        o.vx += (cvx * want - o.vx) * .05 * step; o.vy += (cvy * want - o.vy) * .05 * step;
+        // held inside a soft oval so the storm fills the screen instead of piling into a corner
+        var ox = o.x - cx, oy = o.y - cy, el = Math.sqrt(ox * ox / (w * w * .2) + oy * oy / (h * h * .2)), od = Math.sqrt(ox * ox + oy * oy) || 1;
+        if (el > .7) { o.vx -= ox / od * (el - .7) * .9 * step; o.vy -= oy / od * (el - .7) * .9 * step; }
+        o.tz = .5 + .45 * Math.sin(oS.chT * 1.7 + o.phase); o.ts = 1; o.th = o.color + oS.hueDrift * 1.4; o.behind = 0;
+        o.extra = hatEnv * (((i * 7 + hatHits * 3) % 5) < 2 ? .8 : 0);
+      }
+      var da = oS.lightT - oS.lightAng; da = Math.atan2(Math.sin(da), Math.cos(da)); oS.lightAng += da * Math.min(1, s * 10);
+    }
+    if (mode !== 'chaos') { var da2 = (mode === 'wave' ? oS.lightAng : -2.25) - oS.lightAng; if (mode !== 'wave') oS.lightAng += Math.atan2(Math.sin(da2), Math.cos(da2)) * Math.min(1, s * 2); oS.lightT = oS.lightAng; }
+    for (var ai = oS.arcs.length - 1; ai >= 0; ai--) { oS.arcs[ai].life -= s * 4.5; if (oS.arcs[ai].life <= 0 || mode !== 'chaos') oS.arcs.splice(ai, 1); }
+    var sizeU = U * .034, held = selected && gesture && pointer;
+    for (i = 0; i < n; i++) {
+      o = orbs[i];
+      if (o === selected && held) {
+        o.x += (pointer.x - o.x) * .42; o.y += (pointer.y - o.y) * .42; o.vx = o.vy = 0;
+        if (!gesture.moved && now - gesture.started > 360) o.charge = Math.min(1, (now - gesture.started - 360) / 950);
+        o.reaction = Math.max(o.reaction || 0, (o.charge || 0) * .8);
+      } else if (formation) {
+        // follow the formation on a spring (taps, the cannon and ripples still knock orbs out of it)
+        if (o.fresh || o.ptx === undefined) { o.ptx = o.tx; o.pty = o.ty; o.fresh = false; }
+        var jump = Math.abs(o.tx - o.ptx) + Math.abs(o.ty - o.pty) > U * .3;
+        if (jump) { o.x = o.tx; o.y = o.ty; o.vx = o.vy = 0; o.hist.n = 0; }
+        else {
+          var tvx = (o.tx - o.ptx) / step, tvy = (o.ty - o.pty) / step;
+          o.vx += (k * (o.tx - o.x) + c * (tvx - o.vx)) * step; o.vy += (k * (o.ty - o.y) + c * (tvy - o.vy)) * step;
+          o.x += o.vx * step; o.y += o.vy * step;
+        }
+      } else if (o.host < 0) {
+        var max = mode === 'chaos' ? 6.2 : 3.6;
+        o.vx = clamp(o.vx * .996, -max, max); o.vy = clamp(o.vy * .996, -max, max);
+        o.x += o.vx * step; o.y += o.vy * step;
+      }
+      o.ptx = o.tx; o.pty = o.ty; if (!formation) o.fresh = true;
+      for (var qi = 0; qi < impulses.length; qi++) {
+        var pulse = impulses[qi], px = o.x - pulse.x, py = o.y - pulse.y, distance = Math.sqrt(px * px + py * py) || 1, band = Math.abs(distance - pulse.front);
+        if (band < 52) {
+          var force = (1 - band / 52) * pulse.power * .16 * pulse.life;
+          o.vx += px / distance * force * step; o.vy += py / distance * force * step;
+          o.reaction = Math.max(o.reaction || 0, force * 2.5);
+        }
+      }
+      if (!formation && o.host < 0) {
+        var bounce = mode === 'chaos' ? -.9 : -.76;
+        if (o.x < o.r || o.x > w - o.r) { o.vx *= bounce; o.x = clamp(o.x, o.r, w - o.r); }
+        if (o.y < o.r || o.y > h - o.r) { o.vy *= bounce; o.y = clamp(o.y, o.r, h - o.r); }
+      }
+      o.z += (o.tz - o.z) * Math.min(1, s * (mode === 'chaos' ? 6 : 4));
+      o.sz += (o.ts - o.sz) * Math.min(1, s * (o.host >= 0 ? 6 : 3.5));
+      o.wob = (o.wob || 0) * Math.exp(-s * 1.4);
+      var dh = o.th - o.hue, N = orbPal.length; dh = ((dh % N) + N * 1.5) % N - N * .5; o.hue += dh * Math.min(1, s * 2.2);
+      o.spin += s * (.35 + oS.mSm * 1.2 + (o.band === 1 ? snareEnv * 1.6 : 0) + (mode === 'chaos' ? .6 : 0)) * (i % 2 ? 1 : -1);
+      // each orb listens to its own part of the music: a third to the kick and the bass, a third to
+      // the mids and the snare, a third to the hi-hats and the treble
+      var heard = o.band === 0 ? bassLevel * .3 + beatPulse * .28 : o.band === 1 ? midLevel * .26 + snareEnv * .14 : highLevel * .12 + hatEnv * .16;
+      var persp = .55 + .85 * o.z;
+      o.r = Math.max(2, sizeU * o.base * persp * o.sz);
+      o.R = o.r * (1 + heard + (o.flash || 0) * .18 + (o.charge || 0) * .34);
+      var flare = (o.band === 0 ? beatPulse * .55 : o.band === 1 ? snareEnv * .6 + mN * .15 : hatEnv * .55 + hN * .12) * (.5 + .5 * o.z);
+      o.flare = clamp(flare + (o.flash || 0) * .7 + (o.spark || 0) + (o.charge || 0) * .5 + (o.extra || 0), 0, 1.8);
+      o.reaction = Math.max(0, (o.reaction || 0) * .91); o.flash = Math.max(0, (o.flash || 0) * .91); o.spark = Math.max(0, (o.spark || 0) * .86);
+      if (!(o === selected && gesture && pointer && !gesture.moved)) o.charge = Math.max(0, (o.charge || 0) - .025 * step);
+      // the wake: the last few positions, for the trails
+      var hst = o.hist; hst.x[hst.i] = o.x; hst.y[hst.i] = o.y; hst.i = (hst.i + 1) % 12; hst.n = Math.min(12, hst.n + 1);
+    }
+    // collisions: free bodies bounce, ring and (in RIPPLE) fuse; formations pass through one another in depth
+    if (!formation) for (i = 0; i < n; i++) {
+      o = orbs[i]; if (o.host >= 0) continue;
+      for (var j2 = i + 1; j2 < n; j2++) {
+        var b2 = orbs[j2]; if (b2.host >= 0) continue;
+        var dx2 = b2.x - o.x, dy2 = b2.y - o.y, d2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || .1, min = (o.r + b2.r) * .92;
+        if (d2 >= min || (mode === 'chaos' && Math.abs(o.z - b2.z) > .22)) continue;
+        var nx = dx2 / d2, ny = dy2 / d2, impulse = (o.vx - b2.vx) * nx + (o.vy - b2.vy) * ny;
+        if (mode === 'ripple' && impulse < 1.5 && o.mass + b2.mass <= 4 && oS.freeOrbs > 15 && o !== selected && b2 !== selected) {
+          // fusion: the lighter orb flows into the heavier one
+          var hi = o.mass >= b2.mass ? i : j2, lo = hi === i ? j2 : i, H2 = orbs[hi], L2 = orbs[lo];
+          L2.host = hi; H2.mass += L2.mass; L2.mass = 1; H2.mergedAt = now; H2.wob = 1; H2.flash = Math.max(H2.flash || 0, .6);
+          for (var cc = 0; cc < n; cc++) if (orbs[cc].host === lo) orbs[cc].host = hi;
+          H2.vx = (H2.vx * (H2.mass - 1) + L2.vx) / H2.mass; H2.vy = (H2.vy * (H2.mass - 1) + L2.vy) / H2.mass;
+          oS.freeOrbs--; sound(240, .12);
+          if (lo === i) break;
+          continue;
+        }
+        var overlap = (min - d2) * .5;
+        o.x -= nx * overlap; o.y -= ny * overlap; b2.x += nx * overlap; b2.y += ny * overlap;
+        o.vx -= impulse * nx * .64; o.vy -= impulse * ny * .64; b2.vx += impulse * nx * .64; b2.vy += impulse * ny * .64;
+        if (impulse > .3) { o.flash = Math.max(o.flash, .55); b2.flash = Math.max(b2.flash, .55); }
+        if (mode === 'ripple' && impulse > 1.1 && now - oS.lastRing > 900) { oS.lastRing = now; ripple((o.x + b2.x) * .5, (o.y + b2.y) * .5, .45 + Math.min(.4, impulse * .15)); }
+      }
+    }
+  }
   function update(dt, now) {
-    var step = Math.min(2, dt / 16.67), cx = w * .5, cy = h * .46, elapsed = now - modeStarted;
+    var step = Math.min(2, dt / 16.67);
     var decay = Math.exp(-dt / 280);
     musicLevel += (inputEnergy - musicLevel) * (inputEnergy > musicLevel ? .32 : .12);
     bassLevel += (inputBass - bassLevel) * (inputBass > bassLevel ? .42 : .16);
@@ -1468,68 +1878,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (now - detailAt < 600) { inputMid = Math.max(inputMid * .5, detailMid); inputHigh = Math.max(inputHigh * .5, detailHigh); }
     hookDetail();
     if (now - lastAudioSample > 900) { inputEnergy = .08; inputBass = inputMid = inputHigh = 0; }
-    for (var i = 0; i < orbs.length; i++) {
-      var o = orbs[i];
-      if (o === selected && gesture && pointer) {
-        o.x += (pointer.x - o.x) * .42; o.y += (pointer.y - o.y) * .42;
-        if (!gesture.moved && now - gesture.started > 360) o.charge = Math.min(1, (now - gesture.started - 360) / 950);
-      } else if (mode === 'wave') {
-        o.waveX += (.35 + i % 4 * .08) * step;
-        if (o.waveX > w + 30) o.waveX = -30;
-        o.x = o.waveX;
-        var localPhase = o.waveX / w * 6.2 - now * .0016 + o.phase;
-        o.y += ((o.waveBase + Math.sin(localPhase) * Math.min(105, h * (.17 + musicLevel * .035))) - o.y) * .13 * step;
-        o.vy *= .92;
-      } else if (mode === 'vortex') {
-        var dx = cx - o.x, dy = cy - o.y, dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        o.vx += (-dy / dist * (.14 + musicLevel * .08) + dx / dist * .014) * step;
-        o.vy += (dx / dist * (.14 + musicLevel * .08) + dy / dist * .014) * step;
-      } else if (mode === 'chaos') {
-        if (now > o.nextImpulse) {
-          o.vx += rand(-1.4, 1.4); o.vy += rand(-1.2, 1.2); o.nextImpulse = now + rand(240, 690);
-        }
-      } else {
-        o.vx += Math.sin(now * .0008 + o.phase) * .025 * step;
-        o.vy += Math.cos(now * .00065 + o.phase) * .024 * step;
-      }
-      if (o === selected && gesture && pointer) {
-        o.reaction = Math.max(o.reaction || 0, (o.charge || 0) * .8);
-      }
-      for (var q = 0; q < impulses.length; q++) {
-        var pulse = impulses[q], px = o.x - pulse.x, py = o.y - pulse.y, distance = Math.sqrt(px * px + py * py) || 1;
-        var band = Math.abs(distance - pulse.front);
-        if (band < 52) {
-          var force = (1 - band / 52) * pulse.power * .16 * pulse.life;
-          o.vx += px / distance * force * step; o.vy += py / distance * force * step;
-          o.reaction = Math.max(o.reaction || 0, force * 2.5);
-        }
-      }
-      o.vx *= .994; o.vy *= .994;
-      var max = mode === 'chaos' ? 5.7 : 3.7;
-      o.vx = clamp(o.vx, -max, max); o.vy = clamp(o.vy, -max, max);
-      if (mode !== 'wave' && !(o === selected && gesture && pointer)) { o.x += o.vx * step; o.y += o.vy * step; }
-      var bounce = mode === 'chaos' ? -.9 : -.76;
-      if (o.x < o.r || o.x > w - o.r) { o.vx *= bounce; o.x = clamp(o.x, o.r, w - o.r); }
-      if (o.y < o.r || o.y > h - o.r) { o.vy *= bounce; o.y = clamp(o.y, o.r, h - o.r); }
-      o.reaction = Math.max(0, (o.reaction || 0) * .91);
-      o.flash = Math.max(0, (o.flash || 0) * .91);
-      if (!(o === selected && gesture && pointer && !gesture.moved)) o.charge = Math.max(0, (o.charge || 0) - .025 * step);
-      o.ringPulse = Math.max(0, (o.ringPulse || 0) * .91);
-      if (mode !== 'wave') { o.waveX = o.x; o.waveBase = o.y; }
-      for (var j = i + 1; j < orbs.length; j++) {
-        var b = orbs[j], dx2 = b.x - o.x, dy2 = b.y - o.y, d2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || .1, min = o.r + b.r;
-        if (d2 < min) {
-          var nx = dx2 / d2, ny = dy2 / d2, overlap = (min - d2) * .5;
-          o.x -= nx * overlap; o.y -= ny * overlap; b.x += nx * overlap; b.y += ny * overlap;
-          var impulse = (o.vx - b.vx) * nx + (o.vy - b.vy) * ny;
-          o.vx -= impulse * nx * .64; o.vy -= impulse * ny * .64; b.vx += impulse * nx * .64; b.vy += impulse * ny * .64;
-          o.flash = Math.max(o.flash, .55); b.flash = Math.max(b.flash, .55);
-          if (mode === 'ripple' && impulse > .4 && now - (o.lastRipple || 0) > 360) {
-            o.lastRipple = now; ripple((o.x + b.x) * .5, (o.y + b.y) * .5, .58);
-          }
-        }
-      }
-    }
+    orbStep(dt, now, step);
     for (var k = impulses.length - 1; k >= 0; k--) {
       impulses[k].front += (4.1 + musicLevel * 2.2) * step; impulses[k].life -= .008 * step;
       if (impulses[k].life <= 0 || impulses[k].front > Math.max(w, h) * 1.2) impulses.splice(k, 1);
@@ -1554,17 +1903,186 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       var tr = trails[ti]; tr.x += tr.vx * step; tr.y += tr.vy * step; tr.life -= .035 * step;
     }
   }
-  function orbScale(o, now, index) {
-    var pulse;
-    // each orb listens to its own part of the music: a third swell with the kick and the bass, a third
-    // breathe with the mids, and a third twinkle with the hi-hats and treble
-    var bass = o.band === 0 ? bassLevel * .45 + beatPulse * .4 : o.band === 1 ? midLevel * .38 + beatPulse * .08 : highLevel * .16 + hatEnv * .22 + beatPulse * .05;
-    if (mode === 'pulse') pulse = 1 + Math.sin(now * o.rate + o.phase) * (.18 + musicLevel * .08);
-    else if (mode === 'wave') pulse = 1 + Math.sin(o.waveX / w * 5.5 - now * .0016 + o.phase) * .16;
-    else if (mode === 'vortex') pulse = 1 + Math.sin(now * .0018 + o.phase + index * .14) * .1;
-    else if (mode === 'chaos') pulse = 1 + Math.sin(now * o.rate * 1.8 + o.phase) * .18;
-    else pulse = 1 + Math.sin(now * .0016 + o.phase) * .1 + (o.reaction || 0) * .18;
-    return o.r * pulse * (1 + bass + musicLevel * .1 + (o.flash || 0) * .18 + (o.charge || 0) * .34);
+  var cA3 = [0, 0, 0], cB3 = [0, 0, 0];
+  function orbColours(o) { palAt(o.hue, cA3); palAt(o.hue + 1.6, cB3); }
+  function rgbS(c, a) { return 'rgba(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ',' + a + ')'; }
+  function segTo(A, B) {
+    var dx = B.x - A.x, dy = B.y - A.y, d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= A.R + B.R + 2) return;
+    ctx.moveTo(A.x + dx / d * A.R, A.y + dy / d * A.R); ctx.lineTo(B.x - dx / d * B.R, B.y - dy / d * B.R);
+  }
+  // ---- the threads between orbs, different in each mode ----
+  function drawConnections(now) {
+    var U = Math.min(w, h), i, o;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (mode === 'wave') {
+      // the two strands, threaded through their orbs
+      for (var st = 0; st < 2; st++) {
+        var list = [];
+        for (i = st; i < orbs.length; i += 2) if (orbs[i].sz > .05) list.push(orbs[i]);
+        list.sort(function (a, b) { return a.u - b.u; });
+        palAt(st * 1.4 + oS.hueDrift + 1, cA3);
+        ctx.beginPath();
+        for (i = 0; i < list.length; i++) {
+          o = list[i];
+          if (!i || o.u - list[i - 1].u > .2) ctx.moveTo(o.x, o.y);
+          else { var pv = list[i - 1]; ctx.quadraticCurveTo(pv.x, pv.y, (pv.x + o.x) * .5, (pv.y + o.y) * .5); }
+        }
+        ctx.strokeStyle = rgbS(cA3, .05 + oS.mSm * .06 + oS.bSm * .04); ctx.lineWidth = 6 + oS.bSm * 6; ctx.stroke();
+        ctx.strokeStyle = rgbS(cA3, .16 + oS.mSm * .16 + beatPulse * .1); ctx.lineWidth = 1 + highLevel * .6; ctx.stroke();
+      }
+    } else if (mode === 'pulse') {
+      // the constellation's struts: faint glass threads that light up with the heartbeat
+      var glowK = .05 + clamp(beatPulse, 0, 1.2) * .22 + oS.bSm * .05;
+      for (var layer = 0; layer < 2; layer++) {
+        ctx.beginPath();
+        for (i = 0; i < fiboPairs.length; i++) {
+          var A = orbs[fiboPairs[i][0]], B = orbs[fiboPairs[i][1]];
+          if ((A.z + B.z > 1) !== (layer === 1)) continue;
+          segTo(A, B);
+        }
+        palAt(oS.hueDrift + layer * 1.5, cA3);
+        ctx.strokeStyle = rgbS(cA3, glowK * (layer ? 1 : .45)); ctx.lineWidth = layer ? 1.1 : .7; ctx.stroke();
+      }
+    } else if (mode === 'ripple') {
+      // tension between bodies that are pulling on each other, and the neck of an orb flowing into another
+      var maxDist = U * .3;
+      for (i = 0; i < orbs.length; i++) connectionCounts[i] = 0;
+      for (var a = 0; a < orbs.length; a++) {
+        var oa = orbs[a];
+        if (oa.host >= 0) {
+          var hs = orbs[oa.host], left = Math.hypot(hs.x - oa.x, hs.y - oa.y);
+          if (left > 1 && oa.sz > .05) { orbColours(oa); ctx.beginPath(); ctx.moveTo(oa.x, oa.y); ctx.lineTo(hs.x, hs.y); ctx.strokeStyle = rgbS(cA3, .35 * oa.sz); ctx.lineWidth = oa.r * 1.5 * oa.sz + 1; ctx.stroke(); }
+          continue;
+        }
+        for (var b = a + 1; b < orbs.length; b++) {
+          var ob = orbs[b]; if (ob.host >= 0 || connectionCounts[a] >= 2 || connectionCounts[b] >= 2) continue;
+          var dx = ob.x - oa.x, dy = ob.y - oa.y, dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > maxDist || dist < 1) continue;
+          connectionCounts[a]++; connectionCounts[b]++;
+          var strength = (1 - dist / maxDist) * (.12 + oS.bSm * .35 + beatPulse * .12), bend = Math.sin(now * .0014 + a * 1.7 + b) * Math.min(26, dist * .1), nx = -dy / dist, ny = dx / dist;
+          orbColours(oa);
+          ctx.beginPath(); ctx.moveTo(oa.x, oa.y); ctx.quadraticCurveTo((oa.x + ob.x) * .5 + nx * bend, (oa.y + ob.y) * .5 + ny * bend, ob.x, ob.y);
+          ctx.strokeStyle = rgbS(cA3, strength * .5); ctx.lineWidth = .8 + oS.bSm * 1.6; ctx.stroke();
+        }
+      }
+    } else if (mode === 'chaos') {
+      // lightning between orbs on the snare
+      for (i = 0; i < oS.arcs.length; i++) {
+        var arc = oS.arcs[i], ax = arc.a.x, ay = arc.a.y, bx = arc.b.x, by = arc.b.y, L = Math.hypot(bx - ax, by - ay) || 1, px = -(by - ay) / L, py = (bx - ax) / L;
+        orbColours(arc.a);
+        ctx.beginPath(); ctx.moveTo(ax, ay);
+        for (var sgi = 1; sgi < 7; sgi++) { var f = sgi / 7, j = (Math.sin(arc.seed + sgi * 12.9 + now * .03) * .5) * L * .12; ctx.lineTo(ax + (bx - ax) * f + px * j, ay + (by - ay) * f + py * j); }
+        ctx.lineTo(bx, by);
+        ctx.strokeStyle = rgbS(cA3, arc.life * .25); ctx.lineWidth = 5; ctx.stroke();
+        ctx.strokeStyle = rgbS([.9, .95, 1], arc.life * .55); ctx.lineWidth = 1.1; ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  // ---- wakes: a tapering streak of each orb's own colour behind it ----
+  function drawWakes() {
+    var len = mode === 'wave' ? 12 : mode === 'vortex' ? 11 : mode === 'chaos' ? 7 : mode === 'ripple' ? 5 : 0;
+    if (!len) return;
+    var alphaK = mode === 'wave' ? .22 : mode === 'vortex' ? .26 : mode === 'chaos' ? .3 : .16;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+    for (var i = 0; i < orbs.length; i++) {
+      var o = orbs[i], hs = o.hist, m = Math.min(len, hs.n);
+      if (m < 3 || o.sz < .08 || o.host >= 0) continue;
+      orbColours(o);
+      var depth = .45 + .55 * o.z;
+      // three tapering pieces, newest (widest, brightest) first
+      for (var part = 0; part < 3; part++) {
+        var a0 = Math.floor(part * (m - 1) / 3), a1 = Math.floor((part + 1) * (m - 1) / 3);
+        if (a1 <= a0) continue;
+        ctx.beginPath();
+        for (var k = a0; k <= a1; k++) { var idx = (hs.i - 1 - k + 24) % 12; if (k === a0) ctx.moveTo(hs.x[idx], hs.y[idx]); else ctx.lineTo(hs.x[idx], hs.y[idx]); }
+        var fall = 1 - part / 3;
+        ctx.strokeStyle = rgbS(cA3, alphaK * fall * depth * o.sz); ctx.lineWidth = Math.max(.6, o.r * .3 * fall); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  // ---- the orbs themselves ----
+  function drawOrbsGL(now) {
+    if (!oglOk && !oglFailed) oglInit();
+    if (!oglOk) return false;
+    if (ogl.isContextLost && ogl.isContextLost()) { oglDestroy(); return false; }
+    var cw = Math.max(2, Math.round(w * scale)), ch = Math.max(2, Math.round(h * scale));
+    if (orbCanvas.width !== cw || orbCanvas.height !== ch) { orbCanvas.width = cw; orbCanvas.height = ch; }
+    if (!oglShown) { oglShown = true; orbCanvas.style.display = 'block'; }
+    orbCanvas.style.opacity = canvas.style.opacity;
+    ogl.viewport(0, 0, cw, ch); ogl.clear(ogl.COLOR_BUFFER_BIT);
+    ogl.useProgram(oglProg); ogl.bindBuffer(ogl.ARRAY_BUFFER, oglBuf);
+    ogl.uniform2f(oglU.res, cw, ch);
+    ogl.uniform2f(oglU.heroC, oS.hx * scale, (h - oS.hy) * scale); ogl.uniform1f(oglU.heroR, (glOk ? oS.hr : 0) * scale);
+    ogl.uniform1f(oglU.uChroma, oS.lp[4] * (1 + hatEnv)); ogl.uniform1f(oglU.uHat, Math.min(1, hatEnv) * .9); ogl.uniform1f(oglU.uGlow, oS.lp[3]);
+    if (orbOrder.length !== orbs.length) orbOrder = orbs.slice();
+    orbOrder.sort(function (a, b) { return a.z - b.z; });
+    var d = oglData, p = 0, la = oS.lightAng, gLx = Math.cos(la), gLy = Math.sin(la), lightCentre = mode === 'pulse' || mode === 'vortex';
+    var cres = oS.lp[0] * (1 + (mode === 'chaos' ? beatPulse * .6 : 0)), spec = oS.lp[1], irid = oS.lp[2] * (.75 + clamp(highLevel, 0, 1.2) * .5), cnt = 0;
+    for (var k = 0; k < orbOrder.length; k++) {
+      var o = orbOrder[k], R = o.R * scale;
+      if (o.sz < .02 || R < .6) continue;
+      orbColours(o);
+      var lx = gLx, ly = gLy;
+      if (lightCentre) { var dx = oS.hx - o.x, dy = oS.hy - o.y, dl = Math.sqrt(dx * dx + dy * dy) || 1; lx = dx / dl; ly = dy / dl; }
+      else if (mode === 'ripple' && o.near >= 0) { var nb = orbs[o.near], ndx = nb.x - o.x, ndy = nb.y - o.y, nd = Math.sqrt(ndx * ndx + ndy * ndy) || 1, wgt = clamp(1 - nd / (Math.min(w, h) * .35), 0, 1); lx = gLx * (1 - wgt) + ndx / nd * wgt; ly = gLy * (1 - wgt) + ndy / nd * wgt; var ln = Math.sqrt(lx * lx + ly * ly) || 1; lx /= ln; ly /= ln; }
+      var depthDim = .62 + .38 * o.z, fade = clamp(o.sz * 1.4, 0, 1) * depthDim;
+      var X = o.x * scale, Y = o.y * scale, Z = o.z, ph = o.spin, wob = Math.min(1.3, (o.wob || 0) + (o.mass > 1 ? .25 : 0));
+      for (var v = 0; v < 6; v++) {
+        var cxv = v === 1 || v === 2 || v === 4 ? 1 : -1, cyv = v === 2 || v === 4 || v === 5 ? 1 : -1;
+        d[p++] = cxv; d[p++] = cyv;
+        d[p++] = X; d[p++] = Y; d[p++] = R; d[p++] = Z;
+        d[p++] = cA3[0]; d[p++] = cA3[1]; d[p++] = cA3[2]; d[p++] = o.flare;
+        d[p++] = cB3[0]; d[p++] = cB3[1]; d[p++] = cB3[2]; d[p++] = fade;
+        d[p++] = lx; d[p++] = ly; d[p++] = cres; d[p++] = spec;
+        d[p++] = ph; d[p++] = wob; d[p++] = irid; d[p++] = o.behind || 0;
+      }
+      cnt++;
+    }
+    if (cnt) { ogl.bufferSubData(ogl.ARRAY_BUFFER, 0, d.subarray(0, p)); ogl.drawArrays(ogl.TRIANGLES, 0, cnt * 6); }
+    return true;
+  }
+  var orbOrder = [];
+  // without WebGL the orbs fall back to the pre-drawn glass sprites on the 2D canvas
+  function drawOrbs2D(now) {
+    if (orbOrder.length !== orbs.length) orbOrder = orbs.slice();
+    orbOrder.sort(function (a, b) { return a.z - b.z; });
+    ctx.save();
+    for (var k = 0; k < orbOrder.length; k++) {
+      var o = orbOrder[k], r = o.R, ci = ((Math.round(o.hue) % presetRgb.length) + presetRgb.length) % presetRgb.length;
+      if (o.sz < .02) continue;
+      var depth = (.55 + .45 * o.z) * Math.min(1, o.sz * 1.4);
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = Math.min(1, depth * (.85 + o.flare * .15));
+      ctx.drawImage(makeSprite(ci), o.x - r * 1.85, o.y - r * 1.85, r * 3.7, r * 3.7);
+      if (o.flare > .03) {
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(1, o.flare) * depth;
+        var cr = r * (1.1 + o.flare * .4); ctx.drawImage(coreSprite(ci), o.x - cr, o.y - cr, cr * 2, cr * 2);
+      }
+    }
+    ctx.restore(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  }
+  // the ring that gathers round an orb while it is pressed and held
+  function drawCharge() {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (var i = 0; i < orbs.length; i++) {
+      var o = orbs[i]; if (!(o.charge > .02)) continue;
+      var rgb = paletteRgb(o.color), rr = o.R * (2.1 + o.charge * 1.6), ring = ctx.createRadialGradient(o.x, o.y, rr * .82, o.x, o.y, rr);
+      ring.addColorStop(0, rgba(rgb, 0)); ring.addColorStop(.85, rgba(rgb, o.charge * .32)); ring.addColorStop(1, rgba(rgb, 0));
+      ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(o.x, o.y, rr, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawTrails() {
+    ctx.save(); ctx.globalCompositeOperation = 'screen';
+    for (var i = 0; i < trails.length; i++) {
+      var trail = trails[i]; if (trail.life <= .01) continue;
+      var rgb = paletteRgb(trail.color);
+      ctx.beginPath(); ctx.arc(trail.x, trail.y, trail.size * trail.life, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + rgb.join(',') + ',' + trail.life * .4 + ')'; ctx.fill();
+    }
+    ctx.restore();
   }
   function drawAtmosphere(now) {
     var t = now * .001, energy = clamp(musicLevel, .08, 1.3), U = Math.min(w, h), cx = w * .5 + Math.sin(t * .13) * w * .035, cy = h * .51 + Math.cos(t * .11) * h * .025;
@@ -1626,74 +2144,6 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     }
     ctx.restore(); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   }
-  function drawConnections(now) {
-    var maxDist = Math.min(w, h) * .31, maxPerOrb = highMemory ? 3 : 2;
-    for (var i = 0; i < orbs.length; i++) connectionCounts[i] = 0;
-    ctx.save(); ctx.globalCompositeOperation = 'screen';
-    for (var a = 0; a < orbs.length; a++) for (var b = a + 1; b < orbs.length; b++) {
-      if (connectionCounts[a] >= maxPerOrb || connectionCounts[b] >= maxPerOrb) continue;
-      var oa = orbs[a], ob = orbs[b], dx = ob.x - oa.x, dy = ob.y - oa.y, dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > maxDist || dist < 1) continue;
-      connectionCounts[a]++; connectionCounts[b]++;
-      var strength = (1 - dist / maxDist) * (.18 + musicLevel * .18 + bassLevel * .35 + beatPulse * .18), bend = Math.sin(now * .0014 + a * 1.7 + b) * Math.min(34, dist * .12), nx = -dy / dist, ny = dx / dist;
-      // a filament of energy between the two orbs, coloured from one to the other, fading with distance
-      var ca0 = paletteRgb(oa.color), cb0 = paletteRgb(ob.color), fg = ctx.createLinearGradient(oa.x, oa.y, ob.x, ob.y);
-      var depthK = .55 + .45 * Math.min(oa.z, ob.z);
-      fg.addColorStop(0, rgba(ca0, strength * .55 * depthK)); fg.addColorStop(.5, rgba(mixRgb(ca0, cb0, .5), strength * .2 * depthK)); fg.addColorStop(1, rgba(cb0, strength * .55 * depthK));
-      ctx.beginPath(); ctx.moveTo(oa.x, oa.y); ctx.quadraticCurveTo((oa.x + ob.x) * .5 + nx * bend, (oa.y + ob.y) * .5 + ny * bend, ob.x, ob.y);
-      ctx.strokeStyle = fg; ctx.lineWidth = 2.6 + bassLevel * 2.4; ctx.globalAlpha = .45; ctx.stroke();
-      ctx.globalAlpha = 1; ctx.lineWidth = .7 + highLevel * .5; ctx.stroke();
-      var travel = (now * (.00028 + musicLevel * .00018) + a * .17 + b * .09) % 1, inv = 1 - travel;
-      var lx = inv * inv * oa.x + 2 * inv * travel * ((oa.x + ob.x) * .5 + nx * bend) + travel * travel * ob.x;
-      var ly = inv * inv * oa.y + 2 * inv * travel * ((oa.y + ob.y) * .5 + ny * bend) + travel * travel * ob.y;
-      var ca = paletteRgb(oa.color), cb = paletteRgb(ob.color), cr = Math.round(ca[0] * inv + cb[0] * travel), cg = Math.round(ca[1] * inv + cb[1] * travel), cbv = Math.round(ca[2] * inv + cb[2] * travel);
-      var sr = 2.2 + bassLevel * 2 + beatPulse * 1.5, sg = ctx.createRadialGradient(lx, ly, 0, lx, ly, sr * 2.4);
-      sg.addColorStop(0, 'rgba(255,255,255,' + Math.min(1, strength * 1.4) + ')'); sg.addColorStop(.3, 'rgba(' + cr + ',' + cg + ',' + cbv + ',' + strength + ')'); sg.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cbv + ',0)');
-      ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(lx, ly, sr * 2.4, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
-  }
-  var orbOrder = [];
-  function drawOrbs(now) {
-    if (orbOrder.length !== orbs.length) { orbOrder = orbs.slice(); }
-    orbOrder.sort(function (a, b) { return a.z - b.z; });
-    ctx.save();
-    for (var k = 0; k < orbOrder.length; k++) {
-      var o = orbOrder[k], i = orbs.indexOf(o), r = orbScale(o, now, i), sprite = makeSprite(o.color), rgb = paletteRgb(o.color);
-      // far orbs sit back in the haze; near ones are full strength
-      var depth = .55 + .45 * o.z;
-      var glow = clamp(.82 + musicLevel * .1 + bassLevel * .12 + (o.reaction || 0) * .25 + (o.flash || 0) * .3 + (o.charge || 0) * .2, .6, 1.3);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = Math.min(1, glow * depth);
-      ctx.drawImage(sprite, o.x - r * 1.85, o.y - r * 1.85, r * 3.7, r * 3.7);
-      // the energy inside flares on the kick, on its own snare flash and when touched
-      var heard = o.band === 0 ? beatPulse * .62 : o.band === 1 ? midLevel * .3 + snareEnv * .55 : hatEnv * .75 + highLevel * .18;
-      var flare = heard * (.5 + o.z * .5) + (o.flash || 0) * .7 + (o.spark || 0) + (o.charge || 0) * .5;
-      if (flare > .03) {
-        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(1, flare) * depth;
-        var cr = r * (1.1 + flare * .5);
-        ctx.drawImage(coreSprite(o.color), o.x - cr, o.y - cr, cr * 2, cr * 2);
-      }
-      if (o.charge > .02) {
-        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 1;
-        var rr = r * (2.1 + o.charge * 1.6), ring = ctx.createRadialGradient(o.x, o.y, rr * .82, o.x, o.y, rr);
-        ring.addColorStop(0, rgba(rgb, 0)); ring.addColorStop(.85, rgba(rgb, o.charge * .32)); ring.addColorStop(1, rgba(rgb, 0));
-        ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(o.x, o.y, rr, 0, Math.PI * 2); ctx.fill();
-      }
-      o.spark = Math.max(0, (o.spark || 0) * .86);
-    }
-    ctx.restore(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-  }
-  function drawTrails() {
-    ctx.save(); ctx.globalCompositeOperation = 'screen';
-    for (var i = 0; i < trails.length; i++) {
-      var trail = trails[i]; if (trail.life <= .01) continue;
-      var rgb = paletteRgb(trail.color);
-      ctx.beginPath(); ctx.arc(trail.x, trail.y, trail.size * trail.life, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(' + rgb.join(',') + ',' + trail.life * .4 + ')'; ctx.fill();
-    }
-    ctx.restore();
-  }
   function render(now, token) {
     if (!active || token !== runId || document.hidden || root.classList.contains('hidden')) { raf = 0; return; }
     var elapsed = now - lastFrame;
@@ -1708,11 +2158,14 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     if (glOk && ((experience === 'flow' && flowMix >= 1) || inkMix >= .5)) {
       // Energy Flow and Ink Machine have no orb field; the 2D layer stays clear while the GL scene runs.
       if (!flowCanvasCleared) { ctx.clearRect(0, 0, w, h); flowCanvasCleared = true; }
+      oglHide();
     } else {
       flowCanvasCleared = false;
       canvas.style.opacity = glOk ? String((1 - flowMix) * (inkMix > 0 ? 1 - inkMix * 2 : 1)) : '1';
       drawAtmosphere(now);
-      drawConnections(now); drawTrails(); drawOrbs(now);
+      drawWakes(); drawConnections(now); drawTrails();
+      if (!drawOrbsGL(now)) drawOrbs2D(now);
+      drawCharge();
     }
     raf = requestAnimationFrame(function (t) { render(t, token); });
   }
@@ -1770,7 +2223,6 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
       var o = g.orb;
       if (g.moved) {
         o.vx += dragVelocity.x * .35; o.vy += dragVelocity.y * .35; o.flash = .9;
-        o.waveX = o.x; o.waveBase = o.y;
         if (o.charge > .12) { ripple(o.x, o.y, .8 + o.charge); burst(o.x, o.y, o.color, .9 + o.charge, highMemory ? 20 : 10); }
       } else if (!cancelled && held >= 360) {
         ripple(o.x, o.y, .8 + (o.charge || 0) * 1.5); burst(o.x, o.y, o.color, 1 + (o.charge || 0), highMemory ? 32 : 18); o.flash = 1;
@@ -1884,8 +2336,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
         if (experience === 'ink') inkKick = Math.min(1.2, inkKick + clamp((bass - bassEnvelope) * 14 + .45, .4, 1) * (.4 + .6 * groove));
         if (experience === 'flow') flowKick(clamp((bass - bassEnvelope) * 14 + .35, .3, 1.1) * (.3 + .7 * groove));
         detectBurst(now); detectInk(now);
-        if (mode === 'ripple') ripple(w * .5, h * .5, .7 + beatPulse * .55);
-        if (mode === 'chaos') for (var bi = 0; bi < orbs.length; bi++) { orbs[bi].vx += (orbs[bi].x - w * .5) * .00055 * beatPulse; orbs[bi].vy += (orbs[bi].y - h * .5) * .00055 * beatPulse; }
+        if (experience === 'orb') orbKick(clamp((bass - bassEnvelope) * 14 + .35, .3, 1.1));
       }
       bassEnvelope = bassEnvelope * .9 + bass * .1;
     };
@@ -1955,7 +2406,7 @@ float core=exp(-r0*9.)*(.55+beat*.6+blast*.5)+exp(-r0*3.2)*.18;
     selected = null; pointer = null; gesture = null; impulses.length = 0; waves.length = 0; inkG = null; inkTwist.on = false; flowTouchReset(true);
     try { if (window.Android && Android.meterDetail) Android.meterDetail(false); } catch (e) {}
     ctx.clearRect(0, 0, w, h);
-    glDestroy();
+    glDestroy(); oglDestroy();
   }
   // The controls fade out after a few seconds without a touch, leaving only the visuals; any touch on
   // Party Mode brings them back (and still reaches the field underneath).
