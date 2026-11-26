@@ -185,6 +185,16 @@ public class MainActivity extends Activity {
                 if (jpg == null) return new android.webkit.WebResourceResponse("image/jpeg", null, 404, "Not found", headers, new java.io.ByteArrayInputStream(new byte[0]));
                 return new android.webkit.WebResourceResponse("image/jpeg", null, 200, "OK", headers, new java.io.ByteArrayInputStream(jpg));
             }
+            // On a 2 GB box Android sometimes ends the screen's drawing process to free memory. Without this,
+            // Nexus would close (or sit on a black screen). Instead the screen is rebuilt and Nexus carries on.
+            @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                try {
+                    if (view.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) view.getParent()).removeView(view);
+                    view.destroy();
+                } catch (Throwable ignored) {}
+                if (view == web) { web = null; ui.post(MainActivity.this::recreate); }
+                return true;
+            }
         });
         web.setWebChromeClient(new WebChromeClient());
         bridge = new Bridge();
@@ -892,10 +902,25 @@ public class MainActivity extends Activity {
         js("Nexus.home && Nexus.home()");
     }
 
+    // When memory runs low (common on 2 GB boxes while Spotify or SmartTube is open), let go of the
+    // app list with its icon pictures. It is rebuilt quietly a few seconds after Nexus is back on screen.
+    // This makes Android far less likely to close Nexus in the background, so coming back is quick.
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND
+                || level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            ui.removeCallbacks(preloadApps);
+            appsCache = null;
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        boolean returning = pausedAt != 0;
         pausedAt = 0;
+        if (returning && appsCache == null) { ui.removeCallbacks(preloadApps); ui.postDelayed(preloadApps, 6000); }
         if (web != null) { web.onResume(); web.resumeTimers(); }
         js("Nexus.resumed && Nexus.resumed()");
         ui.postDelayed(this::warmSpotify, 4000);
