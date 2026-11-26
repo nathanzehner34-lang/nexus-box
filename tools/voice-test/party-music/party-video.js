@@ -23,6 +23,12 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'partyvid-'));
         await ev(`document.querySelector('[data-act=liquiddreams]').click()`);
         for (let i = 0; i < 80; i++) { await sleep(100); if (await ev('!!(window.XP&&XP.liquidDebug)')) break; }
         await ev(`(function(){var u=document.querySelector('.ld-ui');if(u)u.style.display='none';})()`);
+      } else if (experience.startsWith('nd-')) {
+        // Night Drive: open it on this world (and colour), controls and the music bar hidden
+        await ev(`localStorage.setItem('p_ndWorld',${JSON.stringify(experience.slice(3))});localStorage.setItem('p_ndPalette',${JSON.stringify(o.color || 'ultraviolet')});localStorage.setItem('p_ndTime',${JSON.stringify(o.time || 'night')})`);
+        await ev(`document.querySelector('[data-act=night]').click()`);
+        for (let i = 0; i < 80; i++) { await sleep(100); if (await ev('!!(window.XP&&XP.ndDebug)')) break; }
+        await ev(`(function(){var st=document.createElement('style');st.textContent='.nd-ui,#nxMusic,.nxm-bar,[class^=nxm]{display:none!important}';document.head.appendChild(st);})()`);
       } else await enter(experience);
       if (o.preset) await ev(`document.querySelector('[data-preset=${o.preset}]').click()`);
       if (o.backdrop) await ev(`NexusParty.setBackdrop(${JSON.stringify(o.backdrop)})`);

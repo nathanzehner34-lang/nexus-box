@@ -10,7 +10,7 @@ const HEAD = lit('ND_HEAD'), MAIN = lit('ND_MAIN'), FOREST = lit('ND_ENCHANTED_F
 // ---- code ----
 ['ndSky', 'ndHaze', 'ndGround', 'ndRoadFx', 'ndOverlay'].forEach(h => assert(FOREST.includes('vec3 ' + h + '('), 'the forest implements ' + h));
 assert(FOREST.includes('#define ND_OVERLAY') && MAIN.includes('#ifdef ND_OVERLAY'), 'the forest draws its standing trees and plants through the overlay hook');
-assert(!COSMIC.includes('ND_OVERLAY'), 'Cosmic Highway draws nothing standing up');
+assert(!COSMIC.includes('ND_OVERLAY') || COSMIC.includes('Light gates'), 'Cosmic Highway stands nothing up but its light gates');
 assert(/\{ id: 'forest', name: 'ENCHANTED FOREST', frag: ND_ENCHANTED_FOREST[,} ]/.test(exp), 'Enchanted Forest is offered in the WORLD row');
 assert(!/\b(car|cars|truck|vehicle|cockpit|dashboard|speedometer|building|person|people)\b/i.test(FOREST), 'no vehicles, buildings or people');
 // no reversed smoothstep edges anywhere in Night Drive (undefined in GLSL; some GPUs return 0)

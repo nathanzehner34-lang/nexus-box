@@ -51,7 +51,7 @@ function measure(src, worlds, u, W, H, mode) {
 }
 module.exports = { measure, instrument };
 if (require.main === module) {
-  const worlds = ['rings', 'cosmic', 'forest'];
+  const worlds = (process.env.ND_WORLDS || 'rings,cosmic,forest').split(',');
   const old = process.argv[2] ? fs.readFileSync(process.argv[2], 'utf8') : null;
   const u = { pulseT: [.3, .9, 1.5, 2.2], pulseS: [1, .8, .9, .7], kick: .6, bass: .6, mids: .5, highs: .5, hat: .5, energy: .5 };
   if (old) { const o = measure(old, worlds, u); for (const w of worlds) console.log('before', w, 'mean', o[w].mean.toFixed(1), 'p95', o[w].p95); }

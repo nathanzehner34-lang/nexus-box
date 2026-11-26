@@ -84,6 +84,7 @@ jobs:
           node tools/voice-test/night-drive.test.js
           node tools/voice-test/enchanted-forest.test.js
           node tools/voice-test/night-drive-music.test.js
+          node tools/voice-test/night-drive-totality.test.js
           node tools/voice-test/startup-intro.test.js
           node --check tools/voice-test/ink-machine.test.js
           node tools/voice-test/live-environments.test.js

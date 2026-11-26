@@ -10,12 +10,12 @@ function parts(src) {
   const GL_HEAD = eval('(' + src.slice(src.indexOf('=', i) + 1, src.indexOf(';\n', i)) + ')');
   const lit = n => { const k = src.indexOf('var ' + n + ' = `'); if (k < 0) throw new Error(n + ' missing'); const a = src.indexOf('`', k) + 1; return src.slice(a, src.indexOf('`;', a)); };
   const HEAD = lit('ND_HEAD'), MAIN = lit('ND_MAIN'), SKY = src.includes('var ND_SKYPASS = `') ? lit('ND_SKYPASS') : null;
-  return { GL_HEAD, HEAD, MAIN, SKY, rings: lit('ND_CELESTIAL_RINGS'), cosmic: lit('ND_COSMIC_HIGHWAY'), forest: lit('ND_ENCHANTED_FOREST'),
+  return { GL_HEAD, HEAD, MAIN, SKY, rings: lit('ND_CELESTIAL_RINGS'), cosmic: lit('ND_COSMIC_HIGHWAY'), forest: lit('ND_ENCHANTED_FOREST'), totality: src.includes('var ND_TOTALITY = `') ? lit('ND_TOTALITY') : null,
     build(w) { return GL_HEAD + HEAD + w + MAIN; },
     // the app's two-pass path: [main program reading the sky texture, sky program]
     build2(w) { return [GL_HEAD + '#define ND_SKYTEX\n' + HEAD + w + MAIN, GL_HEAD + HEAD + w + SKY]; } };
 }
-const BASE = { travel: 5200, night: .55, react: 1, mids: .3, highs: .3, q: 0, fadeIn: 1, cA: [.25, .72, 1], cB: [.52, .35, 1], cC: [1, .35, .85], cD: [.25, .95, .82], time: 31, kick: 0, energy: .3, hue: 0 };
+const BASE = { travel: 5200, night: .55, react: 1, mids: .3, highs: .3, q: 0, fadeIn: 1, cA: [.25, .72, 1], cB: [.52, .35, 1], cC: [1, .35, .85], cD: [.25, .95, .82], time: 31, kick: 0, energy: .3, hue: 0, camR: [1, 0, 0], camU: [0, 1, 0], camF: [0, 0, -1], camK: 1.12, skR: [1, 0, 0], skU: [0, 1, 0], skF: [0, 0, -1], skK: 1.12 };
 function render(jobs, W, H, opts) {
   opts = opts || {};
   const page = `<pre id=o>WAIT</pre><canvas id=c width=${W} height=${H}></canvas><script>
