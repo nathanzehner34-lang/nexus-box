@@ -882,6 +882,7 @@ public class MainActivity extends Activity {
     private final Runnable spotifyRewarm = this::warmSpotify;
 
     private void hideSystemUi() {
+        if (web == null) return;   // screen is being rebuilt after Android freed its memory
         web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
